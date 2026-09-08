@@ -1,0 +1,68 @@
+use Libraries.Game.Game
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.Camera
+use Libraries.Game.Graphics.DirectionalLight
+
+/*
+    This is a default class for creating a game in Quorum. Note that the Main 
+    action begins by calling StartGame(), which loads a window a game can 
+    be displayed in. The action CreateGame is where the game should load any 
+    assets, like images to be displayed, frames of animation, or sounds to be
+    played. 
+*/
+class Main is Game
+    /*
+        This action, Main, starts our computer program. In Quorum, programs always
+        begin from Main.
+    */
+    action Main
+        StartGame()
+    end
+
+    /*
+        This action sets up the default values for a game. For example, we might
+        use the Libraries.Game.Graphics.Drawable class to load up an image or 
+        a shape. Or, we might add a Libraries.Interface.Button for making something clickable
+        or a Libraries.Interface.TextBox for gathering user input in a game.
+    */
+    action CreateGame
+        EnablePhysics3D(true)
+        SetGravity3D(0, -9.8, 0)
+        Model floor
+        Color color
+        floor:LoadBox(10,0.000001,10, color:Black())
+        floor:Rotate(1,0,0,22.5)
+        floor:SetPosition(0,-10,0)
+        floor:EnablePhysics(true)
+        floor:SetUnmovable()
+        
+        Model box
+        box:LoadBox(1,1,1,color:White())
+        box:EnablePhysics(true)
+        box:SetResponsive()
+        box:SetPosition(0,10,0)
+        
+        Add(floor)
+        Add(box)
+        
+        
+        DirectionalLight light
+        light:SetIntensity(3)
+        light:SetColor(color:Green())
+        light:SetDirection(0, -5, 1)
+        Add(light)
+        
+        Camera camera = GetCamera3D()
+        camera:Move(0,0,-5)
+    end
+
+    /*
+        The update action is called on every "frame" of animation in a game. This
+        action should be used to do operations on items. So, for example, we 
+        might use this action to change frames of animation, to rotate items, 
+        or to make creatures jump.
+    */
+    action Update(number seconds)
+    end
+end

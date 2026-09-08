@@ -1,0 +1,137 @@
+use Libraries.Game.Game
+use Libraries.Game.Graphics.PixelMap
+use Libraries.System.File
+use Libraries.Game.Graphics.Color
+use Libraries.Compute.BitwiseOperations
+use Libraries.Game.Graphics.Worlds.Terrain
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Graphics.PointLight
+use Libraries.Game.Graphics.Camera
+use Libraries.Interface.Events.KeyboardListener
+use Libraries.Interface.Events.KeyboardEvent
+use Libraries.Game.Graphics.Model
+use Libraries.Compute.Random
+use Libraries.Game.Graphics.FramesPerSecondLabel
+
+class Main is Game, KeyboardListener
+    Terrain terrain
+    action Main
+        UseVulkan(true)
+        StartGame()
+    end
+
+    action CreateGame
+        File file
+        //file:SetPath("Terrain.png")
+        file:SetPath("GrayscaleAmanda.png")
+        terrain:SetName("GrayscaleAmanda")
+        
+        PixelMap map
+        map:LoadPixelMap(file)
+        
+        //file:SetPath("Small.png")
+        EnablePhysics3D(true)
+        SetGravity3D(0, -9.8, 0)
+        
+        terrain:LoadHeightMap(file)
+        terrain:EnablePhysics(true)
+        terrain:SetMass(0)
+        terrain:SetRestitution(0.0001)
+        terrain:SetFriction(1000000)
+        
+        //output terrain:GetWidth() + "," + terrain:GetDepth() + "," + terrain:GetHeight()
+        number scale = 0.5
+        terrain:Scale(scale,scale,scale)
+        terrain:SetY(-15)
+        terrain:SetX(-25)
+        terrain:SetZ(10)
+        
+        
+        Color color
+        Add(terrain)
+        
+        DirectionalLight light
+        light:SetIntensity(3)
+        light:SetColor(color:LightGray())
+        light:SetDirection(-1, -5, -1)
+        Add(light)
+        
+        PointLight light2
+        light2:SetIntensity(100)
+        light2:SetColor(color:Green())
+        light2:SetPosition(0, 3, -15)
+        Add(light2)
+        
+        AddKeyboardListener(me)
+        AddMarkings()
+        Camera camera = GetCamera3D()
+        camera:Move(0,0,-10)
+        FramesPerSecondLabel label
+        Add(label)
+    end
+    
+    action AddMarkings
+        i = 0
+        repeat while i < 9
+            Model box
+            Color color
+            box:LoadBox(1,10,1,color:Blue())
+            box:SetPosition(-25 + i * 10, -15, 10)
+            Add(box)
+            i = i + 1
+        end
+        
+        
+        i = 1
+        repeat while i < 9
+            Model box
+            Color color
+            box:LoadBox(1,10,1,color:Green())
+            box:SetPosition(-25, -15, 10 + i * 10)
+            Add(box)
+            i = i + 1
+        end
+    end
+    
+    integer count = 0
+    
+    Model m1 = undefined
+    action ReleasedKey(KeyboardEvent event)
+        count = count + 1
+       if event:keyCode = event:E
+            Model model
+            
+            Color color
+            model:LoadBox(0.5,0.5,0.5,color:Pink())
+            model:EnablePhysics(true)
+            model:RequireSimulation(true)
+            model:SetResponsive()
+            model:SetMass(1)
+            model:SetRestitution(0.25)
+            model:SetFriction(10)
+            model:SetName("Box: " + count)
+            
+            Random random
+            number randy = random:RandomNumber()
+            model:SetPosition(-5 + randy * 10,4 + (randy * 3),10 + (randy * 40))
+            //model:SetPosition(-15,10,20)
+            Add(model)
+            m1 = model
+       end
+   end
+
+    action Update(number seconds)
+        //terrain:Rotate(0,1,0, 90 * seconds)
+        Camera camera = GetCamera3D()
+        //camera:Move(0,0,4 * seconds)
+        
+        if m1 not= undefined
+            //output m1:GetLinearVelocity():ToText()
+            //output "Simulated: " + m1:IsSimulated()
+            //output "Physics: " + m1:IsPhysicsEnabled()
+            //output "Responsive: " + m1:IsResponsive()
+        end
+        
+        
+    end
+end

@@ -1,0 +1,696 @@
+
+use Libraries.Game.Game
+use Libraries.Game.Graphics.PixelMap
+use Libraries.System.File
+use Libraries.Game.Graphics.Color
+use Libraries.Compute.BitwiseOperations
+use Libraries.Game.Graphics.Worlds.Terrain
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Graphics.PointLight
+use Libraries.Game.Graphics.Camera
+use Libraries.Interface.Events.KeyboardListener
+use Libraries.Interface.Events.KeyboardEvent
+use Libraries.Game.Graphics.Model
+use Libraries.Compute.Random
+use Libraries.Game.InputMonitor
+use Libraries.Compute.Vector3
+use Libraries.Compute.Math
+use Libraries.Compute.Noise.PerlinNoise
+use Libraries.Game.Graphics.Format
+use Libraries.Containers.Array
+use Libraries.Game.Graphics.FramesPerSecondLabel
+use Libraries.Game.DesktopConfiguration
+
+class Main is Game, KeyboardListener
+    Array<Terrain> terrains
+    Model ball
+    InputMonitor monitor
+    KeyboardEvent keys
+    Vector3 push
+    Math math
+    PerlinNoise shapeNoise
+    PerlinNoise detailNoise
+    BitwiseOperations ops
+
+    //How the height is divided between the broad shape of the land and the roughness laid
+    //over it. These add to one, so the two parts together never leave the range a height map
+    //can hold and nothing has to be clamped.
+    number shapeShare = 0.75
+    number detailShare = 0.25
+
+    //How many height samples run along a side of one tile. One more than a power of two,
+    //because neighbouring tiles share a row or column of samples: a tile of this size
+    //therefore carries the world forward by a round 128.
+    integer mapSize = 129
+
+    //How many tiles run along a side of the grid, so four gives the sixteen asked for.
+    integer tilesAcross = 4
+
+    //Where the corner of the whole grid sits, and how much each tile is shrunk.
+    number baseX = -25
+    number baseY = -15
+    number baseZ = 10
+    number terrainScale = 0.5
+
+    //How tall the highest possible ground is before the terrain is scaled. Multiplicative
+    //noise rarely reaches the top of its range, so the ground in practice comes out well
+    //below this.
+    number heightScale = 50
+
+    //How hard W, A, S and D push. The ball has a mass of one, so this is roughly its
+    //acceleration in units per second squared before friction takes its share.
+    number pushForce = 20
+
+    //How fast the ball leaves the ground when it jumps, in units per second.
+    number jumpSpeed = 12
+
+    //A jump is only allowed while the ball is barely moving vertically, which stands in for
+    //asking whether it is resting on something. There is no cheap way to ask that directly:
+    //the broadphase pair with the terrain lasts as long as the ball is anywhere over the
+    //map, so a collision listener reports contact in mid air too.
+    number groundedSpeed = 1.0
+
+    //The vertical speed test has one blind spot, the top of a jump, where the ball is
+    //briefly slow while still in the air. This covers that window, and is long enough to
+    //reach past the apex of a jump at the speed above.
+    number jumpCooldown = 0.8
+    number timeSinceJump = 0
+    boolean spaceWasDown = false
+
+    //Which tile the ball is standing on. T steps to the next one and R drops it back onto
+    //this one. These are places in the grid rather than styles: every tile is built the same
+    //way now, so that neighbours agree along the edges they share.
+    integer currentTileX = 0
+    integer currentTileZ = 0
+    boolean nextTileWasDown = false
+
+    //How every tile in the grid is built. Handing the same pair to all sixteen is what keeps
+    //the seams closed: two tiles meeting along an edge ask the same question about the same
+    //world positions and get the same heights back. Giving each tile its own style instead
+    //would leave the ground stepping up or down at every join.
+    //
+    //The columns of GetStyledHeight are additive, multiplicative, ridged, and ridged
+    //multifractal. The rows are plain, roughened, warped, and slope worn.
+    integer gridBase = 3
+    integer gridTreatment = 0
+
+    //The height map's base sits at y = -15 once the terrain is placed, so a ball below
+    //this has gone through the surface rather than merely rolled downhill.
+    number surfaceBase = -15
+    number fallThreshold = -25
+
+    //The chase camera keeps a fixed offset instead of turning with the ball, so the
+    //controls never invert. W always pushes toward positive z, whichever way the ball
+    //happens to be spinning.
+    number cameraBehind = 12
+    number cameraAbove = 6
+
+    //Which way round the ball the camera is standing, in radians. Zero puts it where it used
+    //to sit, off toward negative z, and the left and right arrows swing it around from there.
+    number cameraAngle = 0
+
+    //How fast the arrows swing the camera, in radians a second. Two is a little under a
+    //third of a turn each second.
+    number cameraTurnSpeed = 2
+
+    //The last place the ball was seen at or above the surface, so that a fall through
+    //can report where it happened.
+    number lastGoodX = 0
+    number lastGoodZ = 0
+
+    action Main
+        UseVulkan(true)
+        DesktopConfiguration desk = GetDesktopConfiguration()
+        desk:limitFramesPerSecond = false
+        desk:targetFramesPerSecond = 120
+        desk:maximized = true
+        SetScreenSize(2000, 1000)
+        
+        //SetFullScreen(true)
+        StartGame()
+    end
+
+    action CreateGame
+        EnablePhysics3D(true)
+        SetGravity3D(0, -9.8, 0)
+
+        SetUpNoise()
+        BuildTerrainGrid()
+
+        Color color
+
+        DirectionalLight light
+        light:SetIntensity(3)
+        light:SetColor(color:LightGray())
+        light:SetDirection(-1, -5, -1)
+        Add(light)
+
+        PointLight light2
+        light2:SetIntensity(100)
+        light2:SetColor(color:Green())
+        light2:SetPosition(0, 3, -15)
+        Add(light2)
+
+        AddKeyboardListener(me)
+        AddMarkings()
+        CreateBall()
+        PlaceCamera()
+        FramesPerSecondLabel label
+        Add(label)
+    end
+
+    /*
+    This action builds a height map out of Perlin noise rather than reading one from a file.
+
+    Multiplicative noise multiplies its octaves together instead of adding them. Numbers below
+    one shrink when multiplied, so the ground sits low nearly everywhere and rises only where
+    every octave happens to be high at the same place. That gives broad flats broken by
+    occasional high ground, which is a harder test for the collision code than rolling hills:
+    level ground, steep rises, and the joins between them all turn up in one map.
+    */
+    action SetUpNoise
+        //The broad shape of the land. Multiplicative noise multiplies its octaves together,
+        //and numbers below one shrink when multiplied, so this sits low nearly everywhere and
+        //rises only where every octave happens to be high at the same place. One feature
+        //about every seventy samples, and three octaves, since multiplicative noise falls
+        //away so fast that six would leave an almost level plain.
+        shapeNoise:SetSeed(1979)
+        shapeNoise:SetFrequency(0.015)
+        shapeNoise:SetOctaves(3)
+
+        //The roughness laid over that shape. Additive noise adds its octaves instead, so it
+        //wanders evenly above and below the middle of its range and puts bumps everywhere
+        //rather than only where the land is already high. It runs four times finer than the
+        //shape, which lands its smallest bumps at about the size of the ball.
+        //
+        //The separate seed matters. Sampling one noise both ways would line the bumps up
+        //exactly with the hills, leaving the flats smooth, which is the opposite of what a
+        //bumpy surface is meant to test.
+        detailNoise:SetSeed(20250904)
+        detailNoise:SetFrequency(0.06)
+        detailNoise:SetOctaves(3)
+    end
+
+    /*
+    This action builds the grid of tiles.
+
+    Nothing here stitches anything. The tiles line up because each one asks the same noise
+    about the same world position, so along the edge two tiles share they are asking about the
+    same places and get back the same heights. All this has to do is sample each tile at its
+    own offset into the world, and then stand it where those samples say it belongs.
+
+    Tiles advance by one less than their size, because neighbours share a row or column of
+    samples rather than sitting alongside one another. Advancing by the full size instead
+    would leave a one cell strip between every pair with no triangles in it, which is not a
+    gap you can see but is one a ball drops through.
+    */
+    action BuildTerrainGrid
+        integer stride = mapSize - 1
+        number tileWorldSize = stride * terrainScale
+
+        integer tileZ = 0
+        repeat while tileZ < tilesAcross
+            integer tileX = 0
+            repeat while tileX < tilesAcross
+                Terrain tile
+                text key = "PerlinTile " + tileX + "," + tileZ
+
+                //Every tile needs a key of its own. The key is what the model cache stores a
+                //built mesh under, so repeating one would hand every tile the first tile's
+                //shape and the grid would come out as sixteen copies of one hill.
+                tile:SetName(key)
+
+                //The height scale is read while the map is turned into a mesh, so it has to
+                //be set before the map is handed over rather than after.
+                tile:SetHeightScale(heightScale)
+
+                //Every tile is built the same way and differs only in where in the world it
+                //is sampled, which is what closes the seams. Two tiles meeting along an edge
+                //ask the same question about the same positions and get the same heights.
+                tile:LoadHeightMap(GenerateHeightMap(gridBase, gridTreatment, tileX * stride, tileZ * stride), key)
+
+                tile:EnablePhysics(true)
+                tile:SetMass(0)
+                tile:SetRestitution(0.0001)
+                tile:SetFriction(10)
+
+                tile:Scale(terrainScale, terrainScale, terrainScale)
+                tile:SetX(baseX + tileX * tileWorldSize)
+                tile:SetY(baseY)
+                tile:SetZ(baseZ + tileZ * tileWorldSize)
+
+                Add(tile)
+                terrains:Add(tile)
+
+                tileX = tileX + 1
+            end
+            tileZ = tileZ + 1
+        end
+    end
+
+    /*
+    This action builds the height map for one tile, sampled at its place in the world.
+
+    Attribute: Parameter offsetX How far into the world this tile starts along x, in samples.
+    Attribute: Parameter offsetZ How far into the world this tile starts along z, in samples.
+    */
+    /*
+    This action answers the height for one of the sixteen styles, from 0 to 1.
+
+    The styles are laid out as a square. Across it runs the way octaves are combined, and down
+    it runs the treatment laid over that combination, so every tile in the grid is a different
+    pairing of the two and all sixteen can be driven over in one sitting.
+    */
+    action GetStyledHeight(integer base, integer treatment, number x, number y) returns number
+        if treatment = 0
+            //Plain. The combining on its own, with nothing laid over it.
+            return shapeNoise:ToUnitRange(SampleBase(base, x, y))
+        elseif treatment = 1
+            //Roughened. A finer additive layer blended in, so the ground carries bumps at
+            //about the size of the ball rather than only the broad shape.
+            number shape = shapeNoise:ToUnitRange(SampleBase(base, x, y))
+            number detail = detailNoise:ToUnitRange(detailNoise:GetAdditiveNoise(x, y))
+            return shape * shapeShare + detail * detailShare
+        elseif treatment = 2
+            //Bent. The position is dragged sideways by noise before the surface is asked
+            //about it, which folds the even look of the plain form into something stringier.
+            number bentX = shapeNoise:GetWarpedX(x, y)
+            number bentY = shapeNoise:GetWarpedY(x, y)
+            return shapeNoise:ToUnitRange(SampleBase(base, bentX, bentY))
+        end
+
+        //Worn. The slope is measured across the position and steep ground is pushed toward
+        //the middle, wearing cliffs down into shoulders. This costs five samples of the
+        //surface where the others cost one, so these four tiles take the longest to build.
+        number spacing = shapeNoise:GetSlopeSpacing()
+        number here = SampleBase(base, x, y)
+        number slopeX = (SampleBase(base, x + spacing, y) - SampleBase(base, x - spacing, y)) / (2 * spacing)
+        number slopeY = (SampleBase(base, x, y + spacing) - SampleBase(base, x, y - spacing)) / (2 * spacing)
+
+        return shapeNoise:ToUnitRange(shapeNoise:WeightBySlope(here, slopeX, slopeY))
+    end
+
+    /*
+    This action picks one of the four ways of combining octaves. Each answers between -1 and 1,
+    so a treatment can be laid over any of them without knowing which it is holding.
+    */
+    action SampleBase(integer base, number x, number y) returns number
+        if base = 0
+            return shapeNoise:GetAdditiveNoise(x, y)
+        elseif base = 1
+            return shapeNoise:GetMultiplicativeNoise(x, y)
+        elseif base = 2
+            return shapeNoise:GetRidgedNoise(x, y)
+        end
+
+        return shapeNoise:GetRidgedMultifractalNoise(x, y)
+    end
+
+    action GetBaseName(integer base) returns text
+        if base = 0
+            return "additive"
+        elseif base = 1
+            return "multiplicative"
+        elseif base = 2
+            return "ridged"
+        end
+
+        return "ridged multifractal"
+    end
+
+    action GetTreatmentName(integer treatment) returns text
+        if treatment = 0
+            return "plain"
+        elseif treatment = 1
+            return "roughened"
+        elseif treatment = 2
+            return "warped"
+        end
+
+        return "slope worn"
+    end
+
+    action GenerateHeightMap(integer base, integer treatment, integer offsetX, integer offsetZ) returns PixelMap
+        PixelMap map
+        Format format
+        format:SetValue(format:RGBA8888)
+        map:CreatePixelMap(mapSize, mapSize, format)
+
+        integer row = 0
+        repeat while row < mapSize
+            integer column = 0
+            repeat while column < mapSize
+                //Terrain reads this map with the row first and the column second, and takes
+                //the row as a z position and the column as an x position. The pixels have to
+                //be written in that same order. Writing them the other way round turns every
+                //tile a quarter turn, and tiles turned that way no longer meet their
+                //neighbours even though each one looks like reasonable ground on its own.
+                number worldX = offsetX + column
+                number worldZ = offsetZ + row
+
+                number height = GetStyledHeight(base, treatment, worldX, worldZ)
+
+                map:SetPixel(row, column, PackHeight(EncodeHeight(height)))
+                column = column + 1
+            end
+            row = row + 1
+        end
+
+        return map
+    end
+
+    /*
+    This action turns a height from 0 to 1 into the sixteen bits of range the height map has
+    room for. Terrain reads that back as two bytes and divides by 65536, so a height of one
+    has to become 65535 rather than 65536, and anything outside the range is clamped here
+    rather than allowed to wrap around into a cliff.
+    */
+    action EncodeHeight(number height) returns integer
+        integer level = cast(integer, height * 65536)
+
+        if level < 0
+            level = 0
+        end
+
+        if level > 65535
+            level = 65535
+        end
+
+        return level
+    end
+
+    /*
+    This action packs a sixteen bit height into a pixel. Red holds the coarse byte and green
+    subdivides it, the way the digits of a number work. Blue repeats the coarse byte so that
+    the map still reads as the height map it is if it is ever looked at as a picture.
+    */
+    action PackHeight(integer level) returns integer
+        integer coarse = ops:ShiftRight(level, 8)
+        integer fine = ops:And(level, 255)
+
+        integer code = ops:ShiftLeft(coarse, 24)
+        code = ops:Or(code, ops:ShiftLeft(fine, 16))
+        code = ops:Or(code, ops:ShiftLeft(coarse, 8))
+        return ops:Or(code, 255)
+    end
+
+    /*
+    This action builds the ball that rolls across the height map. LoadSphere gives the
+    model a real Sphere collision shape rather than a box, which is what lets it roll
+    instead of tumbling corner over corner.
+    */
+    action CreateBall
+        Color color
+        ball:LoadSphere(1, 1, 1, color:Orange())
+        ball:EnablePhysics(true)
+        ball:RequireSimulation(true)
+        ball:SetResponsive()
+        ball:SetMass(1)
+
+        //Almost no bounce, so the ball stays in contact with the surface. A lively ball
+        //would hop over the very gaps this test is looking for.
+        ball:SetRestitution(0)
+
+        //The terrain's friction is enormous and the combined value is clamped to ten, so
+        //any value here gives a surface the ball rolls on rather than slides across.
+        ball:SetFriction(1)
+
+        //These two are here only so the ball is pleasant to drive. There is no rolling
+        //friction, so with both at zero a ball that gets moving never slows down. Set them
+        //to zero if you would rather the test contain nothing but the contact math.
+        ball:SetLinearDamping(0.1)
+        ball:SetAngularDamping(0.2)
+
+        ball:SetName("Ball")
+        Add(ball)
+
+        //Start over the first tile rather than at a fixed position, since where the ground
+        //stands now depends on the height scale and on which style that tile was built from.
+        PlaceBallOnTile(0, 0)
+    end
+
+    action ResetBall
+        PlaceBallOnTile(currentTileX, currentTileZ)
+    end
+
+    /*
+    This action returns a height that clears the tallest ground the height scale allows, so
+    that a ball dropped from it never begins inside a hill. Working it out rather than fixing
+    it means raising the height scale cannot quietly start burying the ball.
+    */
+    action GetDropHeight returns number
+        return baseY + heightScale * terrainScale + 5
+    end
+
+    /*
+    This action drops the ball over the middle of one tile and says which style is there.
+
+    Tiles built from different styles do not agree along the edges they share, so the ground
+    steps up or down at every seam and some of those steps are too tall to drive up. Being
+    able to move straight to a tile is what keeps all sixteen reachable rather than only the
+    ones downhill of where the ball happens to be.
+    */
+    action PlaceBallOnTile(integer tileX, integer tileZ)
+        number tileWorldSize = (mapSize - 1) * terrainScale
+
+        Vector3 stop
+        ball:SetPosition(baseX + (tileX + 0.5) * tileWorldSize, GetDropHeight(),
+            baseZ + (tileZ + 0.5) * tileWorldSize)
+        ball:SetLinearVelocity(stop)
+        ball:SetAngularVelocity(stop)
+
+        //Arm the jump again, so arriving somewhere is not followed by a wait.
+        timeSinceJump = jumpCooldown
+
+        currentTileX = tileX
+        currentTileZ = tileZ
+
+        output "Tile " + tileX + "," + tileZ + " of "
+            + GetBaseName(gridBase) + ", " + GetTreatmentName(gridTreatment)
+    end
+
+    /*
+    This action moves the ball to the next tile, walking across each row in turn and starting
+    again at the beginning once the last one has been seen.
+    */
+    action GoToNextTile
+        integer tileX = currentTileX + 1
+        integer tileZ = currentTileZ
+
+        if tileX >= tilesAcross
+            tileX = 0
+            tileZ = tileZ + 1
+
+            if tileZ >= tilesAcross
+                tileZ = 0
+            end
+        end
+
+        PlaceBallOnTile(tileX, tileZ)
+    end
+
+    /*
+    This action launches the ball upward, but only from the ground. Both tests have to pass:
+    enough time since the last jump to be past its apex, and little enough vertical speed to
+    be resting rather than rising or falling.
+    */
+    action Jump
+        if timeSinceJump < jumpCooldown
+            return now
+        end
+
+        number verticalSpeed = math:AbsoluteValue(ball:GetLinearVelocity():GetY())
+        if verticalSpeed > groundedSpeed
+            return now
+        end
+
+        ball:SetLinearVelocityY(jumpSpeed)
+        timeSinceJump = 0
+    end
+
+    /*
+    This action stands the camera on a circle around the ball and points it back at the ball.
+    The arrows move it around that circle, so the ball never leaves the middle of the view
+    however far the camera is swung.
+    */
+    action PlaceCamera
+        Camera camera = GetCamera3D()
+
+        number offsetX = math:Sine(cameraAngle) * cameraBehind
+        number offsetZ = -math:Cosine(cameraAngle) * cameraBehind
+
+        camera:SetPosition(ball:GetX() + offsetX, ball:GetY() + cameraAbove, ball:GetZ() + offsetZ)
+
+        //Point the camera's up at the sky before aiming it. LookAt does not set up itself: it
+        //squares whatever up already was against the new direction and keeps the remainder,
+        //so any lean the camera has picked up is carried into the next frame and added to.
+        //Over a few hundred frames of swinging around the ball that gathers into a roll and
+        //the view eventually turns over. Setting it fresh each time leaves nothing to gather.
+        camera:SetUp(0, 1, 0)
+        camera:LookAt(ball:GetX(), ball:GetY(), ball:GetZ())
+    end
+
+    /*
+    This action swings the camera around the ball while an arrow is held. The angle is kept
+    inside one full turn so that it cannot grow without bound over a long session and start
+    losing precision.
+    */
+    action TurnCamera(number seconds)
+        if monitor:IsKeyPressed(keys:LEFT)
+            cameraAngle = cameraAngle + cameraTurnSpeed * seconds
+        end
+
+        if monitor:IsKeyPressed(keys:RIGHT)
+            cameraAngle = cameraAngle - cameraTurnSpeed * seconds
+        end
+
+        number fullTurn = math:pi * 2
+
+        if cameraAngle < 0
+            cameraAngle = cameraAngle + fullTurn
+        end
+
+        if cameraAngle > fullTurn
+            cameraAngle = cameraAngle - fullTurn
+        end
+    end
+
+    /*
+    This action reads the keyboard every frame rather than waiting on key events, so that
+    holding a key keeps pushing instead of nudging once.
+    */
+    action Drive(number seconds)
+        timeSinceJump = timeSinceJump + seconds
+
+        //Jump on the press rather than while the key is held, so that resting on the space
+        //bar does not turn into a string of hops that could carry the ball over the very
+        //gaps this is meant to find.
+        boolean spaceIsDown = monitor:IsKeyPressed(keys:SPACE)
+        if spaceIsDown and not spaceWasDown
+            Jump()
+        end
+        spaceWasDown = spaceIsDown
+
+        TurnCamera(seconds)
+
+        push:SetZero()
+
+        //Which way the ball is pushed is worked out from where the camera is standing rather
+        //than from the world's axes. Now that the camera can be swung around, pushing along a
+        //fixed axis would mean the controls quietly reverse themselves as you orbit past the
+        //side of the ball. Forward is the direction the camera is looking, flattened onto the
+        //ground, and right is a quarter turn from it.
+        number forwardX = -math:Sine(cameraAngle)
+        number forwardZ = math:Cosine(cameraAngle)
+        number rightX = math:Cosine(cameraAngle)
+        number rightZ = math:Sine(cameraAngle)
+
+        if monitor:IsKeyPressed(keys:W)
+            push:SetX(push:GetX() + forwardX * pushForce)
+            push:SetZ(push:GetZ() + forwardZ * pushForce)
+        end
+
+        if monitor:IsKeyPressed(keys:S)
+            push:SetX(push:GetX() - forwardX * pushForce)
+            push:SetZ(push:GetZ() - forwardZ * pushForce)
+        end
+
+        if monitor:IsKeyPressed(keys:A)
+            push:SetX(push:GetX() - rightX * pushForce)
+            push:SetZ(push:GetZ() - rightZ * pushForce)
+        end
+
+        if monitor:IsKeyPressed(keys:D)
+            push:SetX(push:GetX() + rightX * pushForce)
+            push:SetZ(push:GetZ() + rightZ * pushForce)
+        end
+
+        if monitor:IsKeyPressed(keys:R)
+            ResetBall()
+        end
+
+        //Stepping to the next tile happens on the press rather than while the key is held,
+        //since holding it would race through all sixteen in a fraction of a second.
+        boolean nextTileIsDown = monitor:IsKeyPressed(keys:T)
+        if nextTileIsDown and not nextTileWasDown
+            GoToNextTile()
+        end
+        nextTileWasDown = nextTileIsDown
+
+        ball:ApplyForceToCenter(push)
+    end
+
+    /*
+    This action watches for the ball leaving through the surface and reports where it was
+    last seen on top of it, which is the whole point of driving it around.
+    */
+    action CheckForHoles
+        if ball:GetY() > surfaceBase
+            lastGoodX = ball:GetX()
+            lastGoodZ = ball:GetZ()
+        end
+
+        if ball:GetY() < fallThreshold
+            //This is the only thing in the program that prints. It fires once per escape
+            //rather than once per frame, so it cannot swamp the console.
+            output "Fell through near x " + lastGoodX + ", z " + lastGoodZ
+            ResetBall()
+        end
+    end
+
+    action AddMarkings
+        i = 0
+        repeat while i < 9
+            Model box
+            Color color
+            box:LoadBox(1,10,1,color:Blue())
+            box:SetPosition(-25 + i * 10, -15, 10)
+            Add(box)
+            i = i + 1
+        end
+
+
+        i = 1
+        repeat while i < 9
+            Model box
+            Color color
+            box:LoadBox(1,10,1,color:Green())
+            box:SetPosition(-25, -15, 10 + i * 10)
+            Add(box)
+            i = i + 1
+        end
+    end
+
+    integer count = 0
+
+    Model m1 = undefined
+    action ReleasedKey(KeyboardEvent event)
+        count = count + 1
+       if event:keyCode = event:E
+            Model model
+
+            Color color
+            model:LoadBox(0.5,0.5,0.5,color:Pink())
+            model:EnablePhysics(true)
+            model:RequireSimulation(true)
+            model:SetResponsive()
+            model:SetMass(1)
+            model:SetRestitution(0.0000000)
+            model:SetFriction(1000000)
+            model:SetName("Box: " + count)
+
+            Random random
+            number randy = random:RandomNumber()
+            model:SetPosition(-5 + randy * 10,4 + (randy * 3),10 + (randy * 40))
+            //model:SetPosition(-15,10,20)
+            Add(model)
+            m1 = model
+       end
+   end
+
+    action Update(number seconds)
+        Drive(seconds)
+        PlaceCamera()
+        CheckForHoles()
+    end
+end
