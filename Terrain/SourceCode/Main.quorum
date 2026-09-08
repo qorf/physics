@@ -22,9 +22,8 @@ class Main is Game, KeyboardListener
 
     action CreateGame
         File file
-        //file:SetPath("Terrain.png")
-        file:SetPath("GrayscaleAmanda.png")
-        terrain:SetName("GrayscaleAmanda")
+        file:SetPath("Terrain.png")
+        terrain:SetName("Terrain")
         
         PixelMap map
         map:LoadPixelMap(file)
