@@ -1,0 +1,174 @@
+use Libraries.Game.Game
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.Camera
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Layer3D
+use Libraries.Game.Physics.Joints.BallAndSocketJoint3D
+use Libraries.Compute.Vector3
+use Libraries.Compute.Math
+
+/*
+    This is a default class for creating a game in Quorum. Note that the Main
+    action begins by calling StartGame(), which loads a window a game can
+    be displayed in. The action CreateGame is where the game should load any
+    assets, like images to be displayed, frames of animation, or sounds to be
+    played.
+*/
+class Main is Game
+
+    // The swinging ball, the decorative rope, and a helper for the rope math.
+    // These are fields (not local variables) so that Update can reach them
+    // every frame to keep the rope drawn between the anchor and the ball.
+    Model ball
+    Model rope
+    Math math
+
+    // Where the rope is anchored in the air, and how long the rope is.
+    number anchorX = 0.0
+    number anchorY = 12.0
+    number anchorZ = 0.0
+    number ropeLength = 6.0
+
+    /*
+        This action, Main, starts our computer program. In Quorum, programs always
+        begin from Main.
+    */
+    action Main
+        //UseVulkan(true)
+        StartGame()
+    end
+
+    /*
+        This action sets up the default values for a game. For example, we might
+        use the Libraries.Game.Graphics.Drawable class to load up an image or
+        a shape. Or, we might add a Libraries.Interface.Button for making something clickable
+        or a Libraries.Interface.TextBox for gathering user input in a game.
+    */
+    action CreateGame
+        EnablePhysics3D(true)
+        SetGravity3D(0, -9.8, 0)
+
+        Color color
+
+        // The platform (floor). It is unmovable, so it acts as static scenery.
+        Model model
+        model:LoadBox(10,1,10,color:Pink())
+        model:EnablePhysics(true)
+        model:SetUnmovable()
+        Add(model)
+
+        // A small static anchor up in the air. A joint needs two physics bodies,
+        // so this unmovable box is the fixed point the rope hangs from.
+        Model anchor
+        anchor:LoadBox(1, 1, 1, color:Gray())
+        anchor:EnablePhysics(true)
+        anchor:SetUnmovable()
+        anchor:SetPosition(anchorX, anchorY, anchorZ)
+        Add(anchor)
+
+        // The ball is a responsive (dynamic) body. It starts hanging straight
+        // down from the anchor by the length of the rope.
+        ball:LoadSphere(2, 2, 2, color:Black())
+        ball:EnablePhysics(true)
+        ball:SetResponsive()
+        ball:SetPosition(anchorX, anchorY - ropeLength, anchorZ)
+        Add(ball)
+
+        // A decorative rope. It has no physics of its own; Update() repositions
+        // and rotates it each frame to span from the anchor to the ball.
+        Color ropeColor
+        ropeColor:SetColor(0.6, 0.4, 0.2, 1)
+        rope:LoadCylinder(0.2, ropeLength, 0.2, ropeColor)
+        Add(rope)
+
+        // A ball-and-socket joint is a point-to-point constraint: it forces a
+        // point on the anchor and a point on the ball to stay together in the
+        // world, which is exactly how a pendulum/rope behaves. We pin the
+        // anchor's center to the point "ropeLength above the ball's center",
+        // so the ball hangs ropeLength below the anchor and swings freely.
+        BallAndSocketJoint3D joint
+
+        Vector3 pivotInAnchor
+        pivotInAnchor:Set(0, 0, 0)
+
+        Vector3 pivotInBall
+        pivotInBall:Set(0, ropeLength, 0)
+
+        joint:Initialize(anchor, ball, pivotInAnchor, pivotInBall)
+
+        Layer3D layer = GetCurrentLayer3D()
+        layer:AddJoint(joint)
+
+        // Give the ball a sideways shove so it starts swinging instead of just
+        // hanging still at the bottom of the arc.
+        Vector3 push
+        push:Set(8, 0, 0)
+        ball:SetLinearVelocity(push)
+
+        // Draw the rope in its starting position.
+        UpdateRope()
+
+        DirectionalLight light
+        light:SetColor(1, 0, 0, 1)
+        light:SetIntensity(0.1)
+        light:SetDirection(1, -10, 5)
+
+        Add(light)
+
+        Camera camera = GetCamera3D()
+        camera:SetPosition(0,10,-30)
+    end
+
+    /*
+        The update action is called on every "frame" of animation in a game. This
+        action should be used to do operations on items. So, for example, we
+        might use this action to change frames of animation, to rotate items,
+        or to make creatures jump.
+    */
+    action Update(number seconds)
+        // Keep the rope drawn between the anchor and the swinging ball.
+        UpdateRope()
+    end
+
+    /*
+        This helper positions and rotates the decorative rope so that it always
+        stretches from the anchor point to the ball. The swing stays in the X-Y
+        plane, so orienting the rope is a single rotation about the Z axis (roll).
+    */
+    private action UpdateRope
+        number ballX = ball:GetX()
+        number ballY = ball:GetY()
+        number ballZ = ball:GetZ()
+
+        // Place the rope at the midpoint between the anchor and the ball.
+        rope:SetPosition((anchorX + ballX) / 2, (anchorY + ballY) / 2, (anchorZ + ballZ) / 2)
+
+        // Direction from the ball up to the anchor.
+        number dx = anchorX - ballX
+        number dy = anchorY - ballY
+        number length = math:SquareRoot(dx * dx + dy * dy)
+
+        if length > 0
+            number ux = dx / length
+            number uy = dy / length
+
+            // The cylinder's long axis defaults to +Y. Find the signed angle
+            // that rotates +Y onto the rope direction (ux, uy) about the Z axis.
+            number cosAngle = uy
+            if cosAngle > 1
+                cosAngle = 1
+            elseif cosAngle < -1
+                cosAngle = -1
+            end
+
+            number angle = math:InverseCosine(cosAngle)
+            if ux > 0
+                angle = -angle
+            end
+
+            number rollDegrees = angle * 180 / math:pi
+            rope:SetYawPitchRoll(0, 0, rollDegrees)
+        end
+    end
+end
