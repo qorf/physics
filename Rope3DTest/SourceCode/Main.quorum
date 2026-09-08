@@ -7,6 +7,9 @@ use Libraries.Game.Layer3D
 use Libraries.Game.Physics.Joints.BallAndSocketJoint3D
 use Libraries.Compute.Vector3
 use Libraries.Compute.Math
+use Libraries.Game.Graphics.FramesPerSecondLabel
+use Libraries.Game.Graphics.PointLight
+use Libraries.Game.Collision.Shapes.Box
 
 /*
     This is a default class for creating a game in Quorum. Note that the Main
@@ -23,6 +26,7 @@ class Main is Game
     Model ball
     Model rope
     Math math
+    PointLight pl
 
     // Where the rope is anchored in the air, and how long the rope is.
     number anchorX = 0.0
@@ -35,7 +39,7 @@ class Main is Game
         begin from Main.
     */
     action Main
-        //UseVulkan(true)
+        UseVulkan(true)
         StartGame()
     end
 
@@ -53,7 +57,7 @@ class Main is Game
 
         // The platform (floor). It is unmovable, so it acts as static scenery.
         Model model
-        model:LoadBox(10,1,10,color:Pink())
+        model:LoadBox(10,1,10,color:White())
         model:EnablePhysics(true)
         model:SetUnmovable()
         Add(model)
@@ -69,7 +73,7 @@ class Main is Game
 
         // The ball is a responsive (dynamic) body. It starts hanging straight
         // down from the anchor by the length of the rope.
-        ball:LoadSphere(2, 2, 2, color:Black())
+        ball:LoadSphere(2, 2, 2, color:White())
         ball:EnablePhysics(true)
         ball:SetResponsive()
         ball:SetPosition(anchorX, anchorY - ropeLength, anchorZ)
@@ -110,14 +114,27 @@ class Main is Game
         UpdateRope()
 
         DirectionalLight light
-        light:SetColor(1, 0, 0, 1)
+        light:SetColor(0.5, 1, 0.2, 1)
         light:SetIntensity(0.1)
         light:SetDirection(1, -10, 5)
-
+        
+        pl:SetIntensity(50)
+        pl:SetColor(0, 0, 1, 1)
+        pl:SetWidth(5)
+        pl:SetHeight(5)
+        pl:SetDepth(5)
+        Box box
+        
+        pl:SetShape(box)
+        pl:SetPosition(2, -7, 2)
+        
+        rope:Add(pl)
         Add(light)
 
         Camera camera = GetCamera3D()
         camera:SetPosition(0,10,-30)
+        FramesPerSecondLabel label
+        Add(label)
     end
 
     /*
@@ -143,6 +160,7 @@ class Main is Game
 
         // Place the rope at the midpoint between the anchor and the ball.
         rope:SetPosition((anchorX + ballX) / 2, (anchorY + ballY) / 2, (anchorZ + ballZ) / 2)
+        pl:SetPosition(ballX, ballY - 10, ballZ)
 
         // Direction from the ball up to the anchor.
         number dx = anchorX - ballX
