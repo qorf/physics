@@ -115,7 +115,7 @@ class Main is Game
 
         DirectionalLight light
         light:SetColor(0.5, 1, 0.2, 1)
-        light:SetIntensity(0.1)
+        //light:SetIntensity(0.1)
         light:SetDirection(1, -10, 5)
         
         pl:SetIntensity(50)
@@ -128,7 +128,7 @@ class Main is Game
         pl:SetShape(box)
         pl:SetPosition(2, -7, 2)
         
-        rope:Add(pl)
+        //rope:Add(pl)
         Add(light)
 
         Camera camera = GetCamera3D()
