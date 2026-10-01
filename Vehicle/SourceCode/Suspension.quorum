@@ -1,0 +1,48 @@
+package Libraries.Game.Physics
+
+use Libraries.Interface.Item3D
+use Libraries.Compute.Vector3
+
+/* One raycast wheel and its suspension/drive state. */
+class Suspension
+    public Item3D wheelVisual
+    public Vector3 connectionPointCS
+    public Vector3 directionCS
+    public Vector3 axleCS
+    public Vector3 hardPointWS
+    public Vector3 directionWS
+    public Vector3 axleWS
+    public Vector3 contactPointWS
+    public Vector3 contactNormalWS
+    public number restLength = 0.5
+    public number radius = 0.4
+    public number suspensionLength = 0.5
+    public number suspensionStiffness = 20
+    public number dampingCompression = 4.4
+    public number dampingRelaxation = 2.3
+    public number maxSuspensionForce = 6000
+    public number frictionSlip = 3
+    public number rollInfluence = 0.1
+    public number steering = 0
+    public number engineForce = 0
+    public number brake = 0
+    public number suspensionForce = 0
+    public number wheelRotation = 0
+    public boolean frontWheel = false
+    public boolean inContact = false
+    public Item3D groundBody
+
+    action Initialize(Item3D visual, Vector3 connection, Vector3 direction, Vector3 axle, number suspensionRestLength, number wheelRadius, boolean isFrontWheel)
+        wheelVisual = visual
+        connectionPointCS:Set(connection)
+        directionCS:Set(direction)
+        directionCS:Normalize()
+        axleCS:Set(axle)
+        axleCS:Normalize()
+        restLength = suspensionRestLength
+        radius = wheelRadius
+        suspensionLength = restLength
+        frontWheel = isFrontWheel
+        contactNormalWS:Set(0, 1, 0)
+    end
+end

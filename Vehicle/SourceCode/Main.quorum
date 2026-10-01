@@ -1,36 +1,276 @@
 use Libraries.Game.Game
+use Libraries.Game.Layer3D
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.Camera
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Graphics.PointLight
+use Libraries.Game.InputMonitor
+use Libraries.Game.Collision.PhysicsPosition3D
+use Libraries.Game.Physics.Vehicle
+use Libraries.Game.Physics.Suspension
+use Libraries.Game.Physics.Joints.HingeJoint3D
+use Libraries.Game.Physics.Joints.SliderJoint3D
+use Libraries.Interface.Events.KeyboardEvent
+use Libraries.Compute.Vector3
+use Libraries.Compute.Matrix3
 
 /*
-    This is a default class for creating a game in Quorum. Note that the Main 
-    action begins by calling StartGame(), which loads a window a game can 
-    be displayed in. The action CreateGame is where the game should load any 
-    assets, like images to be displayed, frames of animation, or sounds to be
-    played. 
+    A small Bullet-style forklift. Arrow keys steer and drive; Shift+Left/Right
+    tilt the mast, and Shift+Up/Down raise and lower the fork carriage.
 */
 class Main is Game
-    /*
-        This action, Main, starts our computer program. In Quorum, programs always
-        begin from Main.
-    */
+    Model ground
+    Model chassis
+    Model mast
+    Model forks
+    Model load
+    Model leftWheel
+    Model rightWheel
+    Model rearLeftWheel
+    Model rearRightWheel
+    Vehicle vehicle
+    HingeJoint3D mastHinge
+    SliderJoint3D forkSlider
+    InputMonitor monitor
+    KeyboardEvent keys
+
     action Main
+        UseVulkan(true)
         StartGame()
     end
 
-    /*
-        This action sets up the default values for a game. For example, we might
-        use the Libraries.Game.Graphics.Drawable class to load up an image or 
-        a shape. Or, we might add a Libraries.Interface.Button for making something clickable
-        or a Libraries.Interface.TextBox for gathering user input in a game.
-    */
     action CreateGame
+        EnablePhysics3D(true)
+        SetGravity3D(0, -9.8, 0)
+        Color colors
+
+        DirectionalLight sunlight
+        sunlight:SetIntensity(2.5)
+        sunlight:SetColor(colors:LightGray())
+        sunlight:SetDirection(-1, -4, -2)
+        Add(sunlight)
+
+        PointLight workLight
+        workLight:SetPosition(3, 5, 1)
+        workLight:SetIntensity(18)
+        workLight:SetColor(colors:White())
+        Add(workLight)
+
+        BuildGround(colors)
+        BuildChassis(colors)
+        BuildWheels(colors)
+        BuildMastAndForks(colors)
+        BuildVehicle()
+        BuildJoints()
+        PlaceCamera()
     end
 
-    /*
-        The update action is called on every "frame" of animation in a game. This
-        action should be used to do operations on items. So, for example, we 
-        might use this action to change frames of animation, to rotate items, 
-        or to make creatures jump.
-    */
+    action BuildGround(Color colors)
+        ground:LoadBox(80, 1, 80, colors:Gray())
+        ground:SetPosition(0, -0.5, 0)
+        ground:EnablePhysics(true)
+        ground:SetMass(0)
+        ground:SetFriction(1)
+        ground:SetName("Ground")
+        Add(ground)
+    end
+
+    action BuildChassis(Color colors)
+        chassis:LoadBox(2, 0.9, 3, colors:Yellow())
+        chassis:EnablePhysics(true)
+        chassis:RequireSimulation(true)
+        chassis:SetResponsive()
+        chassis:SetMass(32)
+        chassis:SetFriction(0.6)
+        chassis:SetRestitution(0)
+        chassis:SetLinearDamping(0.05)
+        chassis:SetAngularDamping(0.8)
+        chassis:SetPosition(0, 1.25, 0)
+        chassis:SetName("Forklift Chassis")
+        Add(chassis)
+    end
+
+    action BuildWheels(Color colors)
+        BuildWheel(leftWheel, colors, -1.12, 1.3)
+        BuildWheel(rightWheel, colors, 1.12, 1.3)
+        BuildWheel(rearLeftWheel, colors, -1.12, -1.05)
+        BuildWheel(rearRightWheel, colors, 1.12, -1.05)
+    end
+
+    action BuildWheel(Model wheel, Color colors, number x, number z)
+        wheel:LoadSphere(0.72, 0.72, 0.72, colors:Black())
+        wheel:SetPosition(x, 0.72, z)
+        wheel:SetName("Raycast Wheel")
+        Add(wheel)
+    end
+
+    action BuildMastAndForks(Color colors)
+        // The mast sits just ahead of the chassis. Its bottom is attached at the
+        // front edge, so the upper mast can rock slightly around a horizontal pin.
+        mast:LoadBox(1.15, 3.1, 0.22, colors:DarkGray())
+        mast:EnablePhysics(true)
+        mast:RequireSimulation(true)
+        mast:SetResponsive()
+        mast:SetMass(8)
+        mast:SetFriction(0.5)
+        mast:SetRestitution(0)
+        mast:SetPosition(0, 2.55, 1.72)
+        mast:SetName("Tilting Mast")
+        Add(mast)
+
+        // A single broad carriage collision body supports the load. Two slim
+        // raised rails at its front give the rendered assembly the fork shape.
+        forks:LoadBox(1.55, 0.16, 1.45, colors:DarkGray())
+        forks:EnablePhysics(true)
+        forks:RequireSimulation(true)
+        forks:SetResponsive()
+        forks:SetMass(5)
+        forks:SetFriction(0.9)
+        forks:SetRestitution(0)
+        forks:SetPosition(0, 1.25, 2.78)
+        forks:SetName("Fork Carriage")
+        Add(forks)
+
+        Model cargo
+        cargo:LoadBox(1.2, 0.8, 1.0, colors:Blue())
+        cargo:EnablePhysics(true)
+        cargo:RequireSimulation(true)
+        cargo:SetResponsive()
+        cargo:SetMass(4)
+        cargo:SetFriction(0.8)
+        cargo:SetRestitution(0)
+        cargo:SetPosition(0, 1.73, 3.05)
+        cargo:SetName("Cargo")
+        load = cargo
+        Add(load)
+    end
+
+    action BuildVehicle
+        vehicle:Initialize(GetCurrentLayer3D(), chassis)
+        vehicle:AddWheel(leftWheel, MakeVector(-1.12, -0.42, 1.3), MakeVector(0, -1, 0), MakeVector(1, 0, 0), 0.48, 0.36, true)
+        vehicle:AddWheel(rightWheel, MakeVector(1.12, -0.42, 1.3), MakeVector(0, -1, 0), MakeVector(1, 0, 0), 0.48, 0.36, true)
+        vehicle:AddWheel(rearLeftWheel, MakeVector(-1.12, -0.42, -1.05), MakeVector(0, -1, 0), MakeVector(1, 0, 0), 0.48, 0.36, false)
+        vehicle:AddWheel(rearRightWheel, MakeVector(1.12, -0.42, -1.05), MakeVector(0, -1, 0), MakeVector(1, 0, 0), 0.48, 0.36, false)
+    end
+
+    action BuildJoints
+        Vector3 hingeA
+        hingeA:Set(0, -0.35, 1.45)
+        Vector3 hingeB
+        hingeB:Set(0, -1.65, -0.27)
+        Vector3 hingeAxis
+        hingeAxis:Set(1, 0, 0)
+        mastHinge:Initialize(chassis, mast, hingeA, hingeB, hingeAxis, hingeAxis)
+        mastHinge:SetLimit(-0.16, 0.28)
+        GetCurrentLayer3D():AddJoint(mastHinge)
+
+        // SliderJoint3D constrains all relative motion except along frame X.
+        // Rotating frame X to world up gives a true vertical carriage motion.
+        Matrix3 frameBasis
+        frameBasis:Set(0, 0, 1, 1, 0, 0, 0, 1, 0)
+        Vector3 sliderOriginA
+        sliderOriginA:Set(0, -1.28, 1.06)
+        PhysicsPosition3D frameOnMast
+        frameOnMast:Set(frameBasis, sliderOriginA)
+        PhysicsPosition3D frameOnForks
+        frameOnForks:Set(frameBasis, MakeVector(0, 0, 0))
+        forkSlider:Initialize(mast, forks, frameOnMast, frameOnForks, true)
+        forkSlider:SetLowerLinearLimit(0)
+        forkSlider:SetUpperLinearLimit(1.45)
+        forkSlider:SetLowerAngularLimit(0)
+        forkSlider:SetUpperAngularLimit(0)
+        GetCurrentLayer3D():AddJoint(forkSlider)
+    end
+
+    action MakeVector(number x, number y, number z) returns Vector3
+        Vector3 result
+        result:Set(x, y, z)
+        return result
+    end
+
     action Update(number seconds)
+        DriveAndOperate()
+        vehicle:Update(seconds)
+        PlaceCamera()
+    end
+
+    action DriveAndOperate
+        boolean shifting = monitor:IsKeyPressed(keys:SHIFT_LEFT) or monitor:IsKeyPressed(keys:SHIFT_RIGHT)
+        if shifting
+            number mastSpeed = 0
+            if monitor:IsKeyPressed(keys:LEFT)
+                mastSpeed = 0.7
+            elseif monitor:IsKeyPressed(keys:RIGHT)
+                mastSpeed = -0.7
+            end
+            mastHinge:EnableAngularMotor(mastSpeed not= 0, mastSpeed, 18)
+
+            number liftSpeed = 0
+            if monitor:IsKeyPressed(keys:UP)
+                liftSpeed = 1.0
+            elseif monitor:IsKeyPressed(keys:DOWN)
+                liftSpeed = -1.0
+            end
+            forkSlider:ConfigureLinearMotor(liftSpeed not= 0, liftSpeed, 45)
+
+            vehicle:ApplyEngineForce(0, 0)
+            vehicle:ApplyEngineForce(0, 1)
+            vehicle:ApplyEngineForce(0, 2)
+            vehicle:ApplyEngineForce(0, 3)
+            vehicle:SetSteeringValue(0, 0)
+            vehicle:SetSteeringValue(0, 1)
+        else
+            mastHinge:EnableAngularMotor(false, 0, 0)
+            forkSlider:ConfigureLinearMotor(false, 0, 45)
+
+            number throttle = 0
+            if monitor:IsKeyPressed(keys:UP)
+                throttle = 420
+            elseif monitor:IsKeyPressed(keys:DOWN)
+                throttle = -280
+            end
+            vehicle:ApplyEngineForce(throttle, 0)
+            vehicle:ApplyEngineForce(throttle, 1)
+            vehicle:ApplyEngineForce(throttle, 2)
+            vehicle:ApplyEngineForce(throttle, 3)
+
+            number steering = 0
+            if monitor:IsKeyPressed(keys:LEFT)
+                steering = 0.45
+            elseif monitor:IsKeyPressed(keys:RIGHT)
+                steering = -0.45
+            end
+            vehicle:SetSteeringValue(steering, 0)
+            vehicle:SetSteeringValue(steering, 1)
+            vehicle:SetSteeringValue(0, 2)
+            vehicle:SetSteeringValue(0, 3)
+        end
+    end
+
+    action PlaceCamera
+        //Camera camera = GetCamera3D()
+//
+        //// PerspectiveCamera inverts its projection-view matrix each frame. Give
+        //// it a valid viewport explicitly, even during the first setup frame.
+        //number viewportWidth = GetScreenWidth()
+        //number viewportHeight = GetScreenHeight()
+        //if viewportWidth < 1
+            //viewportWidth = 1000
+        //end
+        //if viewportHeight < 1
+            //viewportHeight = 800
+        //end
+        //camera:SetSize(viewportWidth, viewportHeight)
+//
+        //// Use a fixed, nonzero view basis instead of deriving it from the
+        //// simulated chassis transform. This keeps the view matrix nonsingular
+        //// while the vehicle physics is being brought up.
+        //camera:SetNear(0.1)
+        //camera:SetFar(500)
+        //camera:SetPosition(chassis:GetX() - 8, chassis:GetY() + 5, chassis:GetZ() - 10)
+        //camera:SetUp(0, 1, 0)
+        //camera:SetDirection(8, -5, 11)
+        //camera:Update()
     end
 end

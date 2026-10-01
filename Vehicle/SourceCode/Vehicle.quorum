@@ -1,0 +1,217 @@
+package Libraries.Game.Physics
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Containers.Array
+use Libraries.Compute.Vector3
+use Libraries.Game.Collision.PhysicsPosition3D
+use Libraries.Compute.Math
+
+/*
+    Raycast vehicle modeled on Bullet's btRaycastVehicle. Each wheel casts a
+    suspension ray; chassis impulses provide spring response, and contact point
+    impulses provide steering, engine drive, braking, and tire friction.
+    Axes follow Bullet's default convention: X right, Y up, Z forward.
+*/
+class Vehicle
+    Math math
+    public Layer3D world = undefined
+    public Item3D chassis
+    public Array<Suspension> wheels
+    public number maxSuspensionTravel = 0.4
+    public number steeringClamp = 0.55
+    public number currentSpeedKPH = 0
+    PhysicsRaycast raycast
+
+    action Initialize(Layer3D layer, Item3D vehicleChassis)
+        world = layer
+        chassis = vehicleChassis
+    end
+
+    action AddWheel(Item3D visual, Vector3 connection, Vector3 direction, Vector3 axle, number restLength, number radius, boolean frontWheel) returns Suspension
+        Suspension wheel
+        wheel:Initialize(visual, connection, direction, axle, restLength, radius, frontWheel)
+        wheels:Add(wheel)
+        return wheel
+    end
+
+    action SetSteeringValue(number value, integer wheelIndex)
+        Suspension wheel = wheels:Get(wheelIndex)
+        wheel:steering = Clamp(value, -steeringClamp, steeringClamp)
+    end
+
+    action ApplyEngineForce(number force, integer wheelIndex)
+     Suspension wheel = wheels:Get(wheelIndex)
+        wheel:engineForce = force
+    end
+
+    action SetBrake(number force, integer wheelIndex)
+
+Suspension wheel = wheels:Get(wheelIndex)
+        wheel:brake = math:MaximumOf(0, force)
+    end
+
+    action GetSpeedKPH returns number
+        return currentSpeedKPH
+    end
+
+    /* Call once per physics update, using the same elapsed seconds as the world. */
+    action Update(number timeStep)
+        if timeStep <= 0 or chassis = undefined
+            return now
+        end
+
+        currentSpeedKPH = chassis:GetLinearVelocity():Length() * 3.6
+        integer i = 0
+        repeat while i < wheels:GetSize()
+            UpdateWheel(wheels:Get(i), timeStep)
+            i = i + 1
+        end
+    end
+
+    private action UpdateWheel(Suspension wheel, number timeStep)
+        PhysicsPosition3D chassisTransform
+        chassisTransform:Set(chassis:GetCollisionTransform())
+        wheel:hardPointWS:Set(wheel:connectionPointCS)
+        chassisTransform:Transform(wheel:hardPointWS)
+
+        wheel:directionWS:Set(wheel:directionCS)
+        chassisTransform:GetBasis():Transform(wheel:directionWS)
+        wheel:directionWS:Normalize()
+
+        wheel:axleWS:Set(wheel:axleCS)
+        if wheel:frontWheel
+            number cosine = math:Cosine(wheel:steering)
+            number sine = math:Sine(wheel:steering)
+            wheel:axleWS:Set(cosine * wheel:axleCS:GetX() - sine * wheel:axleCS:GetZ(), wheel:axleCS:GetY(), sine * wheel:axleCS:GetX() + cosine * wheel:axleCS:GetZ())
+        end
+        chassisTransform:GetBasis():Transform(wheel:axleWS)
+        wheel:axleWS:Normalize()
+
+        number rayLength = wheel:restLength + wheel:radius + maxSuspensionTravel
+        Vector3 rayEnd
+        rayEnd:Set(wheel:directionWS)
+        rayEnd:Scale(rayLength)
+        rayEnd:Add(wheel:hardPointWS)
+        raycast:Cast(world, wheel:hardPointWS, rayEnd, chassis)
+
+        wheel:inContact = raycast:hit
+        wheel:suspensionForce = 0
+        wheel:groundBody = undefined
+        if wheel:inContact
+            wheel:groundBody = raycast:hitBody
+            wheel:contactPointWS:Set(raycast:hitPoint)
+            wheel:contactNormalWS:Set(raycast:hitNormal)
+            number hitDistance = rayLength * raycast:fraction
+            wheel:suspensionLength = Clamp(hitDistance - wheel:radius, wheel:restLength - maxSuspensionTravel, wheel:restLength + maxSuspensionTravel)
+
+            Vector3 chassisRelativePoint
+            chassisRelativePoint:Set(wheel:contactPointWS)
+            chassisRelativePoint:Subtract(chassis:GetCenterOfMassTransform():GetOrigin())
+            Vector3 chassisVelocity = chassis:GetLinearVelocityAtLocalPoint(chassisRelativePoint)
+            Vector3 relativeVelocity
+            relativeVelocity:Set(chassisVelocity)
+            Vector3 groundRelativePoint
+            if wheel:groundBody not= undefined
+                groundRelativePoint:Set(wheel:contactPointWS)
+                groundRelativePoint:Subtract(wheel:groundBody:GetCenterOfMassTransform():GetOrigin())
+                relativeVelocity:Subtract(wheel:groundBody:GetLinearVelocityAtLocalPoint(groundRelativePoint))
+            end
+
+            number normalSpeed = relativeVelocity:DotProduct(wheel:contactNormalWS)
+            number compression = wheel:restLength - wheel:suspensionLength
+            number damping = wheel:dampingRelaxation
+            if normalSpeed < 0
+                damping = wheel:dampingCompression
+            end
+            // Bullet scales its spring and damping response by the chassis mass.
+            wheel:suspensionForce = (wheel:suspensionStiffness * compression - damping * normalSpeed) * chassis:GetMass()
+            wheel:suspensionForce = Clamp(wheel:suspensionForce, 0, wheel:maxSuspensionForce)
+
+            Vector3 suspensionImpulse
+            suspensionImpulse:Set(wheel:contactNormalWS)
+            suspensionImpulse:Scale(wheel:suspensionForce * timeStep)
+            chassis:ApplyImpulse(suspensionImpulse, chassisRelativePoint)
+            if wheel:groundBody not= undefined and wheel:groundBody:GetInverseMass() > 0
+                suspensionImpulse:MakeOpposite()
+                wheel:groundBody:ApplyImpulse(suspensionImpulse, groundRelativePoint)
+            end
+
+            ApplyTireImpulses(wheel, relativeVelocity, chassisRelativePoint, timeStep)
+        else
+            wheel:suspensionLength = wheel:restLength + maxSuspensionTravel
+        end
+
+        if wheel:wheelVisual not= undefined
+            Vector3 wheelPosition
+            wheelPosition:Set(wheel:directionWS)
+            wheelPosition:Scale(wheel:suspensionLength)
+            wheelPosition:Add(wheel:hardPointWS)
+            wheel:wheelVisual:SetPosition(wheelPosition)
+        end
+    end
+
+    private action ApplyTireImpulses(Suspension wheel, Vector3 relativeVelocity, Vector3 chassisRelativePoint, number timeStep)
+        Vector3 forward
+        forward:Set(wheel:axleWS:CrossProduct(wheel:contactNormalWS))
+        if forward:LengthSquared() < 0.000001
+            return now
+        end
+        forward:Normalize()
+
+        number lateralVelocity = relativeVelocity:DotProduct(wheel:axleWS)
+        number forwardVelocity = relativeVelocity:DotProduct(forward)
+        number lateralDenominator = chassis:ComputeImpulseDenominator(wheel:contactPointWS, wheel:axleWS)
+        number forwardDenominator = chassis:ComputeImpulseDenominator(wheel:contactPointWS, forward)
+        if wheel:groundBody not= undefined
+            lateralDenominator = lateralDenominator + wheel:groundBody:ComputeImpulseDenominator(wheel:contactPointWS, wheel:axleWS)
+            forwardDenominator = forwardDenominator + wheel:groundBody:ComputeImpulseDenominator(wheel:contactPointWS, forward)
+        end
+
+        number lateralImpulse = 0
+        number forwardImpulse = wheel:engineForce * timeStep
+        if lateralDenominator > 0.000001
+            lateralImpulse = -lateralVelocity / lateralDenominator
+        end
+        if forwardDenominator > 0.000001
+            number brakeImpulse = -forwardVelocity / forwardDenominator
+            number brakeLimit = wheel:brake * timeStep
+            brakeImpulse = Clamp(brakeImpulse, -brakeLimit, brakeLimit)
+            forwardImpulse = forwardImpulse + brakeImpulse
+        end
+
+        number maxTireImpulse = wheel:frictionSlip * wheel:suspensionForce * timeStep
+        number totalTireImpulse = math:SquareRoot(lateralImpulse * lateralImpulse + forwardImpulse * forwardImpulse)
+        if totalTireImpulse > maxTireImpulse and totalTireImpulse > 0
+            number tractionScale = maxTireImpulse / totalTireImpulse
+            lateralImpulse = lateralImpulse * tractionScale
+            forwardImpulse = forwardImpulse * tractionScale
+        end
+
+        Vector3 tireImpulse
+        tireImpulse:Set(wheel:axleWS)
+        tireImpulse:Scale(lateralImpulse)
+        Vector3 forwardPart
+        forwardPart:Set(forward)
+        forwardPart:Scale(forwardImpulse)
+        tireImpulse:Add(forwardPart)
+        chassis:ApplyImpulse(tireImpulse, chassisRelativePoint)
+
+        if wheel:groundBody not= undefined and wheel:groundBody:GetInverseMass() > 0
+            tireImpulse:MakeOpposite()
+            Vector3 groundRelativePoint
+            groundRelativePoint:Set(wheel:contactPointWS)
+            groundRelativePoint:Subtract(wheel:groundBody:GetCenterOfMassTransform():GetOrigin())
+            wheel:groundBody:ApplyImpulse(tireImpulse, groundRelativePoint)
+        end
+    end
+
+    private action Clamp(number value, number lower, number upper) returns number
+        if value < lower
+            return lower
+        elseif value > upper
+            return upper
+        end
+        return value
+    end
+end

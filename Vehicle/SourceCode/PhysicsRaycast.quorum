@@ -1,0 +1,132 @@
+package Libraries.Game.Physics
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Compute.Vector3
+use Libraries.Game.Collision.PhysicsPosition3D
+use Libraries.Game.Collision.Shapes.Box
+use Libraries.Game.Collision.Shapes.CollisionShape3D
+use Libraries.Compute.Math
+
+/*
+    Result of a PhysicsRaycast.Cast call. Fraction is measured along the segment,
+    from zero at its start to one at its end.
+*/
+class PhysicsRaycast
+    Math math
+    public boolean hit = false
+    public Item3D hitBody
+    public Vector3 hitPoint
+    public Vector3 hitNormal
+    public number fraction = 1
+
+    /*
+        Casts a segment against the box collision shapes in a Layer3D, returning
+        the nearest hit. This is a physics query, not the approximate UI picker.
+        Boxes are sufficient for the flat floor, pallet, and load geometry in the
+        forklift example. The query deliberately ignores the supplied chassis.
+    */
+    action Cast(Layer3D layer, Vector3 from, Vector3 to, Item3D ignoreBody)
+        hit = false
+        hitBody = undefined
+        fraction = 1
+
+        Vector3 segment
+        segment:Set(to)
+        segment:Subtract(from)
+
+        integer i = 0
+        repeat while i < layer:GetSize()
+            Item3D item = layer:Get(i)
+            if item not= ignoreBody and item:GetShape() not= undefined and item:GetShapeType() = item:GetShape():BOX
+                Box box = cast(Box, item:GetShape())
+                PhysicsPosition3D transform
+                transform:Set(item:GetCollisionTransform())
+
+                Vector3 localFrom
+                transform:InverseTransform(from, localFrom)
+                Vector3 localTo
+                transform:InverseTransform(to, localTo)
+                Vector3 localDelta
+                localDelta:Set(localTo)
+                localDelta:Subtract(localFrom)
+                Vector3 half = box:GetHalfExtentsWithMargin()
+
+                number enter = 0
+                number leave = 1
+                integer enterAxis = -1
+                number enterSign = 0
+                boolean intersects = true
+                integer axis = 0
+                repeat while axis < 3 and intersects
+                    number origin = 0
+                    number delta = 0
+                    number extent = 0
+                    if axis = 0
+                        origin = localFrom:GetX()
+                        delta = localDelta:GetX()
+                        extent = half:GetX()
+                    elseif axis = 1
+                        origin = localFrom:GetY()
+                        delta = localDelta:GetY()
+                        extent = half:GetY()
+                    else
+                        origin = localFrom:GetZ()
+                        delta = localDelta:GetZ()
+                        extent = half:GetZ()
+                    end
+
+                    if math:AbsoluteValue(delta) < 0.0000001
+                        if origin < -extent or origin > extent
+                            intersects = false
+                        end
+                    else
+                        number first = (-extent - origin) / delta
+                        number second = (extent - origin) / delta
+                        number sign = -1
+                        if first > second
+                            number swap = first
+                            first = second
+                            second = swap
+                            sign = 1
+                        end
+                        if first > enter
+                            enter = first
+                            enterAxis = axis
+                            enterSign = sign
+                        end
+                        if second < leave
+                            leave = second
+                        end
+                        if enter > leave
+                            intersects = false
+                        end
+                    end
+                    axis = axis + 1
+                end
+
+                if intersects and enter >= 0 and enter <= fraction and enter <= 1 and enterAxis >= 0
+                    hit = true
+                    fraction = enter
+                    hitBody = item
+                    hitPoint:Set(from)
+                    Vector3 traveled
+                    traveled:Set(segment)
+                    traveled:Scale(enter)
+                    hitPoint:Add(traveled)
+                    hitNormal:Set(0, 0, 0)
+                    if enterAxis = 0
+                        hitNormal:Set(enterSign, 0, 0)
+                    elseif enterAxis = 1
+                        hitNormal:Set(0, enterSign, 0)
+                    else
+                        hitNormal:Set(0, 0, enterSign)
+                    end
+                    transform:GetBasis():Transform(hitNormal)
+                    hitNormal:Normalize()
+                end
+            end
+            i = i + 1
+        end
+    end
+end
