@@ -26,9 +26,15 @@ class Vehicle
     action Initialize(Layer3D layer, Item3D vehicleChassis)
         world = layer
         chassis = vehicleChassis
+        PhysicsRaycast temp
+        raycast = temp
     end
 
     action AddWheel(Item3D visual, Vector3 connection, Vector3 direction, Vector3 axle, number restLength, number radius, boolean frontWheel) returns Suspension
+        if wheels = undefined
+            Array<Suspension> temp
+            wheels = temp
+        end
         Suspension wheel
         wheel:Initialize(visual, connection, direction, axle, restLength, radius, frontWheel)
         wheels:Add(wheel)
@@ -46,8 +52,7 @@ class Vehicle
     end
 
     action SetBrake(number force, integer wheelIndex)
-
-Suspension wheel = wheels:Get(wheelIndex)
+        Suspension wheel = wheels:Get(wheelIndex)
         wheel:brake = math:MaximumOf(0, force)
     end
 
@@ -57,7 +62,7 @@ Suspension wheel = wheels:Get(wheelIndex)
 
     /* Call once per physics update, using the same elapsed seconds as the world. */
     action Update(number timeStep)
-        if timeStep <= 0 or chassis = undefined
+if timeStep <= 0 or chassis = undefined
             return now
         end
 
@@ -70,22 +75,23 @@ Suspension wheel = wheels:Get(wheelIndex)
     end
 
     private action UpdateWheel(Suspension wheel, number timeStep)
-        PhysicsPosition3D chassisTransform
-        chassisTransform:Set(chassis:GetCollisionTransform())
-        wheel:hardPointWS:Set(wheel:connectionPointCS)
-        chassisTransform:Transform(wheel:hardPointWS)
+        // Calculate hard point in world space: chassis position + offset (no rotation for now)
+        Vector3 chassisPos
+        chassisPos:Set(chassis:GetX(), chassis:GetY(), chassis:GetZ())
+        wheel:hardPointWS:Set(chassisPos)
+        wheel:hardPointWS:Add(wheel:connectionPointCS)
 
+        // Use direction as-is (points down)
         wheel:directionWS:Set(wheel:directionCS)
-        chassisTransform:GetBasis():Transform(wheel:directionWS)
         wheel:directionWS:Normalize()
 
+        // Apply steering to axle
         wheel:axleWS:Set(wheel:axleCS)
         if wheel:frontWheel
             number cosine = math:Cosine(wheel:steering)
             number sine = math:Sine(wheel:steering)
             wheel:axleWS:Set(cosine * wheel:axleCS:GetX() - sine * wheel:axleCS:GetZ(), wheel:axleCS:GetY(), sine * wheel:axleCS:GetX() + cosine * wheel:axleCS:GetZ())
         end
-        chassisTransform:GetBasis():Transform(wheel:axleWS)
         wheel:axleWS:Normalize()
 
         number rayLength = wheel:restLength + wheel:radius + maxSuspensionTravel
@@ -93,12 +99,25 @@ Suspension wheel = wheels:Get(wheelIndex)
         rayEnd:Set(wheel:directionWS)
         rayEnd:Scale(rayLength)
         rayEnd:Add(wheel:hardPointWS)
-        raycast:Cast(world, wheel:hardPointWS, rayEnd, chassis)
 
-        wheel:inContact = raycast:hit
+        // Sanity check: hard point should be near chassis (within reasonable bounds)
+        number hardPointY = wheel:hardPointWS:GetY()
+        boolean hardPointValid = hardPointY > -1000 and hardPointY < 1000
+
+        boolean hitDetected = false
+        if raycast not= undefined and hardPointValid
+            raycast:Cast(world, wheel:hardPointWS, rayEnd, chassis)
+            hitDetected = raycast:hit
+            //output "Raycast: hard point Y=" + hardPointY + ", hit=" + hitDetected + ", fraction=" + raycast:fraction
+        elseif not hardPointValid
+            //output "WARNING: Invalid hard point Y = " + hardPointY + " (chassis Y = " + chassis:GetY() + ")"
+        end
+
+        wheel:inContact = hitDetected
         wheel:suspensionForce = 0
         wheel:groundBody = undefined
-        if wheel:inContact
+
+        if hitDetected
             wheel:groundBody = raycast:hitBody
             wheel:contactPointWS:Set(raycast:hitPoint)
             wheel:contactNormalWS:Set(raycast:hitNormal)
@@ -147,7 +166,11 @@ Suspension wheel = wheels:Get(wheelIndex)
             wheelPosition:Set(wheel:directionWS)
             wheelPosition:Scale(wheel:suspensionLength)
             wheelPosition:Add(wheel:hardPointWS)
-            wheel:wheelVisual:SetPosition(wheelPosition)
+
+            // Safety check: don't set wheel to invalid positions
+            if wheelPosition:GetY() > -1000 and wheelPosition:GetY() < 1000
+                wheel:wheelVisual:SetPosition(wheelPosition)
+            end
         end
     end
 

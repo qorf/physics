@@ -17,11 +17,11 @@ class Suspension
     public number restLength = 0.5
     public number radius = 0.4
     public number suspensionLength = 0.5
-    public number suspensionStiffness = 20
-    public number dampingCompression = 4.4
-    public number dampingRelaxation = 2.3
+    public number suspensionStiffness = 50
+    public number dampingCompression = 15
+    public number dampingRelaxation = 10
     public number maxSuspensionForce = 6000
-    public number frictionSlip = 3
+    public number frictionSlip = 100
     public number rollInfluence = 0.1
     public number steering = 0
     public number engineForce = 0

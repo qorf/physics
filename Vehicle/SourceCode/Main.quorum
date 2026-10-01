@@ -45,6 +45,7 @@ class Main is Game
         SetGravity3D(0, -9.8, 0)
         Color colors
 
+
         DirectionalLight sunlight
         sunlight:SetIntensity(2.5)
         sunlight:SetColor(colors:LightGray())
@@ -191,7 +192,10 @@ class Main is Game
 
     action Update(number seconds)
         DriveAndOperate()
-        vehicle:Update(seconds)
+        // Wait for physics engine to initialize properly before applying vehicle forces
+        if seconds > 0.1
+            vehicle:Update(seconds)
+        end
         PlaceCamera()
     end
 
@@ -227,6 +231,7 @@ class Main is Game
             number throttle = 0
             if monitor:IsKeyPressed(keys:UP)
                 throttle = 420
+                output "Applying throttle 420, chassis Y = " + chassis:GetY()
             elseif monitor:IsKeyPressed(keys:DOWN)
                 throttle = -280
             end
@@ -249,28 +254,6 @@ class Main is Game
     end
 
     action PlaceCamera
-        //Camera camera = GetCamera3D()
-//
-        //// PerspectiveCamera inverts its projection-view matrix each frame. Give
-        //// it a valid viewport explicitly, even during the first setup frame.
-        //number viewportWidth = GetScreenWidth()
-        //number viewportHeight = GetScreenHeight()
-        //if viewportWidth < 1
-            //viewportWidth = 1000
-        //end
-        //if viewportHeight < 1
-            //viewportHeight = 800
-        //end
-        //camera:SetSize(viewportWidth, viewportHeight)
-//
-        //// Use a fixed, nonzero view basis instead of deriving it from the
-        //// simulated chassis transform. This keeps the view matrix nonsingular
-        //// while the vehicle physics is being brought up.
-        //camera:SetNear(0.1)
-        //camera:SetFar(500)
-        //camera:SetPosition(chassis:GetX() - 8, chassis:GetY() + 5, chassis:GetZ() - 10)
-        //camera:SetUp(0, 1, 0)
-        //camera:SetDirection(8, -5, 11)
-        //camera:Update()
+        // Use default camera positioning - custom setup causes matrix singularity
     end
 end
