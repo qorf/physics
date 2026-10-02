@@ -24,14 +24,14 @@ class Main is Game
     Model chassis
     Model mast
     Model forks
+    Model leftProng
+    Model rightProng
     Model load
     Model leftWheel
     Model rightWheel
     Model rearLeftWheel
     Model rearRightWheel
     Vehicle vehicle
-    HingeJoint3D mastHinge
-    SliderJoint3D forkSlider
     InputMonitor monitor
     KeyboardEvent keys
 
@@ -61,10 +61,7 @@ class Main is Game
         BuildGround(colors)
         BuildChassis(colors)
         BuildWheels(colors)
-        BuildMastAndForks(colors)
         BuildVehicle()
-        BuildJoints()
-        PlaceCamera()
     end
 
     action BuildGround(Color colors)
@@ -78,111 +75,104 @@ class Main is Game
     end
 
     action BuildChassis(Color colors)
-        chassis:LoadBox(2, 0.9, 3, colors:Yellow())
+        chassis:LoadBox(2, 1, 4, colors:Yellow())
         chassis:EnablePhysics(true)
         chassis:RequireSimulation(true)
         chassis:SetResponsive()
-        chassis:SetMass(32)
+        chassis:SetMass(800)
         chassis:SetFriction(0.6)
         chassis:SetRestitution(0)
         chassis:SetLinearDamping(0.05)
         chassis:SetAngularDamping(0.8)
-        chassis:SetPosition(0, 1.25, 0)
+        chassis:SetPosition(0, 1.3, 0)
         chassis:SetName("Forklift Chassis")
         Add(chassis)
     end
 
     action BuildWheels(Color colors)
-        BuildWheel(leftWheel, colors, -1.12, 1.3)
-        BuildWheel(rightWheel, colors, 1.12, 1.3)
-        BuildWheel(rearLeftWheel, colors, -1.12, -1.05)
-        BuildWheel(rearRightWheel, colors, 1.12, -1.05)
+        BuildWheel(leftWheel, colors, -0.88, 1.5)
+        BuildWheel(rightWheel, colors, 0.88, 1.5)
+        BuildWheel(rearLeftWheel, colors, -0.88, -1.5)
+        BuildWheel(rearRightWheel, colors, 0.88, -1.5)
     end
 
     action BuildWheel(Model wheel, Color colors, number x, number z)
-        wheel:LoadSphere(0.72, 0.72, 0.72, colors:Black())
-        wheel:SetPosition(x, 0.72, z)
+        wheel:LoadSphere(0.5, 0.5, 0.5, colors:Black())
+        wheel:SetPosition(x, 0.5, z)
+        //wheel:EnablePhysics(true)
+        //wheel:SetResponsive()
+        //wheel:SetMass(20)
+        //wheel:SetFriction(1.0)
+        //wheel:SetRestitution(0.1)
         wheel:SetName("Raycast Wheel")
         Add(wheel)
     end
 
     action BuildMastAndForks(Color colors)
-        // The mast sits just ahead of the chassis. Its bottom is attached at the
-        // front edge, so the upper mast can rock slightly around a horizontal pin.
-        mast:LoadBox(1.15, 3.1, 0.22, colors:DarkGray())
+        // Lift body: thin vertical bar that hinges to the chassis
+        mast:LoadBox(1, 4, 0.1, colors:DarkGray())
         mast:EnablePhysics(true)
         mast:RequireSimulation(true)
         mast:SetResponsive()
-        mast:SetMass(8)
+        mast:SetMass(10)
         mast:SetFriction(0.5)
         mast:SetRestitution(0)
-        mast:SetPosition(0, 2.55, 1.72)
-        mast:SetName("Tilting Mast")
+        mast:SetPosition(0, 2.5, 3.05)
+        mast:SetName("Lift Body")
         Add(mast)
 
-        // A single broad carriage collision body supports the load. Two slim
-        // raised rails at its front give the rendered assembly the fork shape.
-        forks:LoadBox(1.55, 0.16, 1.45, colors:DarkGray())
+        // Fork carriage: main bar with two prongs that slide along the mast
+        forks:LoadBox(2, 0.2, 0.2, colors:DarkGray())
         forks:EnablePhysics(true)
         forks:RequireSimulation(true)
         forks:SetResponsive()
         forks:SetMass(5)
         forks:SetFriction(0.9)
         forks:SetRestitution(0)
-        forks:SetPosition(0, 1.25, 2.78)
+        forks:SetPosition(0, 0.6, 3.2)
         forks:SetName("Fork Carriage")
         Add(forks)
 
+        // Left fork prong (visual only, physics handled by carriage)
+        leftProng:LoadBox(0.2, 0.04, 1.2, colors:DarkGray())
+        leftProng:SetPosition(-0.9, 0.52, 3.9)
+        leftProng:SetName("Left Prong")
+        Add(leftProng)
+
+        // Right fork prong (visual only, physics handled by carriage)
+        rightProng:LoadBox(0.2, 0.04, 1.2, colors:DarkGray())
+        rightProng:SetPosition(0.9, 0.52, 3.9)
+        rightProng:SetName("Right Prong")
+        Add(rightProng)
+
+        // Load: pallet with side supports
         Model cargo
-        cargo:LoadBox(1.2, 0.8, 1.0, colors:Blue())
+        cargo:LoadBox(4, 1, 1, colors:Blue())
         cargo:EnablePhysics(true)
         cargo:RequireSimulation(true)
         cargo:SetResponsive()
-        cargo:SetMass(4)
+        cargo:SetMass(350)
         cargo:SetFriction(0.8)
         cargo:SetRestitution(0)
-        cargo:SetPosition(0, 1.73, 3.05)
-        cargo:SetName("Cargo")
+        cargo:SetPosition(0, 3.5, 7.0)
+        cargo:SetName("Load")
         load = cargo
         Add(load)
     end
 
     action BuildVehicle
         vehicle:Initialize(GetCurrentLayer3D(), chassis)
-        vehicle:AddWheel(leftWheel, MakeVector(-1.12, -0.42, 1.3), MakeVector(0, -1, 0), MakeVector(1, 0, 0), 0.48, 0.36, true)
-        vehicle:AddWheel(rightWheel, MakeVector(1.12, -0.42, 1.3), MakeVector(0, -1, 0), MakeVector(1, 0, 0), 0.48, 0.36, true)
-        vehicle:AddWheel(rearLeftWheel, MakeVector(-1.12, -0.42, -1.05), MakeVector(0, -1, 0), MakeVector(1, 0, 0), 0.48, 0.36, false)
-        vehicle:AddWheel(rearRightWheel, MakeVector(1.12, -0.42, -1.05), MakeVector(0, -1, 0), MakeVector(1, 0, 0), 0.48, 0.36, false)
+        vehicle:SetMaxLateralImpulse(12)
+        // Hard points positioned so suspension starts at rest length (uncompressed)
+        // Chassis at Y=1.3, ground at Y=0, wheel radius 0.5, rest length 1.3
+        // For zero compression: hard point Y = ground + wheelRadius + restLength = 0 + 0.5 + 1.3 = 1.8
+        // So offset from chassis = 1.8 - 1.3 = 0.5
+        vehicle:AddWheel(leftWheel, MakeVector(-0.88, 0.5, 1.5), MakeVector(0, -1, 0), MakeVector(1, 0, 0), 1.3, 0.5, true)
+        vehicle:AddWheel(rightWheel, MakeVector(0.88, 0.5, 1.5), MakeVector(0, -1, 0), MakeVector(1, 0, 0), 1.3, 0.5, true)
+        vehicle:AddWheel(rearLeftWheel, MakeVector(-0.88, 0.5, -2.5), MakeVector(0, -1, 0), MakeVector(1, 0, 0), 1.3, 0.5, false)
+        vehicle:AddWheel(rearRightWheel, MakeVector(0.88, 0.5, -2.5), MakeVector(0, -1, 0), MakeVector(1, 0, 0), 1.3, 0.5, false)
     end
 
-    action BuildJoints
-        Vector3 hingeA
-        hingeA:Set(0, -0.35, 1.45)
-        Vector3 hingeB
-        hingeB:Set(0, -1.65, -0.27)
-        Vector3 hingeAxis
-        hingeAxis:Set(1, 0, 0)
-        mastHinge:Initialize(chassis, mast, hingeA, hingeB, hingeAxis, hingeAxis)
-        mastHinge:SetLimit(-0.16, 0.28)
-        GetCurrentLayer3D():AddJoint(mastHinge)
-
-        // SliderJoint3D constrains all relative motion except along frame X.
-        // Rotating frame X to world up gives a true vertical carriage motion.
-        Matrix3 frameBasis
-        frameBasis:Set(0, 0, 1, 1, 0, 0, 0, 1, 0)
-        Vector3 sliderOriginA
-        sliderOriginA:Set(0, -1.28, 1.06)
-        PhysicsPosition3D frameOnMast
-        frameOnMast:Set(frameBasis, sliderOriginA)
-        PhysicsPosition3D frameOnForks
-        frameOnForks:Set(frameBasis, MakeVector(0, 0, 0))
-        forkSlider:Initialize(mast, forks, frameOnMast, frameOnForks, true)
-        forkSlider:SetLowerLinearLimit(0)
-        forkSlider:SetUpperLinearLimit(1.45)
-        forkSlider:SetLowerAngularLimit(0)
-        forkSlider:SetUpperAngularLimit(0)
-        GetCurrentLayer3D():AddJoint(forkSlider)
-    end
 
     action MakeVector(number x, number y, number z) returns Vector3
         Vector3 result
@@ -190,13 +180,11 @@ class Main is Game
         return result
     end
 
+    number actualTime = 0
     action Update(number seconds)
+        actualTime = actualTime + seconds
+vehicle:Update(seconds)
         DriveAndOperate()
-        // Wait for physics engine to initialize properly before applying vehicle forces
-        if seconds > 0.1
-            vehicle:Update(seconds)
-        end
-        PlaceCamera()
     end
 
     action DriveAndOperate
@@ -208,7 +196,6 @@ class Main is Game
             elseif monitor:IsKeyPressed(keys:RIGHT)
                 mastSpeed = -0.7
             end
-            mastHinge:EnableAngularMotor(mastSpeed not= 0, mastSpeed, 18)
 
             number liftSpeed = 0
             if monitor:IsKeyPressed(keys:UP)
@@ -216,7 +203,6 @@ class Main is Game
             elseif monitor:IsKeyPressed(keys:DOWN)
                 liftSpeed = -1.0
             end
-            forkSlider:ConfigureLinearMotor(liftSpeed not= 0, liftSpeed, 45)
 
             vehicle:ApplyEngineForce(0, 0)
             vehicle:ApplyEngineForce(0, 1)
@@ -225,20 +211,26 @@ class Main is Game
             vehicle:SetSteeringValue(0, 0)
             vehicle:SetSteeringValue(0, 1)
         else
-            mastHinge:EnableAngularMotor(false, 0, 0)
-            forkSlider:ConfigureLinearMotor(false, 0, 45)
 
             number throttle = 0
+            boolean isDriving = false
             if monitor:IsKeyPressed(keys:UP)
-                throttle = 420
-                output "Applying throttle 420, chassis Y = " + chassis:GetY()
+                throttle = 42000
+                isDriving = true
             elseif monitor:IsKeyPressed(keys:DOWN)
-                throttle = -280
+                throttle = -2800
+                isDriving = true
             end
             vehicle:ApplyEngineForce(throttle, 0)
             vehicle:ApplyEngineForce(throttle, 1)
-            vehicle:ApplyEngineForce(throttle, 2)
-            vehicle:ApplyEngineForce(throttle, 3)
+            vehicle:ApplyEngineForce(0, 2)
+            vehicle:ApplyEngineForce(0, 3)
+
+            if isDriving
+                // output "Applying throttle 420, chassis Y = " + chassis:GetY()
+                output "[DRIVE] Pos: (" + chassis:GetX() + ", " + chassis:GetY() + ", " + chassis:GetZ() + ")"
+                output "[DRIVE ROTATION] RotX: " + chassis:GetPitch() + ", RotY: " + chassis:GetRoll() + ", RotZ: " + chassis:GetYaw()
+            end
 
             number steering = 0
             if monitor:IsKeyPressed(keys:LEFT)
@@ -251,9 +243,5 @@ class Main is Game
             vehicle:SetSteeringValue(0, 2)
             vehicle:SetSteeringValue(0, 3)
         end
-    end
-
-    action PlaceCamera
-        // Use default camera positioning - custom setup causes matrix singularity
     end
 end

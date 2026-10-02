@@ -14,12 +14,12 @@ class Suspension
     public Vector3 axleWS
     public Vector3 contactPointWS
     public Vector3 contactNormalWS
-    public number restLength = 0.5
+    public number restLength = 1.3
     public number radius = 0.4
-    public number suspensionLength = 0.5
-    public number suspensionStiffness = 50
-    public number dampingCompression = 15
-    public number dampingRelaxation = 10
+    public number suspensionLength = 1.3
+    public number suspensionStiffness = 25
+    public number dampingCompression = 2.5
+    public number dampingRelaxation = 2.0
     public number maxSuspensionForce = 6000
     public number frictionSlip = 100
     public number rollInfluence = 0.1
@@ -32,6 +32,14 @@ class Suspension
     public boolean inContact = false
     public Item3D groundBody
 
+    // Impulse storage for deferred application
+    public Vector3 suspensionImpulse
+    public Vector3 suspensionChassisPoint
+    public Vector3 suspensionGroundPoint
+    public Vector3 tireImpulse
+    public Vector3 tireChassisPoint
+    public Vector3 tireGroundPoint
+
     action Initialize(Item3D visual, Vector3 connection, Vector3 direction, Vector3 axle, number suspensionRestLength, number wheelRadius, boolean isFrontWheel)
         wheelVisual = visual
         connectionPointCS:Set(connection)
@@ -43,6 +51,7 @@ class Suspension
         radius = wheelRadius
         suspensionLength = restLength
         frontWheel = isFrontWheel
+        // In Quorum's Y-up system, normal points up
         contactNormalWS:Set(0, 1, 0)
     end
 end
