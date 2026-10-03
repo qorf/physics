@@ -14,6 +14,7 @@ use Libraries.Game.Physics.Joints.SliderJoint3D
 use Libraries.Interface.Events.KeyboardEvent
 use Libraries.Compute.Vector3
 use Libraries.Compute.Matrix3
+use Libraries.Compute.Matrix4
 
 /*
     A small Bullet-style forklift. Arrow keys steer and drive; Shift+Left/Right
@@ -36,7 +37,7 @@ class Main is Game
     KeyboardEvent keys
 
     action Main
-        UseVulkan(true)
+        //UseVulkan(true)
         StartGame()
     end
 
@@ -162,7 +163,6 @@ class Main is Game
 
     action BuildVehicle
         vehicle:Initialize(GetCurrentLayer3D(), chassis)
-        vehicle:SetMaxLateralImpulse(12)
         // Hard points positioned so suspension starts at rest length (uncompressed)
         // Chassis at Y=1.3, ground at Y=0, wheel radius 0.5, rest length 1.3
         // For zero compression: hard point Y = ground + wheelRadius + restLength = 0 + 0.5 + 1.3 = 1.8
@@ -185,6 +185,30 @@ class Main is Game
         actualTime = actualTime + seconds
 vehicle:Update(seconds)
         DriveAndOperate()
+        LogChassisPose()
+    end
+
+    action LogChassisPose
+        PhysicsPosition3D physicsTransform = chassis:GetCenterOfMassTransform()
+        Matrix3 physicsBasis = physicsTransform:GetBasis()
+        Vector3 physicsOrigin = physicsTransform:GetOrigin()
+
+        // Compute Bullet basis * localForward here, without using the shared Matrix3 transform helpers.
+        Vector3 basisForward
+        basisForward:Set(physicsBasis:row0column2, physicsBasis:row1column2, physicsBasis:row2column2)
+        basisForward:Normalize()
+
+        Matrix4 renderTransform = chassis:GetTransform()
+        Vector3 renderOrigin = renderTransform:TransformWorldCoordinate(0, 0, 0)
+        Vector3 renderFront = renderTransform:TransformWorldCoordinate(0, 0, 2)
+        Vector3 renderBack = renderTransform:TransformWorldCoordinate(0, 0, -2)
+        Vector3 renderForward
+        renderForward:Set(renderFront)
+        renderForward:Subtract(renderBack)
+        renderForward:Normalize()
+
+        Suspension frontWheel = vehicle:wheels:Get(0)
+        output "[CHASSIS-RENDER-CHECK] steering=" + frontWheel:steering + " physicsOrigin=(" + physicsOrigin:GetX() + "," + physicsOrigin:GetY() + "," + physicsOrigin:GetZ() + ") renderOrigin=(" + renderOrigin:GetX() + "," + renderOrigin:GetY() + "," + renderOrigin:GetZ() + ") basisForward=(" + basisForward:GetX() + "," + basisForward:GetY() + "," + basisForward:GetZ() + ") renderForward=(" + renderForward:GetX() + "," + renderForward:GetY() + "," + renderForward:GetZ() + ") forwardDelta=(" + (basisForward:GetX() - renderForward:GetX()) + "," + (basisForward:GetY() - renderForward:GetY()) + "," + (basisForward:GetZ() - renderForward:GetZ()) + ")"
     end
 
     action DriveAndOperate
@@ -215,7 +239,7 @@ vehicle:Update(seconds)
             number throttle = 0
             boolean isDriving = false
             if monitor:IsKeyPressed(keys:UP)
-                throttle = 42000
+                throttle = 4200
                 isDriving = true
             elseif monitor:IsKeyPressed(keys:DOWN)
                 throttle = -2800

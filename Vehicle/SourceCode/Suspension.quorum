@@ -37,6 +37,8 @@ class Suspension
     public Vector3 suspensionChassisPoint
     public Vector3 suspensionGroundPoint
     public Vector3 tireImpulse
+    public Vector3 tireForwardImpulse
+    public Vector3 tireSideImpulse
     public Vector3 tireChassisPoint
     public Vector3 tireGroundPoint
 
