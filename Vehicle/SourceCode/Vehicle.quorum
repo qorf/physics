@@ -98,8 +98,8 @@ if timeStep <= 0 or chassis = undefined
         end
 
         Vector3 angVel = chassis:GetAngularVelocity()
-        output "[VEHICLE-ANGULAR-BUDGET] before=(" + angularBeforeUpdate:GetX() + "," + angularBeforeUpdate:GetY() + "," + angularBeforeUpdate:GetZ() + ") afterSuspension=(" + angularAfterSuspension:GetX() + "," + angularAfterSuspension:GetY() + "," + angularAfterSuspension:GetZ() + ") afterTires=(" + angVel:GetX() + "," + angVel:GetY() + "," + angVel:GetZ() + ")"
-        output "[CHASSIS] angularVel=(" + angVel:GetX() + "," + angVel:GetY() + "," + angVel:GetZ() + ")"
+        //output "[VEHICLE-ANGULAR-BUDGET] before=(" + angularBeforeUpdate:GetX() + "," + angularBeforeUpdate:GetY() + "," + angularBeforeUpdate:GetZ() + ") afterSuspension=(" + angularAfterSuspension:GetX() + "," + angularAfterSuspension:GetY() + "," + angularAfterSuspension:GetZ() + ") afterTires=(" + angVel:GetX() + "," + angVel:GetY() + "," + angVel:GetZ() + ")"
+        //output "[CHASSIS] angularVel=(" + angVel:GetX() + "," + angVel:GetY() + "," + angVel:GetZ() + ")"
     end
 
     private action ApplySuspensionImpulses()

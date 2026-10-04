@@ -208,7 +208,7 @@ vehicle:Update(seconds)
         renderForward:Normalize()
 
         Suspension frontWheel = vehicle:wheels:Get(0)
-        output "[CHASSIS-RENDER-CHECK] steering=" + frontWheel:steering + " physicsOrigin=(" + physicsOrigin:GetX() + "," + physicsOrigin:GetY() + "," + physicsOrigin:GetZ() + ") renderOrigin=(" + renderOrigin:GetX() + "," + renderOrigin:GetY() + "," + renderOrigin:GetZ() + ") basisForward=(" + basisForward:GetX() + "," + basisForward:GetY() + "," + basisForward:GetZ() + ") renderForward=(" + renderForward:GetX() + "," + renderForward:GetY() + "," + renderForward:GetZ() + ") forwardDelta=(" + (basisForward:GetX() - renderForward:GetX()) + "," + (basisForward:GetY() - renderForward:GetY()) + "," + (basisForward:GetZ() - renderForward:GetZ()) + ")"
+        //output "[CHASSIS-RENDER-CHECK] steering=" + frontWheel:steering + " physicsOrigin=(" + physicsOrigin:GetX() + "," + physicsOrigin:GetY() + "," + physicsOrigin:GetZ() + ") renderOrigin=(" + renderOrigin:GetX() + "," + renderOrigin:GetY() + "," + renderOrigin:GetZ() + ") basisForward=(" + basisForward:GetX() + "," + basisForward:GetY() + "," + basisForward:GetZ() + ") renderForward=(" + renderForward:GetX() + "," + renderForward:GetY() + "," + renderForward:GetZ() + ") forwardDelta=(" + (basisForward:GetX() - renderForward:GetX()) + "," + (basisForward:GetY() - renderForward:GetY()) + "," + (basisForward:GetZ() - renderForward:GetZ()) + ")"
     end
 
     action DriveAndOperate
@@ -252,8 +252,8 @@ vehicle:Update(seconds)
 
             if isDriving
                 // output "Applying throttle 420, chassis Y = " + chassis:GetY()
-                output "[DRIVE] Pos: (" + chassis:GetX() + ", " + chassis:GetY() + ", " + chassis:GetZ() + ")"
-                output "[DRIVE ROTATION] RotX: " + chassis:GetPitch() + ", RotY: " + chassis:GetRoll() + ", RotZ: " + chassis:GetYaw()
+                //output "[DRIVE] Pos: (" + chassis:GetX() + ", " + chassis:GetY() + ", " + chassis:GetZ() + ")"
+                //output "[DRIVE ROTATION] RotX: " + chassis:GetPitch() + ", RotY: " + chassis:GetRoll() + ", RotZ: " + chassis:GetYaw()
             end
 
             number steering = 0
