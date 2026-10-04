@@ -5,10 +5,13 @@ use Libraries.Compute.Vector3
 
 /* One raycast wheel and its suspension/drive state. */
 class Suspension
-    public Item3D wheelVisual
+    Item3D wheelVisual = undefined
+    boolean steeringEnabled = false
+    public Vector3 axleRelativeToChassis
+    
+    public Vector3 directionRelativeToChassis
+    
     public Vector3 connectionPointCS
-    public Vector3 directionCS
-    public Vector3 axleCS
     public Vector3 hardPointWS
     public Vector3 directionWS
     public Vector3 axleWS
@@ -28,7 +31,6 @@ class Suspension
     public number brake = 0
     public number suspensionForce = 0
     public number wheelRotation = 0
-    public boolean frontWheel = false
     public boolean inContact = false
     public Item3D groundBody
 
@@ -41,19 +43,157 @@ class Suspension
     public Vector3 tireSideImpulse
     public Vector3 tireChassisPoint
     public Vector3 tireGroundPoint
-
-    action Initialize(Item3D visual, Vector3 connection, Vector3 direction, Vector3 axle, number suspensionRestLength, number wheelRadius, boolean isFrontWheel)
-        wheelVisual = visual
-        connectionPointCS:Set(connection)
-        directionCS:Set(direction)
-        directionCS:Normalize()
-        axleCS:Set(axle)
-        axleCS:Normalize()
-        restLength = suspensionRestLength
-        radius = wheelRadius
-        suspensionLength = restLength
-        frontWheel = isFrontWheel
-        // In Quorum's Y-up system, normal points up
+    
+    on create
         contactNormalWS:Set(0, 1, 0)
+    end
+    
+
+    //action Initialize(Item3D visual, Vector3 connection, Vector3 direction, Vector3 axle, number suspensionRestLength, number wheelRadius, boolean isFrontWheel)
+        //wheelVisual = visual
+        //connectionPointCS:Set(connection)
+        //directionRelativeToChassis:Set(direction)
+        //directionRelativeToChassis:Normalize()
+        //axleRelativeToChassis:Set(axle)
+        //axleRelativeToChassis:Normalize()
+        //restLength = suspensionRestLength
+        //radius = wheelRadius
+        //suspensionLength = restLength
+        //frontWheel = isFrontWheel
+        //// In Quorum's Y-up system, normal points up
+        //contactNormalWS:Set(0, 1, 0)
+    //end
+    
+    action GetVisual returns Item3D
+        return wheelVisual
+    end
+
+    action SetVisual(Item3D visual)
+        me:wheelVisual = visual
+    end
+
+    /*
+Returns the wheel's suspension connection point in chassis space. This is a
+position offset from the chassis rigid body's local origin, measured in the
+vehicle's distance units. The vehicle rotates and adds this offset to the
+chassis position to find where the suspension ray starts in world space.
+*/
+    action GetConnectionPoint returns Vector3
+        return connectionPointCS
+    end
+
+    /*
+Sets the wheel's suspension connection point in chassis space. This is a
+position offset from the chassis rigid body's local origin, not a world
+position. The vehicle rotates and adds this offset to the chassis position
+to find where the suspension ray starts in world space.
+*/
+    action SetConnectionPoint(Vector3 connectionPointCS)
+        me:connectionPointCS = connectionPointCS
+    end
+
+    /*
+Returns the fixed suspension ray direction in chassis space. The direction is
+relative to the chassis axes, not the world axes. For example, (0, -1, 0)
+points down from the chassis. As the chassis moves or turns, the vehicle
+rotates this direction to find the ray's direction in world space.
+*/
+    action GetDirection returns Vector3
+        return directionRelativeToChassis
+    end
+
+    /*
+Sets the fixed suspension ray direction in chassis space. The direction is
+relative to the chassis axes, not the world axes. For example, (0, -1, 0)
+points down from the chassis. The vehicle rotates this direction with the
+chassis to find the ray's direction in world space.
+*/
+    action SetDirection(Vector3 directionRelativeToChassis)
+        me:directionRelativeToChassis:Set(directionRelativeToChassis)
+        directionRelativeToChassis:Normalize()
+    end
+
+    /*
+Returns the wheel axle direction in chassis space. It describes the
+side-to-side axis the wheel spins around, relative to the chassis: +X is
+right, +Y is up, and +Z is forward. The vehicle rotates this direction with
+the chassis to find the axle in world space. It also uses the axle to
+calculate the tire's sideways friction force.
+*/
+    action GetAxle returns Vector3
+        return axleRelativeToChassis
+    end
+
+    /*
+Sets the wheel axle direction in chassis space. The direction is relative to
+the chassis, not the world: +X is right, +Y is up, and +Z is forward. The
+vehicle rotates it with the chassis when calculating the wheel direction and
+sideways tire friction.
+*/
+    action SetAxle(Vector3 axleRelativeToChassis)
+        //Make a copy of it
+        me:axleRelativeToChassis:Set(axleRelativeToChassis)
+        axleRelativeToChassis:Normalize()
+    end
+
+    /*
+Returns the suspension's starting length. This value stays the same while
+the vehicle moves.
+*/
+    action GetRestLength returns number
+        return restLength
+    end
+
+    /*
+Sets the suspension's starting length.
+*/
+    action SetRestLength(number restLength)
+        me:restLength = restLength
+    end
+
+    /*
+Returns whether steering input changes this wheel's direction.
+*/
+    action IsSteeringEnabled returns boolean
+        return steeringEnabled
+    end
+
+    /*
+Enables steering to rotate this wheel's axle. When the wheel touches the
+ground, this can change the direction of its tire friction force.
+*/
+    action SetSteeringEnabled(boolean steeringEnabled)
+        me:steeringEnabled = steeringEnabled
+    end
+
+    /*
+Returns the suspension's current length. This value changes as the suspension
+compresses or extends.
+*/
+    action GetSuspensionLength returns number
+        return suspensionLength
+    end
+
+    /*
+Sets the suspension's current length. This value changes as the suspension compresses or extends.
+*/
+    action SetSuspensionLength(number suspensionLength)
+        me:suspensionLength = suspensionLength
+    end
+
+    /*
+Returns the radius of the wheel used by the suspension ray and to find the
+wheel's position from the ground contact point.
+*/
+    action GetRadius returns number
+        return radius
+    end
+
+    /*
+Sets the radius of the wheel used by the suspension ray and to find the
+wheel's position from the ground contact point.
+*/
+    action SetRadius(number radius)
+        me:radius = radius
     end
 end

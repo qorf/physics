@@ -37,7 +37,16 @@ class Vehicle
             wheels = temp
         end
         Suspension wheel
-        wheel:Initialize(visual, connection, direction, axle, restLength, radius, frontWheel)
+        wheel:SetVisual(visual)
+        wheel:SetConnectionPoint(connection)
+        wheel:SetDirection(direction)
+        wheel:SetAxle(axle)
+        wheel:SetRestLength(restLength)
+        wheel:SetRadius(radius)
+        wheel:SetSteeringEnabled(frontWheel)
+        
+        
+        //wheel:Initialize(visual, connection, direction, axle, restLength, radius, frontWheel)
         wheels:Add(wheel)
         return wheel
     end
@@ -106,7 +115,7 @@ if timeStep <= 0 or chassis = undefined
                 before:Set(chassis:GetAngularVelocity())
                 chassis:ApplyImpulse(wheel:suspensionImpulse, wheel:suspensionChassisPoint)
                 Vector3 after = chassis:GetAngularVelocity()
-                output "[SUSPENSION-TORQUE] wheelIndex=" + i + " front=" + wheel:frontWheel + " force=" + wheel:suspensionForce + " length=" + wheel:suspensionLength + " point=(" + wheel:suspensionChassisPoint:GetX() + "," + wheel:suspensionChassisPoint:GetY() + "," + wheel:suspensionChassisPoint:GetZ() + ") impulse=(" + wheel:suspensionImpulse:GetX() + "," + wheel:suspensionImpulse:GetY() + "," + wheel:suspensionImpulse:GetZ() + ") torque=(" + torque:GetX() + "," + torque:GetY() + "," + torque:GetZ() + ") deltaAngularVelocity=(" + (after:GetX() - before:GetX()) + "," + (after:GetY() - before:GetY()) + "," + (after:GetZ() - before:GetZ()) + ")"
+                //output "[SUSPENSION-TORQUE] wheelIndex=" + i + " front=" + wheel:frontWheel + " force=" + wheel:suspensionForce + " length=" + wheel:suspensionLength + " point=(" + wheel:suspensionChassisPoint:GetX() + "," + wheel:suspensionChassisPoint:GetY() + "," + wheel:suspensionChassisPoint:GetZ() + ") impulse=(" + wheel:suspensionImpulse:GetX() + "," + wheel:suspensionImpulse:GetY() + "," + wheel:suspensionImpulse:GetZ() + ") torque=(" + torque:GetX() + "," + torque:GetY() + "," + torque:GetZ() + ") deltaAngularVelocity=(" + (after:GetX() - before:GetX()) + "," + (after:GetY() - before:GetY()) + "," + (after:GetZ() - before:GetZ()) + ")"
             end
             i = i + 1
         end
@@ -135,17 +144,18 @@ if timeStep <= 0 or chassis = undefined
         wheel:hardPointWS:Add(rotatedOffset)
 
         // Transform suspension direction from chassis-space to world-space
-        wheel:directionWS:Set(wheel:directionCS)
+        wheel:directionWS:Set(wheel:GetDirection())
         TransformByChassisBasis(wheel:directionWS, chassisRotation)
         wheel:directionWS:Normalize()
 
         // Apply steering to axle in car space, then rotate to world space
-        wheel:axleWS:Set(wheel:axleCS)
-        if wheel:frontWheel
+        wheel:axleWS:Set(wheel:GetAxle())
+        if wheel:IsSteeringEnabled()
             number cosine = math:Cosine(wheel:steering)
             number sine = math:Sine(wheel:steering)
+            Vector3 axleCS = wheel:GetAxle()
             // Rotation around Y axis (vertical in Quorum's Y-up): rotate in XZ plane
-            wheel:axleWS:Set(cosine * wheel:axleCS:GetX() - sine * wheel:axleCS:GetZ(), wheel:axleCS:GetY(), sine * wheel:axleCS:GetX() + cosine * wheel:axleCS:GetZ())
+            wheel:axleWS:Set(cosine * axleCS:GetX() - sine * axleCS:GetZ(), axleCS:GetY(), sine * axleCS:GetX() + cosine * axleCS:GetZ())
         end
 
         // Rotate axle by chassis rotation to get world space
@@ -206,7 +216,7 @@ if timeStep <= 0 or chassis = undefined
             wheel:suspensionForce = (wheel:suspensionStiffness * compression - damping * normalSpeed) * chassis:GetMass()
             wheel:suspensionForce = Clamp(wheel:suspensionForce, 0, wheel:maxSuspensionForce)
 
-            output "[SUSPENSION-STATE] wheelIndex=" + wheelIndex + " front=" + wheel:frontWheel + " contact=" + hitDetected + " compression=" + compression + " suspensionLength=" + wheel:suspensionLength + " normalSpeed=" + normalSpeed + " force=" + wheel:suspensionForce + " pointWS=(" + wheel:contactPointWS:GetX() + "," + wheel:contactPointWS:GetY() + "," + wheel:contactPointWS:GetZ() + ") normalWS=(" + wheel:contactNormalWS:GetX() + "," + wheel:contactNormalWS:GetY() + "," + wheel:contactNormalWS:GetZ() + ")"
+            //output "[SUSPENSION-STATE] wheelIndex=" + wheelIndex + " front=" + wheel:frontWheel + " contact=" + hitDetected + " compression=" + compression + " suspensionLength=" + wheel:suspensionLength + " normalSpeed=" + normalSpeed + " force=" + wheel:suspensionForce + " pointWS=(" + wheel:contactPointWS:GetX() + "," + wheel:contactPointWS:GetY() + "," + wheel:contactPointWS:GetZ() + ") normalWS=(" + wheel:contactNormalWS:GetX() + "," + wheel:contactNormalWS:GetY() + "," + wheel:contactNormalWS:GetZ() + ")"
 
             //output "[WHEEL] name=" + wheel:wheelVisual:GetName() + " compression=" + compression + " suspensionForce=" + wheel:suspensionForce + " contactNormal=(" + wheel:contactNormalWS:GetX() + "," + wheel:contactNormalWS:GetY() + "," + wheel:contactNormalWS:GetZ() + ") hardPointWS=(" + wheel:hardPointWS:GetX() + "," + wheel:hardPointWS:GetY() + "," + wheel:hardPointWS:GetZ() + ")"
 
@@ -220,7 +230,8 @@ if timeStep <= 0 or chassis = undefined
             wheel:suspensionLength = wheel:restLength + maxSuspensionTravel
         end
 
-        if wheel:wheelVisual not= undefined
+        if wheel:GetVisual() not= undefined
+            Item3D visual = wheel:GetVisual()
             Vector3 wheelPosition
             wheelPosition:Set(wheel:directionWS)
             wheelPosition:Scale(wheel:suspensionLength)
@@ -228,7 +239,7 @@ if timeStep <= 0 or chassis = undefined
 
             // Safety check: don't set wheel to invalid positions
             if wheelPosition:GetY() > -1000 and wheelPosition:GetY() < 1000
-                wheel:wheelVisual:SetPosition(wheelPosition)
+                visual:SetPosition(wheelPosition)
             end
         end
     end
@@ -304,7 +315,7 @@ if timeStep <= 0 or chassis = undefined
                     forwardImpulse = Clamp(forwardImpulse, -wheel:brake, wheel:brake)
                 end
 
-                output "[TIRE-SOLVE] wheelIndex=" + i + " front=" + wheel:frontWheel + " steering=" + wheel:steering + " contactPoint=(" + wheel:contactPointWS:GetX() + "," + wheel:contactPointWS:GetY() + "," + wheel:contactPointWS:GetZ() + ") relativeVelocity=(" + relativeVelocity:GetX() + "," + relativeVelocity:GetY() + "," + relativeVelocity:GetZ() + ") axle=(" + axle:GetX() + "," + axle:GetY() + "," + axle:GetZ() + ") forward=(" + forward:GetX() + "," + forward:GetY() + "," + forward:GetZ() + ") lateralSpeed=" + lateralVelocity + " forwardSpeed=" + forwardVelocity + " sideDenominator=" + sideDenominator + " forwardDenominator=" + forwardDenominator + " rawSideImpulse=" + sideImpulse + " rawForwardImpulse=" + forwardImpulse
+                //output "[TIRE-SOLVE] wheelIndex=" + i + " front=" + wheel:frontWheel + " steering=" + wheel:steering + " contactPoint=(" + wheel:contactPointWS:GetX() + "," + wheel:contactPointWS:GetY() + "," + wheel:contactPointWS:GetZ() + ") relativeVelocity=(" + relativeVelocity:GetX() + "," + relativeVelocity:GetY() + "," + relativeVelocity:GetZ() + ") axle=(" + axle:GetX() + "," + axle:GetY() + "," + axle:GetZ() + ") forward=(" + forward:GetX() + "," + forward:GetY() + "," + forward:GetZ() + ") lateralSpeed=" + lateralVelocity + " forwardSpeed=" + forwardVelocity + " sideDenominator=" + sideDenominator + " forwardDenominator=" + forwardDenominator + " rawSideImpulse=" + sideImpulse + " rawForwardImpulse=" + forwardImpulse
 
                 // Bullet weights forward traction by 0.5 and side traction by 1.0.
                 number maxImpulse = wheel:frictionSlip * wheel:suspensionForce * timeStep
@@ -356,7 +367,7 @@ if timeStep <= 0 or chassis = undefined
                 wheel:tireChassisPoint:Subtract(chassis:GetCenterOfMassTransform():GetOrigin())
                 wheel:tireGroundPoint:Set(wheel:contactPointWS)
                 wheel:tireGroundPoint:Subtract(wheel:groundBody:GetCenterOfMassTransform():GetOrigin())
-                output "[TIRE-BULLET] wheelIndex=" + i + " front=" + wheel:frontWheel + " steering=" + wheel:steering + " engineForce=" + wheel:engineForce + " sideImpulse=" + sideImpulse + " forwardImpulse=" + forwardImpulse + " skidInfo=" + skid + " tireImpulse=(" + wheel:tireImpulse:GetX() + "," + wheel:tireImpulse:GetY() + "," + wheel:tireImpulse:GetZ() + ") point=(" + wheel:tireChassisPoint:GetX() + "," + wheel:tireChassisPoint:GetY() + "," + wheel:tireChassisPoint:GetZ() + ")"
+                //output "[TIRE-BULLET] wheelIndex=" + i + " front=" + wheel:frontWheel + " steering=" + wheel:steering + " engineForce=" + wheel:engineForce + " sideImpulse=" + sideImpulse + " forwardImpulse=" + forwardImpulse + " skidInfo=" + skid + " tireImpulse=(" + wheel:tireImpulse:GetX() + "," + wheel:tireImpulse:GetY() + "," + wheel:tireImpulse:GetZ() + ") point=(" + wheel:tireChassisPoint:GetX() + "," + wheel:tireChassisPoint:GetY() + "," + wheel:tireChassisPoint:GetZ() + ")"
             end
             i = i + 1
         end
@@ -392,7 +403,7 @@ if timeStep <= 0 or chassis = undefined
             Vector3 totalTorque
             totalTorque:Set(forwardTorque):Add(sideTorque)
             Vector3 angularAfter = chassis:GetAngularVelocity()
-            output "[TIRE-TORQUE] wheelIndex=" + wheelIndex + " front=" + wheel:frontWheel + " steering=" + wheel:steering + " forwardImpulse=(" + wheel:tireForwardImpulse:GetX() + "," + wheel:tireForwardImpulse:GetY() + "," + wheel:tireForwardImpulse:GetZ() + ") sideImpulse=(" + wheel:tireSideImpulse:GetX() + "," + wheel:tireSideImpulse:GetY() + "," + wheel:tireSideImpulse:GetZ() + ") forwardTorque=(" + forwardTorque:GetX() + "," + forwardTorque:GetY() + "," + forwardTorque:GetZ() + ") sideTorque=(" + sideTorque:GetX() + "," + sideTorque:GetY() + "," + sideTorque:GetZ() + ") totalTorque=(" + totalTorque:GetX() + "," + totalTorque:GetY() + "," + totalTorque:GetZ() + ") deltaAngularVelocity=(" + (angularAfter:GetX() - angularBefore:GetX()) + "," + (angularAfter:GetY() - angularBefore:GetY()) + "," + (angularAfter:GetZ() - angularBefore:GetZ()) + ")"
+            //output "[TIRE-TORQUE] wheelIndex=" + wheelIndex + " front=" + wheel:frontWheel + " steering=" + wheel:steering + " forwardImpulse=(" + wheel:tireForwardImpulse:GetX() + "," + wheel:tireForwardImpulse:GetY() + "," + wheel:tireForwardImpulse:GetZ() + ") sideImpulse=(" + wheel:tireSideImpulse:GetX() + "," + wheel:tireSideImpulse:GetY() + "," + wheel:tireSideImpulse:GetZ() + ") forwardTorque=(" + forwardTorque:GetX() + "," + forwardTorque:GetY() + "," + forwardTorque:GetZ() + ") sideTorque=(" + sideTorque:GetX() + "," + sideTorque:GetY() + "," + sideTorque:GetZ() + ") totalTorque=(" + totalTorque:GetX() + "," + totalTorque:GetY() + "," + totalTorque:GetZ() + ") deltaAngularVelocity=(" + (angularAfter:GetX() - angularBefore:GetX()) + "," + (angularAfter:GetY() - angularBefore:GetY()) + "," + (angularAfter:GetZ() - angularBefore:GetZ()) + ")"
         end
     end
 
