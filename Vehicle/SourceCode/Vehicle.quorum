@@ -136,7 +136,7 @@ if timeStep <= 0 or chassis = undefined
         // Get chassis rotation and apply it to the connection point offset
         Matrix3 chassisRotation = chassis:GetCenterOfMassTransform():GetBasis()
         Vector3 rotatedOffset
-        rotatedOffset:Set(wheel:connectionPointCS)
+        rotatedOffset:Set(wheel:GetConnectionPoint())
         TransformByChassisBasis(rotatedOffset, chassisRotation)
 
         // Calculate hard point in world space: chassis position + rotated offset

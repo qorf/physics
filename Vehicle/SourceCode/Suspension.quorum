@@ -7,11 +7,10 @@ use Libraries.Compute.Vector3
 class Suspension
     Item3D wheelVisual = undefined
     boolean steeringEnabled = false
-    public Vector3 axleRelativeToChassis
+    Vector3 axleRelativeToChassis
+    Vector3 directionRelativeToChassis
+    Vector3 connectionPointRelativeToChassis
     
-    public Vector3 directionRelativeToChassis
-    
-    public Vector3 connectionPointCS
     public Vector3 hardPointWS
     public Vector3 directionWS
     public Vector3 axleWS
@@ -79,7 +78,7 @@ vehicle's distance units. The vehicle rotates and adds this offset to the
 chassis position to find where the suspension ray starts in world space.
 */
     action GetConnectionPoint returns Vector3
-        return connectionPointCS
+        return connectionPointRelativeToChassis
     end
 
     /*
@@ -88,8 +87,8 @@ position offset from the chassis rigid body's local origin, not a world
 position. The vehicle rotates and adds this offset to the chassis position
 to find where the suspension ray starts in world space.
 */
-    action SetConnectionPoint(Vector3 connectionPointCS)
-        me:connectionPointCS = connectionPointCS
+    action SetConnectionPoint(Vector3 connectionPointRelativeToChassis)
+        me:connectionPointRelativeToChassis = connectionPointRelativeToChassis
     end
 
     /*
