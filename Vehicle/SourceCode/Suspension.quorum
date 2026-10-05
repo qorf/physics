@@ -22,17 +22,17 @@ class Suspension
     number suspensionLength = 1.3
     number suspensionStiffness = 25
     number dampingCompression = 2.5
-    public number dampingRelaxation = 2.0
-    public number maxSuspensionForce = 6000
-    public number frictionSlip = 100
-    public number rollInfluence = 0.1
-    public number steering = 0
-    public number engineForce = 0
-    public number brake = 0
-    public number suspensionForce = 0
-    public number wheelRotation = 0
-    public boolean inContact = false
-    public Item3D groundBody = undefined
+    number dampingRelaxation = 2.0
+    number maxSuspensionForce = 6000
+    number frictionSlip = 100
+    number rollInfluence = 0.1
+    number steering = 0
+    number engineForce = 0
+    number brake = 0
+    number suspensionForce = 0
+    number wheelRotation = 0
+    boolean inContact = false
+    Item3D groundBody = undefined
 
     // Impulse storage for deferred application
     public Vector3 suspensionImpulse
@@ -502,4 +502,12 @@ value.
     action SetInContact(boolean inContact)
         me:inContact = inContact
     end
+    action GetGroundBody returns Item3D
+        return groundBody
+    end
+
+    action SetGroundBody(Item3D groundBody)
+        me:groundBody = groundBody
+    end
+
 end

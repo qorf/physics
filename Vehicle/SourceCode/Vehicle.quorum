@@ -16,6 +16,7 @@ use Libraries.Compute.Matrix3
 */
 class Vehicle
     Math math
+    constant number COMPARE_TO_ZERO = math:RaiseToPower(2, -52)
     public Layer3D world = undefined
     public Item3D chassis
     public Array<Suspension> wheels
@@ -53,17 +54,17 @@ class Vehicle
 
     action SetSteeringValue(number value, integer wheelIndex)
         Suspension wheel = wheels:Get(wheelIndex)
-        wheel:steering = Clamp(value, -steeringClamp, steeringClamp)
+        wheel:SetSteering(Clamp(value, -steeringClamp, steeringClamp))
     end
 
     action ApplyEngineForce(number force, integer wheelIndex)
      Suspension wheel = wheels:Get(wheelIndex)
-        wheel:engineForce = force
+        wheel:SetEngineForce(force)
     end
 
     action SetBrake(number force, integer wheelIndex)
         Suspension wheel = wheels:Get(wheelIndex)
-        wheel:brake = math:MaximumOf(0, force)
+        wheel:SetBrake(math:MaximumOf(0, force))
     end
 
     action GetSpeedKPH returns number
@@ -106,7 +107,7 @@ if timeStep <= 0 or chassis = undefined
         integer i = 0
         repeat while i < wheels:GetSize()
             Suspension wheel = wheels:Get(i)
-            if wheel:inContact
+            if wheel:GetInContact()
                 // Bullet applies suspension impulses to the chassis before tire friction.
                 Vector3 torque
                 torque:Set(wheel:suspensionChassisPoint)
@@ -154,8 +155,8 @@ if timeStep <= 0 or chassis = undefined
         Vector3 axleWorldSpace = wheel:GetAxleWorldSpace()
         axleWorldSpace:Set(wheel:GetAxle())
         if wheel:IsSteeringEnabled()
-            number cosine = math:Cosine(wheel:steering)
-            number sine = math:Sine(wheel:steering)
+            number cosine = math:Cosine(wheel:GetSteering())
+            number sine = math:Sine(wheel:GetSteering())
             Vector3 axleCS = wheel:GetAxle()
             // Rotation around Y axis (vertical in Quorum's Y-up): rotate in XZ plane
             axleWorldSpace:Set(cosine * axleCS:GetX() - sine * axleCS:GetZ(), axleCS:GetY(), sine * axleCS:GetX() + cosine * axleCS:GetZ())
@@ -183,12 +184,12 @@ if timeStep <= 0 or chassis = undefined
             //output "WARNING: Invalid hard point Y = " + hardPointY + " (chassis Y = " + chassis:GetY() + ")"
         end
 
-        wheel:inContact = hitDetected
-        wheel:suspensionForce = 0
-        wheel:groundBody = undefined
+        wheel:SetInContact(hitDetected)
+        wheel:SetSuspensionForce(0)
+        wheel:SetGroundBody(undefined)
 
         if hitDetected
-            wheel:groundBody = raycast:hitBody
+            wheel:SetGroundBody(raycast:hitBody)
             Vector3 contactPointWorldSpace = wheel:GetContactPointWorldSpace()
             Vector3 contactNormalWorldSpace = wheel:GetContactNormalWorldSpace()
             contactPointWorldSpace:Set(raycast:hitPoint)
@@ -204,22 +205,24 @@ if timeStep <= 0 or chassis = undefined
             Vector3 relativeVelocity
             relativeVelocity:Set(chassisVelocity)
             Vector3 groundRelativePoint
-            if wheel:groundBody not= undefined
+            
+            Item3D groundBody = wheel:GetGroundBody()
+            if groundBody not= undefined
                 groundRelativePoint:Set(contactPointWorldSpace)
-                groundRelativePoint:Subtract(wheel:groundBody:GetCenterOfMassTransform():GetOrigin())
-                relativeVelocity:Subtract(wheel:groundBody:GetLinearVelocityAtLocalPoint(groundRelativePoint))
+                groundRelativePoint:Subtract(groundBody:GetCenterOfMassTransform():GetOrigin())
+                relativeVelocity:Subtract(groundBody:GetLinearVelocityAtLocalPoint(groundRelativePoint))
             end
 
             number normalSpeed = relativeVelocity:DotProduct(contactNormalWorldSpace)
             //output "[WHEEL-VELOCITY] name=" + wheel:wheelVisual:GetName() + " normalSpeed=" + normalSpeed + " relativeVelocity=(" + relativeVelocity:GetX() + "," + relativeVelocity:GetY() + "," + relativeVelocity:GetZ() + ") contactNormal=(" + wheel:contactNormalWS:GetX() + "," + wheel:contactNormalWS:GetY() + "," + wheel:contactNormalWS:GetZ() + ")"
             number compression = wheel:GetRestLength() - wheel:GetSuspensionLength()
-            number damping = wheel:dampingRelaxation
+            number damping = wheel:GetDampingRelaxation()
             if normalSpeed < 0
                 damping = wheel:GetDampingCompression()
             end
             // Bullet scales its spring and damping response by the chassis mass.
-            wheel:suspensionForce = (wheel:GetSuspensionStiffness() * compression - damping * normalSpeed) * chassis:GetMass()
-            wheel:suspensionForce = Clamp(wheel:suspensionForce, 0, wheel:maxSuspensionForce)
+            wheel:SetSuspensionForce((wheel:GetSuspensionStiffness() * compression - damping * normalSpeed) * chassis:GetMass())
+            wheel:SetSuspensionForce(Clamp(wheel:GetSuspensionForce(), 0, wheel:GetMaxSuspensionForce()))
 
             //output "[SUSPENSION-STATE] wheelIndex=" + wheelIndex + " front=" + wheel:frontWheel + " contact=" + hitDetected + " compression=" + compression + " suspensionLength=" + wheel:suspensionLength + " normalSpeed=" + normalSpeed + " force=" + wheel:suspensionForce + " pointWS=(" + wheel:contactPointWS:GetX() + "," + wheel:contactPointWS:GetY() + "," + wheel:contactPointWS:GetZ() + ") normalWS=(" + wheel:contactNormalWS:GetX() + "," + wheel:contactNormalWS:GetY() + "," + wheel:contactNormalWS:GetZ() + ")"
 
@@ -227,7 +230,7 @@ if timeStep <= 0 or chassis = undefined
 
             // Store suspension impulse for deferred application
             wheel:suspensionImpulse:Set(contactNormalWorldSpace)
-            wheel:suspensionImpulse:Scale(wheel:suspensionForce * timeStep)
+            wheel:suspensionImpulse:Scale(wheel:GetSuspensionForce() * timeStep)
             wheel:suspensionChassisPoint:Set(chassisRelativePoint)
             wheel:suspensionGroundPoint:Set(groundRelativePoint)
 
@@ -257,7 +260,7 @@ if timeStep <= 0 or chassis = undefined
             wheel:tireImpulse:Set(0, 0, 0)
             wheel:tireForwardImpulse:Set(0, 0, 0)
             wheel:tireSideImpulse:Set(0, 0, 0)
-            if wheel:inContact and wheel:groundBody not= undefined
+            if wheel:GetInContact() and wheel:GetGroundBody() not= undefined
                 groundedWheels = groundedWheels + 1
             end
             i = i + 1
@@ -277,7 +280,7 @@ if timeStep <= 0 or chassis = undefined
             sideValues:Add(0.0)
             forwardValues:Add(0.0)
             Suspension wheel = wheels:Get(i)
-            if wheel:inContact and wheel:groundBody not= undefined
+            if wheel:GetInContact() and wheel:GetGroundBody() not= undefined
                 Vector3 axle
                 
                 Vector3 axleWorldSpace = wheel:GetAxleWorldSpace()
@@ -304,30 +307,30 @@ if timeStep <= 0 or chassis = undefined
                 Vector3 relativeVelocity = chassis:GetLinearVelocityAtLocalPoint(chassisPoint)
                 Vector3 groundPoint
                 groundPoint:Set(contactPointWorldSpace)
-                groundPoint:Subtract(wheel:groundBody:GetCenterOfMassTransform():GetOrigin())
-                relativeVelocity:Subtract(wheel:groundBody:GetLinearVelocityAtLocalPoint(groundPoint))
+                groundPoint:Subtract(wheel:GetGroundBody():GetCenterOfMassTransform():GetOrigin())
+                relativeVelocity:Subtract(wheel:GetGroundBody():GetLinearVelocityAtLocalPoint(groundPoint))
 
                 number lateralVelocity = relativeVelocity:DotProduct(axle)
                 number forwardVelocity = relativeVelocity:DotProduct(forward)
-                number sideDenominator = chassis:ComputeImpulseDenominator(contactPointWorldSpace, axle) + wheel:groundBody:ComputeImpulseDenominator(contactPointWorldSpace, axle)
+                number sideDenominator = chassis:ComputeImpulseDenominator(contactPointWorldSpace, axle) + wheel:GetGroundBody():ComputeImpulseDenominator(contactPointWorldSpace, axle)
                 number sideImpulse = 0
                 if sideDenominator > 0.000001
                     sideImpulse = -lateralVelocity / sideDenominator / groundedWheels
                 end
 
-                number forwardDenominator = chassis:ComputeImpulseDenominator(contactPointWorldSpace, forward) + wheel:groundBody:ComputeImpulseDenominator(contactPointWorldSpace, forward)
+                number forwardDenominator = chassis:ComputeImpulseDenominator(contactPointWorldSpace, forward) + wheel:GetGroundBody():ComputeImpulseDenominator(contactPointWorldSpace, forward)
                 number forwardImpulse = 0
-                if wheel:engineForce not= 0
-                    forwardImpulse = wheel:engineForce * timeStep
-                elseif forwardDenominator > 0.000001 and wheel:brake > 0
+                if wheel:GetEngineForce() not= 0
+                    forwardImpulse = wheel:GetEngineForce() * timeStep
+                elseif forwardDenominator > 0.000001 and wheel:GetBrake() > 0
                     forwardImpulse = -forwardVelocity / forwardDenominator / groundedWheels
-                    forwardImpulse = Clamp(forwardImpulse, -wheel:brake, wheel:brake)
+                    forwardImpulse = Clamp(forwardImpulse, -wheel:GetBrake(), wheel:GetBrake())
                 end
 
                 //output "[TIRE-SOLVE] wheelIndex=" + i + " front=" + wheel:frontWheel + " steering=" + wheel:steering + " contactPoint=(" + wheel:contactPointWS:GetX() + "," + wheel:contactPointWS:GetY() + "," + wheel:contactPointWS:GetZ() + ") relativeVelocity=(" + relativeVelocity:GetX() + "," + relativeVelocity:GetY() + "," + relativeVelocity:GetZ() + ") axle=(" + axle:GetX() + "," + axle:GetY() + "," + axle:GetZ() + ") forward=(" + forward:GetX() + "," + forward:GetY() + "," + forward:GetZ() + ") lateralSpeed=" + lateralVelocity + " forwardSpeed=" + forwardVelocity + " sideDenominator=" + sideDenominator + " forwardDenominator=" + forwardDenominator + " rawSideImpulse=" + sideImpulse + " rawForwardImpulse=" + forwardImpulse
 
                 // Bullet weights forward traction by 0.5 and side traction by 1.0.
-                number maxImpulse = wheel:frictionSlip * wheel:suspensionForce * timeStep
+                number maxImpulse = wheel:GetFrictionSlip() * wheel:GetSuspensionForce() * timeStep
                 number weightedForward = forwardImpulse * 0.5
                 number impulseLength = math:SquareRoot(weightedForward * weightedForward + sideImpulse * sideImpulse)
                 number wheelSkid = 1.0
@@ -345,7 +348,7 @@ if timeStep <= 0 or chassis = undefined
         i = 0
         repeat while i < wheels:GetSize()
             Suspension wheel = wheels:Get(i)
-            if wheel:inContact and wheel:groundBody not= undefined
+            if wheel:GetInContact() and wheel:GetGroundBody() not= undefined
                 number skid = skidInfo:Get(i)
                 number sideImpulse = sideValues:Get(i)
                 number forwardImpulse = forwardValues:Get(i)
@@ -378,7 +381,7 @@ if timeStep <= 0 or chassis = undefined
                 wheel:tireChassisPoint:Set(contactPointWorldSpace)
                 wheel:tireChassisPoint:Subtract(chassis:GetCenterOfMassTransform():GetOrigin())
                 wheel:tireGroundPoint:Set(contactPointWorldSpace)
-                wheel:tireGroundPoint:Subtract(wheel:groundBody:GetCenterOfMassTransform():GetOrigin())
+                wheel:tireGroundPoint:Subtract(wheel:GetGroundBody():GetCenterOfMassTransform():GetOrigin())
                 //output "[TIRE-BULLET] wheelIndex=" + i + " front=" + wheel:frontWheel + " steering=" + wheel:steering + " engineForce=" + wheel:engineForce + " sideImpulse=" + sideImpulse + " forwardImpulse=" + forwardImpulse + " skidInfo=" + skid + " tireImpulse=(" + wheel:tireImpulse:GetX() + "," + wheel:tireImpulse:GetY() + "," + wheel:tireImpulse:GetZ() + ") point=(" + wheel:tireChassisPoint:GetX() + "," + wheel:tireChassisPoint:GetY() + "," + wheel:tireChassisPoint:GetZ() + ")"
             end
             i = i + 1
@@ -386,7 +389,7 @@ if timeStep <= 0 or chassis = undefined
     end
 
     private action ApplyStoredImpulses(Suspension wheel, integer wheelIndex)
-        if wheel:inContact
+        if wheel:GetInContact()
             // Bullet applies forward tire impulse to the chassis only. Side
             // friction is applied to both bodies and uses rollInfluence on the chassis.
             Vector3 angularBefore
@@ -394,23 +397,23 @@ if timeStep <= 0 or chassis = undefined
             Vector3 forwardTorque
             forwardTorque:Set(wheel:tireChassisPoint)
             forwardTorque:CrossProduct(wheel:tireForwardImpulse)
-            if not wheel:tireForwardImpulse:IsZero(0.000000119209290)
+            if not wheel:tireForwardImpulse:IsZero(COMPARE_TO_ZERO)
                 chassis:ApplyImpulse(wheel:tireForwardImpulse, wheel:tireChassisPoint)
             end
             Vector3 sidePoint
             Vector3 sideTorque
-            if not wheel:tireSideImpulse:IsZero(0.000000119209290)
+            if not wheel:tireSideImpulse:IsZero(COMPARE_TO_ZERO)
                 sidePoint:Set(wheel:tireChassisPoint)
-                sidePoint:Set(sidePoint:GetX(), sidePoint:GetY() * wheel:rollInfluence, sidePoint:GetZ())
+                sidePoint:Set(sidePoint:GetX(), sidePoint:GetY() * wheel:GetRollInfluence(), sidePoint:GetZ())
                 sideTorque:Set(sidePoint)
                 sideTorque:CrossProduct(wheel:tireSideImpulse)
                 chassis:ApplyImpulse(wheel:tireSideImpulse, sidePoint)
             end
-            if wheel:groundBody not= undefined and wheel:groundBody:GetInverseMass() > 0 and not wheel:tireSideImpulse:IsZero(0.000000119209290)
+            if wheel:GetGroundBody() not= undefined and wheel:GetGroundBody():GetInverseMass() > 0 and not wheel:tireSideImpulse:IsZero(COMPARE_TO_ZERO)
                 Vector3 oppositeTireImpulse
                 oppositeTireImpulse:Set(wheel:tireSideImpulse)
                 oppositeTireImpulse:MakeOpposite()
-                wheel:groundBody:ApplyImpulse(oppositeTireImpulse, wheel:tireGroundPoint)
+                wheel:GetGroundBody():ApplyImpulse(oppositeTireImpulse, wheel:tireGroundPoint)
             end
             Vector3 totalTorque
             totalTorque:Set(forwardTorque):Add(sideTorque)
