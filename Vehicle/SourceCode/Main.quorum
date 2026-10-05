@@ -15,6 +15,8 @@ use Libraries.Interface.Events.KeyboardEvent
 use Libraries.Compute.Vector3
 use Libraries.Compute.Matrix3
 use Libraries.Compute.Matrix4
+use Libraries.Compute.Random
+use Libraries.Game.Physics.PhysicsProperties3D
 
 /*
     A small Bullet-style forklift. Arrow keys steer and drive; Shift+Left/Right
@@ -35,6 +37,15 @@ class Main is Game
     Vehicle vehicle
     InputMonitor monitor
     KeyboardEvent keys
+    
+    
+    PhysicsProperties3D stackProperties
+    Camera camera = undefined
+    
+    integer numBoxesY = 12
+    integer numBoxesX = 10
+    integer numBoxesZ = 3
+    Color color
 
     action Main
         //UseVulkan(true)
@@ -46,11 +57,10 @@ class Main is Game
         SetGravity3D(0, -9.8, 0)
         Color colors
 
-
         DirectionalLight sunlight
         sunlight:SetIntensity(2.5)
         sunlight:SetColor(colors:LightGray())
-        sunlight:SetDirection(-1, -4, -2)
+        sunlight:SetDirection(-1, -4, 2)
         Add(sunlight)
 
         PointLight workLight
@@ -63,6 +73,7 @@ class Main is Game
         BuildChassis(colors)
         BuildWheels(colors)
         BuildVehicle()
+        BuildStack()
     end
 
     action BuildGround(Color colors)
@@ -73,6 +84,43 @@ class Main is Game
         ground:SetFriction(1)
         ground:SetName("Ground")
         Add(ground)
+    end
+    
+    
+    
+    action BuildStack
+        stackProperties:SetResponsiveness(stackProperties:RESPONSIVE)
+        stackProperties:SetFriction(0.5)
+        stackProperties:SetRestitution(0.5)
+        number xstart = -2
+        number ystart = 0.75
+        number zstart = 15
+        Random random
+        
+        i = 0
+        j = 0
+        k = 0
+        repeat while i < numBoxesY
+            repeat while j < numBoxesX
+                repeat while k < numBoxesZ
+                    Model box
+                box:LoadBox(0.5, 0.5, 0.5, color:CustomColor(random:RandomNumber(), random:RandomNumber(), random:RandomNumber(), 1))
+                box:SetPosition(xstart + (j * 0.5), ystart + (i * 0.5), zstart + (-k * 0.5))
+                box:EnablePhysics(true)
+                box:SetPhysicsProperties(stackProperties)
+                
+                Add(box)
+                    
+                    k = k + 1
+                end
+                
+                k = 0
+                j = j + 1
+            end
+            
+            j = 0
+            i = i + 1
+        end
     end
 
     action BuildChassis(Color colors)

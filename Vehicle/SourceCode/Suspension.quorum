@@ -5,7 +5,7 @@ use Libraries.Compute.Vector3
 
 /* One raycast wheel and its suspension/drive state. */
 class Suspension
-    Item3D wheelVisual = undefined
+    Item3D visual = undefined
     boolean steeringEnabled = false
     Vector3 axleRelativeToChassis
     Vector3 directionRelativeToChassis
@@ -15,10 +15,10 @@ class Suspension
     Vector3 directionWorldSpace
     Vector3 axleWorldSpace
     Vector3 contactPointWorldSpace
+    Vector3 contactNormalWorldSpace
     
-    public Vector3 contactNormalWS
-    public number restLength = 1.3
-    public number radius = 0.4
+    number restLength = 1.3
+    number radius = 0.4
     public number suspensionLength = 1.3
     public number suspensionStiffness = 25
     public number dampingCompression = 2.5
@@ -45,31 +45,23 @@ class Suspension
     public Vector3 tireGroundPoint
     
     on create
-        contactNormalWS:Set(0, 1, 0)
+        contactNormalWorldSpace:Set(0, 1, 0)
     end
     
-
-    //action Initialize(Item3D visual, Vector3 connection, Vector3 direction, Vector3 axle, number suspensionRestLength, number wheelRadius, boolean isFrontWheel)
-        //wheelVisual = visual
-        //connectionPointCS:Set(connection)
-        //directionRelativeToChassis:Set(direction)
-        //directionRelativeToChassis:Normalize()
-        //axleRelativeToChassis:Set(axle)
-        //axleRelativeToChassis:Normalize()
-        //restLength = suspensionRestLength
-        //radius = wheelRadius
-        //suspensionLength = restLength
-        //frontWheel = isFrontWheel
-        //// In Quorum's Y-up system, normal points up
-        //contactNormalWS:Set(0, 1, 0)
-    //end
-    
+    /*
+Returns the Item3D used to show this wheel in the scene. For example, this may
+be a cylinder or model positioned at the wheel's current world-space location. It is undefined by default.
+*/
     action GetVisual returns Item3D
-        return wheelVisual
+        return visual
     end
 
+    /*
+Sets the Item3D used to show this wheel in the scene. The vehicle updates this
+item's position and rotation to display the wheel.
+*/
     action SetVisual(Item3D visual)
-        me:wheelVisual = visual
+        me:visual = visual
     end
 
     /*
@@ -246,12 +238,38 @@ to calculate tire forces at the ground contact point.
         me:axleWorldSpace = axleWorldSpace
     end
 
+    /*
+Returns the wheel's contact point in world space. This is the exact point where
+the suspension ray hits the ground, such as (2, 0, 5) when the wheel touches a
+flat ground surface at X=2 and Z=5.
+*/
     action GetContactPointWorldSpace returns Vector3
         return contactPointWorldSpace
     end
 
+    /*
+Sets the wheel's contact point in world space. For example, set this to
+(2, 0, 5) when the wheel touches a flat ground surface at X=2 and Z=5.
+*/
     action SetContactPointWorldSpace(Vector3 contactPointWorldSpace)
         me:contactPointWorldSpace = contactPointWorldSpace
+    end
+
+    /*
+Returns the ground surface's contact normal in world space. The normal points
+out from the surface at the contact point; for flat ground, it usually points
+up, such as (0, 1, 0).
+*/
+    action GetContactNormalWorldSpace returns Vector3
+        return contactNormalWorldSpace
+    end
+
+    /*
+Sets the ground surface's contact normal in world space. For example, use
+(0, 1, 0) for flat ground, or the upward-facing normal of a slope.
+*/
+    action SetContactNormalWorldSpace(Vector3 contactNormalWorldSpace)
+        me:contactNormalWorldSpace = contactNormalWorldSpace
     end
 
 end

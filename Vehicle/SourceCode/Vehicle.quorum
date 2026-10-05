@@ -165,7 +165,7 @@ if timeStep <= 0 or chassis = undefined
         TransformByChassisBasis(axleWorldSpace, chassisRotation)
         axleWorldSpace:Normalize()
 
-        number rayLength = wheel:restLength + wheel:radius + maxSuspensionTravel
+        number rayLength = wheel:GetRestLength() + wheel:GetRadius() + maxSuspensionTravel
         Vector3 rayEnd
         rayEnd:Set(directionWorldSpace)
         rayEnd:Scale(rayLength)
@@ -190,10 +190,11 @@ if timeStep <= 0 or chassis = undefined
         if hitDetected
             wheel:groundBody = raycast:hitBody
             Vector3 contactPointWorldSpace = wheel:GetContactPointWorldSpace()
+            Vector3 contactNormalWorldSpace = wheel:GetContactNormalWorldSpace()
             contactPointWorldSpace:Set(raycast:hitPoint)
-            wheel:contactNormalWS:Set(raycast:hitNormal)
+            contactNormalWorldSpace:Set(raycast:hitNormal)
             number hitDistance = rayLength * raycast:fraction
-            wheel:suspensionLength = Clamp(hitDistance - wheel:radius, wheel:restLength - maxSuspensionTravel, wheel:restLength + maxSuspensionTravel)
+            wheel:suspensionLength = Clamp(hitDistance - wheel:GetRadius(), wheel:GetRestLength() - maxSuspensionTravel, wheel:GetRestLength() + maxSuspensionTravel)
 
             Vector3 chassisRelativePoint
             chassisRelativePoint:Set(contactPointWorldSpace)
@@ -209,9 +210,9 @@ if timeStep <= 0 or chassis = undefined
                 relativeVelocity:Subtract(wheel:groundBody:GetLinearVelocityAtLocalPoint(groundRelativePoint))
             end
 
-            number normalSpeed = relativeVelocity:DotProduct(wheel:contactNormalWS)
+            number normalSpeed = relativeVelocity:DotProduct(contactNormalWorldSpace)
             //output "[WHEEL-VELOCITY] name=" + wheel:wheelVisual:GetName() + " normalSpeed=" + normalSpeed + " relativeVelocity=(" + relativeVelocity:GetX() + "," + relativeVelocity:GetY() + "," + relativeVelocity:GetZ() + ") contactNormal=(" + wheel:contactNormalWS:GetX() + "," + wheel:contactNormalWS:GetY() + "," + wheel:contactNormalWS:GetZ() + ")"
-            number compression = wheel:restLength - wheel:suspensionLength
+            number compression = wheel:GetRestLength() - wheel:suspensionLength
             number damping = wheel:dampingRelaxation
             if normalSpeed < 0
                 damping = wheel:dampingCompression
@@ -225,13 +226,13 @@ if timeStep <= 0 or chassis = undefined
             //output "[WHEEL] name=" + wheel:wheelVisual:GetName() + " compression=" + compression + " suspensionForce=" + wheel:suspensionForce + " contactNormal=(" + wheel:contactNormalWS:GetX() + "," + wheel:contactNormalWS:GetY() + "," + wheel:contactNormalWS:GetZ() + ") hardPointWS=(" + wheel:hardPointWS:GetX() + "," + wheel:hardPointWS:GetY() + "," + wheel:hardPointWS:GetZ() + ")"
 
             // Store suspension impulse for deferred application
-            wheel:suspensionImpulse:Set(wheel:contactNormalWS)
+            wheel:suspensionImpulse:Set(contactNormalWorldSpace)
             wheel:suspensionImpulse:Scale(wheel:suspensionForce * timeStep)
             wheel:suspensionChassisPoint:Set(chassisRelativePoint)
             wheel:suspensionGroundPoint:Set(groundRelativePoint)
 
         else
-            wheel:suspensionLength = wheel:restLength + maxSuspensionTravel
+            wheel:suspensionLength = wheel:GetRestLength() + maxSuspensionTravel
         end
 
         if wheel:GetVisual() not= undefined
@@ -280,18 +281,19 @@ if timeStep <= 0 or chassis = undefined
                 Vector3 axle
                 
                 Vector3 axleWorldSpace = wheel:GetAxleWorldSpace()
+                Vector3 contactNormalWorldSpace = wheel:GetContactNormalWorldSpace()
                 axle:Set(axleWorldSpace)
                 // Main supplies +X axles, while Bullet's ForkLift uses -X.
                 // Keep that port convention when building Bullet's wheel basis.
                 axle:MakeOpposite()
-                number axleNormal = axle:DotProduct(wheel:contactNormalWS)
+                number axleNormal = axle:DotProduct(contactNormalWorldSpace)
                 Vector3 normalPart
-                normalPart:Set(wheel:contactNormalWS):Scale(axleNormal)
+                normalPart:Set(contactNormalWorldSpace):Scale(axleNormal)
                 axle:Subtract(normalPart)
                 axle:Normalize()
 
                 Vector3 forward
-                forward:Set(wheel:contactNormalWS)
+                forward:Set(contactNormalWorldSpace)
                 forward:CrossProduct(axle)
                 forward:Normalize()
 
@@ -357,15 +359,16 @@ if timeStep <= 0 or chassis = undefined
                 Vector3 axle
                 Vector3 axleWorldSpace = wheel:GetAxleWorldSpace()
                 Vector3 contactPointWorldSpace = wheel:GetContactPointWorldSpace()
+                Vector3 contactNormalWorldSpace = wheel:GetContactNormalWorldSpace()
                 axle:Set(axleWorldSpace)
                 axle:MakeOpposite()
-                number axleNormal = axle:DotProduct(wheel:contactNormalWS)
+                number axleNormal = axle:DotProduct(contactNormalWorldSpace)
                 Vector3 normalPart
-                normalPart:Set(wheel:contactNormalWS):Scale(axleNormal)
+                normalPart:Set(contactNormalWorldSpace):Scale(axleNormal)
                 axle:Subtract(normalPart)
                 axle:Normalize()
                 Vector3 forward
-                forward:Set(wheel:contactNormalWS)
+                forward:Set(contactNormalWorldSpace)
                 forward:CrossProduct(axle)
                 forward:Normalize()
 
