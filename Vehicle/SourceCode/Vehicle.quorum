@@ -145,27 +145,29 @@ if timeStep <= 0 or chassis = undefined
         suspensionOriginWorldSpace:Add(rotatedOffset)
 
         // Transform suspension direction from chassis-space to world-space
-        wheel:directionWS:Set(wheel:GetDirection())
-        TransformByChassisBasis(wheel:directionWS, chassisRotation)
-        wheel:directionWS:Normalize()
+        Vector3 directionWorldSpace = wheel:GetDirectionWorldSpace()
+        directionWorldSpace:Set(wheel:GetDirection())
+        TransformByChassisBasis(directionWorldSpace, chassisRotation)
+        directionWorldSpace:Normalize()
 
         // Apply steering to axle in car space, then rotate to world space
-        wheel:axleWS:Set(wheel:GetAxle())
+        Vector3 axleWorldSpace = wheel:GetAxleWorldSpace()
+        axleWorldSpace:Set(wheel:GetAxle())
         if wheel:IsSteeringEnabled()
             number cosine = math:Cosine(wheel:steering)
             number sine = math:Sine(wheel:steering)
             Vector3 axleCS = wheel:GetAxle()
             // Rotation around Y axis (vertical in Quorum's Y-up): rotate in XZ plane
-            wheel:axleWS:Set(cosine * axleCS:GetX() - sine * axleCS:GetZ(), axleCS:GetY(), sine * axleCS:GetX() + cosine * axleCS:GetZ())
+            axleWorldSpace:Set(cosine * axleCS:GetX() - sine * axleCS:GetZ(), axleCS:GetY(), sine * axleCS:GetX() + cosine * axleCS:GetZ())
         end
 
         // Rotate axle by chassis rotation to get world space
-        TransformByChassisBasis(wheel:axleWS, chassisRotation)
-        wheel:axleWS:Normalize()
+        TransformByChassisBasis(axleWorldSpace, chassisRotation)
+        axleWorldSpace:Normalize()
 
         number rayLength = wheel:restLength + wheel:radius + maxSuspensionTravel
         Vector3 rayEnd
-        rayEnd:Set(wheel:directionWS)
+        rayEnd:Set(directionWorldSpace)
         rayEnd:Scale(rayLength)
         rayEnd:Add(suspensionOriginWorldSpace)
 
@@ -187,13 +189,14 @@ if timeStep <= 0 or chassis = undefined
 
         if hitDetected
             wheel:groundBody = raycast:hitBody
-            wheel:contactPointWS:Set(raycast:hitPoint)
+            Vector3 contactPointWorldSpace = wheel:GetContactPointWorldSpace()
+            contactPointWorldSpace:Set(raycast:hitPoint)
             wheel:contactNormalWS:Set(raycast:hitNormal)
             number hitDistance = rayLength * raycast:fraction
             wheel:suspensionLength = Clamp(hitDistance - wheel:radius, wheel:restLength - maxSuspensionTravel, wheel:restLength + maxSuspensionTravel)
 
             Vector3 chassisRelativePoint
-            chassisRelativePoint:Set(wheel:contactPointWS)
+            chassisRelativePoint:Set(contactPointWorldSpace)
             chassisRelativePoint:Subtract(chassis:GetCenterOfMassTransform():GetOrigin())
             Vector3 chassisVelocity = chassis:GetLinearVelocityAtLocalPoint(chassisRelativePoint)
             //output "[DEBUG-VELOCITY] wheel=" + wheel:wheelVisual:GetName() + " chassisVelocity=(" + chassisVelocity:GetX() + "," + chassisVelocity:GetY() + "," + chassisVelocity:GetZ() + ") angularVelocity=(" + chassis:GetAngularVelocity():GetX() + "," + chassis:GetAngularVelocity():GetY() + "," + chassis:GetAngularVelocity():GetZ() + ")"
@@ -201,7 +204,7 @@ if timeStep <= 0 or chassis = undefined
             relativeVelocity:Set(chassisVelocity)
             Vector3 groundRelativePoint
             if wheel:groundBody not= undefined
-                groundRelativePoint:Set(wheel:contactPointWS)
+                groundRelativePoint:Set(contactPointWorldSpace)
                 groundRelativePoint:Subtract(wheel:groundBody:GetCenterOfMassTransform():GetOrigin())
                 relativeVelocity:Subtract(wheel:groundBody:GetLinearVelocityAtLocalPoint(groundRelativePoint))
             end
@@ -234,7 +237,7 @@ if timeStep <= 0 or chassis = undefined
         if wheel:GetVisual() not= undefined
             Item3D visual = wheel:GetVisual()
             Vector3 wheelPosition
-            wheelPosition:Set(wheel:directionWS)
+            wheelPosition:Set(directionWorldSpace)
             wheelPosition:Scale(wheel:suspensionLength)
             wheelPosition:Add(suspensionOriginWorldSpace)
 
@@ -275,7 +278,9 @@ if timeStep <= 0 or chassis = undefined
             Suspension wheel = wheels:Get(i)
             if wheel:inContact and wheel:groundBody not= undefined
                 Vector3 axle
-                axle:Set(wheel:axleWS)
+                
+                Vector3 axleWorldSpace = wheel:GetAxleWorldSpace()
+                axle:Set(axleWorldSpace)
                 // Main supplies +X axles, while Bullet's ForkLift uses -X.
                 // Keep that port convention when building Bullet's wheel basis.
                 axle:MakeOpposite()
@@ -291,23 +296,24 @@ if timeStep <= 0 or chassis = undefined
                 forward:Normalize()
 
                 Vector3 chassisPoint
-                chassisPoint:Set(wheel:contactPointWS)
+                Vector3 contactPointWorldSpace = wheel:GetContactPointWorldSpace()
+                chassisPoint:Set(contactPointWorldSpace)
                 chassisPoint:Subtract(chassis:GetCenterOfMassTransform():GetOrigin())
                 Vector3 relativeVelocity = chassis:GetLinearVelocityAtLocalPoint(chassisPoint)
                 Vector3 groundPoint
-                groundPoint:Set(wheel:contactPointWS)
+                groundPoint:Set(contactPointWorldSpace)
                 groundPoint:Subtract(wheel:groundBody:GetCenterOfMassTransform():GetOrigin())
                 relativeVelocity:Subtract(wheel:groundBody:GetLinearVelocityAtLocalPoint(groundPoint))
 
                 number lateralVelocity = relativeVelocity:DotProduct(axle)
                 number forwardVelocity = relativeVelocity:DotProduct(forward)
-                number sideDenominator = chassis:ComputeImpulseDenominator(wheel:contactPointWS, axle) + wheel:groundBody:ComputeImpulseDenominator(wheel:contactPointWS, axle)
+                number sideDenominator = chassis:ComputeImpulseDenominator(contactPointWorldSpace, axle) + wheel:groundBody:ComputeImpulseDenominator(contactPointWorldSpace, axle)
                 number sideImpulse = 0
                 if sideDenominator > 0.000001
                     sideImpulse = -lateralVelocity / sideDenominator / groundedWheels
                 end
 
-                number forwardDenominator = chassis:ComputeImpulseDenominator(wheel:contactPointWS, forward) + wheel:groundBody:ComputeImpulseDenominator(wheel:contactPointWS, forward)
+                number forwardDenominator = chassis:ComputeImpulseDenominator(contactPointWorldSpace, forward) + wheel:groundBody:ComputeImpulseDenominator(contactPointWorldSpace, forward)
                 number forwardImpulse = 0
                 if wheel:engineForce not= 0
                     forwardImpulse = wheel:engineForce * timeStep
@@ -349,7 +355,9 @@ if timeStep <= 0 or chassis = undefined
                 end
 
                 Vector3 axle
-                axle:Set(wheel:axleWS)
+                Vector3 axleWorldSpace = wheel:GetAxleWorldSpace()
+                Vector3 contactPointWorldSpace = wheel:GetContactPointWorldSpace()
+                axle:Set(axleWorldSpace)
                 axle:MakeOpposite()
                 number axleNormal = axle:DotProduct(wheel:contactNormalWS)
                 Vector3 normalPart
@@ -364,9 +372,9 @@ if timeStep <= 0 or chassis = undefined
                 wheel:tireSideImpulse:Set(axle):Scale(sideImpulse)
                 wheel:tireForwardImpulse:Set(forward):Scale(forwardImpulse)
                 wheel:tireImpulse:Set(wheel:tireSideImpulse):Add(wheel:tireForwardImpulse)
-                wheel:tireChassisPoint:Set(wheel:contactPointWS)
+                wheel:tireChassisPoint:Set(contactPointWorldSpace)
                 wheel:tireChassisPoint:Subtract(chassis:GetCenterOfMassTransform():GetOrigin())
-                wheel:tireGroundPoint:Set(wheel:contactPointWS)
+                wheel:tireGroundPoint:Set(contactPointWorldSpace)
                 wheel:tireGroundPoint:Subtract(wheel:groundBody:GetCenterOfMassTransform():GetOrigin())
                 //output "[TIRE-BULLET] wheelIndex=" + i + " front=" + wheel:frontWheel + " steering=" + wheel:steering + " engineForce=" + wheel:engineForce + " sideImpulse=" + sideImpulse + " forwardImpulse=" + forwardImpulse + " skidInfo=" + skid + " tireImpulse=(" + wheel:tireImpulse:GetX() + "," + wheel:tireImpulse:GetY() + "," + wheel:tireImpulse:GetZ() + ") point=(" + wheel:tireChassisPoint:GetX() + "," + wheel:tireChassisPoint:GetY() + "," + wheel:tireChassisPoint:GetZ() + ")"
             end

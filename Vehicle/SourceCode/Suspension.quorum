@@ -12,9 +12,10 @@ class Suspension
     Vector3 connectionPointRelativeToChassis
     
     Vector3 suspensionOriginWorldSpace
-    public Vector3 directionWS
-    public Vector3 axleWS
-    public Vector3 contactPointWS
+    Vector3 directionWorldSpace
+    Vector3 axleWorldSpace
+    Vector3 contactPointWorldSpace
+    
     public Vector3 contactNormalWS
     public number restLength = 1.3
     public number radius = 0.4
@@ -210,6 +211,47 @@ from the wheel's connection point on the chassis and moves with the chassis.
 */
     action SetSuspensionOriginWorldSpace(Vector3 suspensionOriginWorldSpace)
         me:suspensionOriginWorldSpace = suspensionOriginWorldSpace
+    end
+    
+    
+    /*
+Returns the suspension ray's direction in world space. This is the chassis-
+space suspension direction rotated to match the chassis's current orientation.
+*/
+    action GetDirectionWorldSpace returns Vector3
+        return directionWorldSpace
+    end
+
+    /*
+Sets the suspension ray's direction in world space. This is the chassis-
+space suspension direction rotated to match the chassis's current orientation.
+*/
+    action SetDirectionWorldSpace(Vector3 directionWorldSpace)
+        me:directionWorldSpace = directionWorldSpace
+    end
+    
+    /*
+Returns the wheel axle direction in world space. This is the chassis-space axle
+direction rotated to match the chassis's current orientation.
+*/
+    action GetAxleWorldSpace returns Vector3
+        return axleWorldSpace
+    end
+
+    /*
+Sets the wheel axle direction in world space. The vehicle uses this direction
+to calculate tire forces at the ground contact point.
+*/
+    action SetAxleWorldSpace(Vector3 axleWorldSpace)
+        me:axleWorldSpace = axleWorldSpace
+    end
+
+    action GetContactPointWorldSpace returns Vector3
+        return contactPointWorldSpace
+    end
+
+    action SetContactPointWorldSpace(Vector3 contactPointWorldSpace)
+        me:contactPointWorldSpace = contactPointWorldSpace
     end
 
 end
