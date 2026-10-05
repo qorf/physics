@@ -194,7 +194,7 @@ if timeStep <= 0 or chassis = undefined
             contactPointWorldSpace:Set(raycast:hitPoint)
             contactNormalWorldSpace:Set(raycast:hitNormal)
             number hitDistance = rayLength * raycast:fraction
-            wheel:suspensionLength = Clamp(hitDistance - wheel:GetRadius(), wheel:GetRestLength() - maxSuspensionTravel, wheel:GetRestLength() + maxSuspensionTravel)
+            wheel:SetSuspensionLength(Clamp(hitDistance - wheel:GetRadius(), wheel:GetRestLength() - maxSuspensionTravel, wheel:GetRestLength() + maxSuspensionTravel))
 
             Vector3 chassisRelativePoint
             chassisRelativePoint:Set(contactPointWorldSpace)
@@ -212,13 +212,13 @@ if timeStep <= 0 or chassis = undefined
 
             number normalSpeed = relativeVelocity:DotProduct(contactNormalWorldSpace)
             //output "[WHEEL-VELOCITY] name=" + wheel:wheelVisual:GetName() + " normalSpeed=" + normalSpeed + " relativeVelocity=(" + relativeVelocity:GetX() + "," + relativeVelocity:GetY() + "," + relativeVelocity:GetZ() + ") contactNormal=(" + wheel:contactNormalWS:GetX() + "," + wheel:contactNormalWS:GetY() + "," + wheel:contactNormalWS:GetZ() + ")"
-            number compression = wheel:GetRestLength() - wheel:suspensionLength
+            number compression = wheel:GetRestLength() - wheel:GetSuspensionLength()
             number damping = wheel:dampingRelaxation
             if normalSpeed < 0
-                damping = wheel:dampingCompression
+                damping = wheel:GetDampingCompression()
             end
             // Bullet scales its spring and damping response by the chassis mass.
-            wheel:suspensionForce = (wheel:suspensionStiffness * compression - damping * normalSpeed) * chassis:GetMass()
+            wheel:suspensionForce = (wheel:GetSuspensionStiffness() * compression - damping * normalSpeed) * chassis:GetMass()
             wheel:suspensionForce = Clamp(wheel:suspensionForce, 0, wheel:maxSuspensionForce)
 
             //output "[SUSPENSION-STATE] wheelIndex=" + wheelIndex + " front=" + wheel:frontWheel + " contact=" + hitDetected + " compression=" + compression + " suspensionLength=" + wheel:suspensionLength + " normalSpeed=" + normalSpeed + " force=" + wheel:suspensionForce + " pointWS=(" + wheel:contactPointWS:GetX() + "," + wheel:contactPointWS:GetY() + "," + wheel:contactPointWS:GetZ() + ") normalWS=(" + wheel:contactNormalWS:GetX() + "," + wheel:contactNormalWS:GetY() + "," + wheel:contactNormalWS:GetZ() + ")"
@@ -232,14 +232,14 @@ if timeStep <= 0 or chassis = undefined
             wheel:suspensionGroundPoint:Set(groundRelativePoint)
 
         else
-            wheel:suspensionLength = wheel:GetRestLength() + maxSuspensionTravel
+            wheel:SetSuspensionLength(wheel:GetRestLength() + maxSuspensionTravel)
         end
 
         if wheel:GetVisual() not= undefined
             Item3D visual = wheel:GetVisual()
             Vector3 wheelPosition
             wheelPosition:Set(directionWorldSpace)
-            wheelPosition:Scale(wheel:suspensionLength)
+            wheelPosition:Scale(wheel:GetSuspensionLength())
             wheelPosition:Add(suspensionOriginWorldSpace)
 
             // Safety check: don't set wheel to invalid positions

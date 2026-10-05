@@ -19,9 +19,9 @@ class Suspension
     
     number restLength = 1.3
     number radius = 0.4
-    public number suspensionLength = 1.3
-    public number suspensionStiffness = 25
-    public number dampingCompression = 2.5
+    number suspensionLength = 1.3
+    number suspensionStiffness = 25
+    number dampingCompression = 2.5
     public number dampingRelaxation = 2.0
     public number maxSuspensionForce = 6000
     public number frictionSlip = 100
@@ -32,7 +32,7 @@ class Suspension
     public number suspensionForce = 0
     public number wheelRotation = 0
     public boolean inContact = false
-    public Item3D groundBody
+    public Item3D groundBody = undefined
 
     // Impulse storage for deferred application
     public Vector3 suspensionImpulse
@@ -272,4 +272,234 @@ Sets the ground surface's contact normal in world space. For example, use
         me:contactNormalWorldSpace = contactNormalWorldSpace
     end
 
+    /*
+Returns the suspension spring stiffness. Use 0 or greater. There is no
+upper limit. A typical default might be in the 5 or 6 range.
+
+Attribute: returns a positive number representing the stiffness
+*/
+    action GetSuspensionStiffness returns number
+        return suspensionStiffness
+    end
+
+    /*
+Sets the suspension spring stiffness. Use 0 or greater. There is no
+upper limit. A typical default might be in the 5 or 6 range.
+*/
+    action SetSuspensionStiffness(number suspensionStiffness)
+        me:suspensionStiffness = suspensionStiffness
+    end
+
+    /*
+Returns the damping used while the suspension compresses. Compression happens
+when a wheel moves up toward a chassis, such as when it rolls over a bump,
+making the suspension shorter. Damping resists this motion and reduces bounce.
+Use 0 or greater, although no upper limit is enforced. A common starting value might be around 0.83.
+*/
+    action GetDampingCompression returns number
+        return dampingCompression
+    end
+
+    /*
+Sets the damping used while the suspension compresses. Use 0 or greater, although no
+upper limit is enforced. This value controls how strongly the suspension
+resists shortening as the wheel moves up toward the chassis. A value of 0 means no
+compression damping.
+*/
+    action SetDampingCompression(number dampingCompression)
+        me:dampingCompression = dampingCompression
+    end
+
+    /*
+Returns the damping used while the suspension extends. Extension happens when
+the suspension gets longer, such as when the wheel moves down after passing
+over a bump. Damping resists this motion and reduces bouncing. Use 0 or
+greater with no enforced upper limit. A typical value might be around 0.88.
+*/
+    action GetDampingRelaxation returns number
+        return dampingRelaxation
+    end
+
+    /*
+Sets the damping used while the suspension extends. Use 0 or greater with no
+enforced upper limit. This value controls how strongly the suspension resists
+getting longer as the wheel moves down. A typical value might be around 0.88.
+*/
+    action SetDampingRelaxation(number dampingRelaxation)
+        me:dampingRelaxation = dampingRelaxation
+    end
+
+    /*
+Returns the maximum support force from this wheel's suspension. When the wheel
+is pressed against the ground, the spring and damper push the chassis away
+from the surface. This value caps that push at this wheel. Use 0 or greater.
+The setter does not enforce a range. A typical starting value might be around
+6000.
+*/
+    action GetMaxSuspensionForce returns number
+        return maxSuspensionForce
+    end
+
+    /*
+Sets the maximum support force from this wheel's suspension. The spring and
+damper use this cap when pushing the chassis away from the surface at this
+wheel. Use 0 or greater. The setter does not enforce a range. A typical
+starting value might be around 6000.
+*/
+    action SetMaxSuspensionForce(number maxSuspensionForce)
+        me:maxSuspensionForce = maxSuspensionForce
+    end
+
+    /*
+Returns this wheel's tire grip setting. It sets how much sideways and forward
+force the tire can transfer to the ground before it starts to slide. This is a
+simulation grip value, not a direct real-world friction coefficient. Use 0 or
+greater. No upper limit is enforced. A typical starting value might be around
+10.5.
+*/
+    action GetFrictionSlip returns number
+        return frictionSlip
+    end
+
+    /*
+Sets this wheel's tire grip setting. Higher values let the tire transfer more
+force before it starts to slide. Use 0 or greater. No upper limit is enforced.
+A typical starting value might be around 10.5.
+*/
+    action SetFrictionSlip(number frictionSlip)
+        me:frictionSlip = frictionSlip
+    end
+
+    /*
+Returns how much sideways tire force can roll the chassis. This setting scales
+the height of the force's application point. A value of 0 removes its roll
+leverage, while 1 uses the full height. Use 0 to 1 for normal behavior, though
+the setter does not enforce this range. A typical starting value might be
+around 0.1.
+*/
+    action GetRollInfluence returns number
+        return rollInfluence
+    end
+
+    /*
+Sets how much sideways tire force can roll the chassis. This scales the height
+of the force's application point, so lower values reduce chassis roll. Use 0 to
+1 for normal behavior, though the setter does not enforce this range. A
+typical starting value might be around 0.1.
+*/
+    action SetRollInfluence(number rollInfluence)
+        me:rollInfluence = rollInfluence
+    end
+
+    /*
+Returns this wheel's steering angle in radians. Zero means straight ahead.
+Positive and negative values turn the wheel in opposite directions. This angle
+changes the wheel's direction only when steering is enabled.
+*/
+    action GetSteering returns number
+        return steering
+    end
+
+    /*
+Sets this wheel's steering angle in radians. The angle changes the wheel's
+direction when steering is enabled, which can change the tire force at ground
+contact. This setter does not limit the angle. Vehicle.SetSteeringValue limits
+it to the range set by steeringClamp, which defaults to about -0.30 to +0.30
+radians.
+*/
+    action SetSteering(number steering)
+        me:steering = steering
+    end
+
+    /*
+Returns the engine force assigned to this wheel. When the wheel touches the
+ground, this force is applied along the tire's forward direction. Zero means
+no engine force. A negative value applies force in reverse.
+*/
+    action GetEngineForce returns number
+        return engineForce
+    end
+
+    /*
+Sets the engine force assigned to this wheel. When the wheel touches the
+ground, the vehicle turns this force into an impulse to drive the chassis.
+This setter does not limit the value. A negative value applies force in
+reverse, and zero means no engine force.
+*/
+    action SetEngineForce(number engineForce)
+        me:engineForce = engineForce
+    end
+
+    /*
+Returns this wheel's braking limit. It caps the impulse used to slow the
+chassis along the wheel's forward direction. The limit is used when the wheel
+touches the ground and has no engine force. Zero means no braking.
+*/
+    action GetBrake returns number
+        return brake
+    end
+
+    /*
+Sets this wheel's braking limit. It caps the impulse used to slow the chassis
+along the wheel's forward direction when the wheel touches the ground and has
+no engine force. Use 0 or greater. This setter stores the value as given,
+while Vehicle.SetBrake changes negative values to 0.
+*/
+    action SetBrake(number brake)
+        me:brake = brake
+    end
+
+    /*
+Returns the suspension force calculated for this wheel during the latest
+vehicle update. When the wheel is in contact, this force pushes the chassis
+away from the surface. It ranges from 0 to maxSuspensionForce. With no contact,
+it is 0.
+*/
+    action GetSuspensionForce returns number
+        return suspensionForce
+    end
+
+    /*
+Sets the suspension force value for this wheel. The vehicle normally
+calculates this value from spring compression and damping during each update.
+This setter does not clamp it, and the next vehicle update may replace it.
+*/
+    action SetSuspensionForce(number suspensionForce)
+        me:suspensionForce = suspensionForce
+    end
+
+    /*
+Returns this wheel's spin angle around its axle, in radians. Zero means no
+rotation. The vehicle currently stores this value but does not update it or
+use it to rotate the wheel's visual item.
+*/
+    action GetWheelRotation returns number
+        return wheelRotation
+    end
+
+    /*
+Sets this wheel's spin angle around its axle, in radians. The vehicle currently
+stores this value but does not use it to rotate the wheel's visual item.
+*/
+    action SetWheelRotation(number wheelRotation)
+        me:wheelRotation = wheelRotation
+    end
+
+    /*
+Returns whether this wheel's suspension ray hit a collision object during the
+latest vehicle update. This means the ray found a surface, not that a solid
+wheel shape physically touched it.
+*/
+    action GetInContact returns boolean
+        return inContact
+    end
+
+    /*
+Sets whether this wheel is marked as having a suspension ray hit. The vehicle
+normally sets this from the raycast result, so the next update may replace this
+value.
+*/
+    action SetInContact(boolean inContact)
+        me:inContact = inContact
+    end
 end
