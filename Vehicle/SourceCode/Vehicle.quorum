@@ -140,8 +140,9 @@ if timeStep <= 0 or chassis = undefined
         TransformByChassisBasis(rotatedOffset, chassisRotation)
 
         // Calculate hard point in world space: chassis position + rotated offset
-        wheel:hardPointWS:Set(chassisPos)
-        wheel:hardPointWS:Add(rotatedOffset)
+        Vector3 suspensionOriginWorldSpace = wheel:GetSuspensionOriginWorldSpace()
+        suspensionOriginWorldSpace:Set(chassisPos)
+        suspensionOriginWorldSpace:Add(rotatedOffset)
 
         // Transform suspension direction from chassis-space to world-space
         wheel:directionWS:Set(wheel:GetDirection())
@@ -166,15 +167,15 @@ if timeStep <= 0 or chassis = undefined
         Vector3 rayEnd
         rayEnd:Set(wheel:directionWS)
         rayEnd:Scale(rayLength)
-        rayEnd:Add(wheel:hardPointWS)
+        rayEnd:Add(suspensionOriginWorldSpace)
 
         // Sanity check: hard point should be near chassis (within reasonable bounds)
-        number hardPointY = wheel:hardPointWS:GetY()
+        number hardPointY = suspensionOriginWorldSpace:GetY()
         boolean hardPointValid = hardPointY > -1000 and hardPointY < 1000
 
         boolean hitDetected = false
         if raycast not= undefined and hardPointValid
-            raycast:Cast(world, wheel:hardPointWS, rayEnd, chassis)
+            raycast:Cast(world, suspensionOriginWorldSpace, rayEnd, chassis)
             hitDetected = raycast:hit
         elseif not hardPointValid
             //output "WARNING: Invalid hard point Y = " + hardPointY + " (chassis Y = " + chassis:GetY() + ")"
@@ -235,7 +236,7 @@ if timeStep <= 0 or chassis = undefined
             Vector3 wheelPosition
             wheelPosition:Set(wheel:directionWS)
             wheelPosition:Scale(wheel:suspensionLength)
-            wheelPosition:Add(wheel:hardPointWS)
+            wheelPosition:Add(suspensionOriginWorldSpace)
 
             // Safety check: don't set wheel to invalid positions
             if wheelPosition:GetY() > -1000 and wheelPosition:GetY() < 1000

@@ -11,7 +11,7 @@ class Suspension
     Vector3 directionRelativeToChassis
     Vector3 connectionPointRelativeToChassis
     
-    public Vector3 hardPointWS
+    Vector3 suspensionOriginWorldSpace
     public Vector3 directionWS
     public Vector3 axleWS
     public Vector3 contactPointWS
@@ -195,4 +195,21 @@ wheel's position from the ground contact point.
     action SetRadius(number radius)
         me:radius = radius
     end
+    
+    /*
+Returns the world-space starting point of the suspension ray. It is calculated
+from the wheel's connection point on the chassis and moves with the chassis.
+*/
+    action GetSuspensionOriginWorldSpace returns Vector3
+        return suspensionOriginWorldSpace
+    end
+
+    /*
+Sets the world-space starting point of the suspension ray. It is calculated
+from the wheel's connection point on the chassis and moves with the chassis.
+*/
+    action SetSuspensionOriginWorldSpace(Vector3 suspensionOriginWorldSpace)
+        me:suspensionOriginWorldSpace = suspensionOriginWorldSpace
+    end
+
 end
