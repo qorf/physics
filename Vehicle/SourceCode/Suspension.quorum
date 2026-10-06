@@ -35,14 +35,14 @@ class Suspension
     Item3D groundBody = undefined
 
     // Impulse storage for deferred application
-    public Vector3 suspensionImpulse
-    public Vector3 suspensionChassisPoint
-    public Vector3 suspensionGroundPoint
-    public Vector3 tireImpulse
-    public Vector3 tireForwardImpulse
-    public Vector3 tireSideImpulse
-    public Vector3 tireChassisPoint
-    public Vector3 tireGroundPoint
+    Vector3 suspensionImpulse
+    Vector3 suspensionChassisPoint
+    Vector3 suspensionGroundPoint
+    Vector3 tireImpulse
+    Vector3 tireForwardImpulse
+    Vector3 tireSideImpulse
+    Vector3 tireChassisPoint
+    Vector3 tireGroundPoint
     
     on create
         contactNormalWorldSpace:Set(0, 1, 0)
@@ -508,6 +508,70 @@ value.
 
     action SetGroundBody(Item3D groundBody)
         me:groundBody = groundBody
+    end
+
+    action GetSuspensionImpulse returns Vector3
+        return suspensionImpulse
+    end
+
+    action SetSuspensionImpulse(Vector3 suspensionImpulse)
+        me:suspensionImpulse = suspensionImpulse
+    end
+
+    action GetSuspensionChassisPoint returns Vector3
+        return suspensionChassisPoint
+    end
+
+    action SetSuspensionChassisPoint(Vector3 suspensionChassisPoint)
+        me:suspensionChassisPoint = suspensionChassisPoint
+    end
+
+    action GetSuspensionGroundPoint returns Vector3
+        return suspensionGroundPoint
+    end
+
+    action SetSuspensionGroundPoint(Vector3 suspensionGroundPoint)
+        me:suspensionGroundPoint = suspensionGroundPoint
+    end
+
+    action GetTireImpulse returns Vector3
+        return tireImpulse
+    end
+
+    action SetTireImpulse(Vector3 tireImpulse)
+        me:tireImpulse = tireImpulse
+    end
+
+    action GetTireForwardImpulse returns Vector3
+        return tireForwardImpulse
+    end
+
+    action SetTireForwardImpulse(Vector3 tireForwardImpulse)
+        me:tireForwardImpulse = tireForwardImpulse
+    end
+
+    action GetTireSideImpulse returns Vector3
+        return tireSideImpulse
+    end
+
+    action SetTireSideImpulse(Vector3 tireSideImpulse)
+        me:tireSideImpulse = tireSideImpulse
+    end
+
+    action GetTireChassisPoint returns Vector3
+        return tireChassisPoint
+    end
+
+    action SetTireChassisPoint(Vector3 tireChassisPoint)
+        me:tireChassisPoint = tireChassisPoint
+    end
+
+    action GetTireGroundPoint returns Vector3
+        return tireGroundPoint
+    end
+
+    action SetTireGroundPoint(Vector3 tireGroundPoint)
+        me:tireGroundPoint = tireGroundPoint
     end
 
 end
