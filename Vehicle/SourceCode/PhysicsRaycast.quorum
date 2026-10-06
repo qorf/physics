@@ -7,6 +7,11 @@ use Libraries.Game.Collision.PhysicsPosition3D
 use Libraries.Game.Collision.Shapes.Box
 use Libraries.Game.Collision.Shapes.CollisionShape3D
 use Libraries.Compute.Math
+use Libraries.Game.Collision.BroadphaseCollision3D
+use Libraries.Game.BoundingBox
+use Libraries.Containers.List
+use Libraries.Game.Collision.Item3DNode
+use Libraries.Containers.Iterator
 
 /*
     Result of a PhysicsRaycast.Cast call. Fraction is measured along the segment,
@@ -27,6 +32,26 @@ class PhysicsRaycast
         forklift example. The query deliberately ignores the supplied chassis.
     */
     action Cast(Layer3D layer, Vector3 from, Vector3 to, Item3D ignoreBody)
+        BroadphaseCollision3D physicsTree = layer:GetCollisionManager():GetBroadphase()
+        Vector3 minimum
+minimum:SetX(math:MinimumOf(from:GetX(), to:GetX()))
+minimum:SetY(math:MinimumOf(from:GetY(), to:GetY()))
+minimum:SetZ(math:MinimumOf(from:GetZ(), to:GetZ()))
+
+Vector3 maximum
+maximum:SetX(math:MaximumOf(from:GetX(), to:GetX()))
+maximum:SetY(math:MaximumOf(from:GetY(), to:GetY()))
+maximum:SetZ(math:MaximumOf(from:GetZ(), to:GetZ()))
+
+BoundingBox rayBounds
+rayBounds:Set(minimum, maximum)
+        
+        
+        BroadphaseCollision3D candidates
+List<Item3DNode> nodes = physicsTree:Query(rayBounds)
+        Iterator<Item3DNode> nodeIterator = nodes:GetIterator()
+        output nodes:GetSize()
+        
         hit = false
         hitBody = undefined
         fraction = 1
@@ -36,8 +61,9 @@ class PhysicsRaycast
         segment:Subtract(from)
 
         integer i = 0
-        repeat while i < layer:GetSize()
-            Item3D item = layer:Get(i)
+        repeat while nodeIterator:HasNext()
+            Item3DNode itemNode = nodeIterator:Next()
+            Item3D item = itemNode:GetItem()
             if item not= ignoreBody and item:GetShape() not= undefined and item:GetShapeType() = item:GetShape():BOX
                 Box box = cast(Box, item:GetShape())
                 PhysicsPosition3D transform
