@@ -3,7 +3,14 @@ package Libraries.Game.Physics
 use Libraries.Interface.Item3D
 use Libraries.Compute.Vector3
 
-/* One raycast wheel and its suspension/drive state. */
+/*The Suspension class stores the setup and current state for one vehicle wheel.
+Add a wheel to a Vehicle to get its Suspension object. You can then set that
+wheel's spring, damping, steering, engine, and brake values. The vehicle
+updates each wheel during the physics step and uses the wheel state to
+calculate forces between the chassis and the ground.
+
+The wheel's connection point, suspension direction, and axle are relative to
+the chassis. Give the wheel an Item3D so it has a visible model in the scene.*/
 class Suspension
     Item3D visual = undefined
     boolean steeringEnabled = false
@@ -17,6 +24,7 @@ class Suspension
     Vector3 contactPointWorldSpace
     Vector3 contactNormalWorldSpace
     
+    //A set of values representing the suspension
     number restLength = 1.3
     number radius = 0.4
     number suspensionLength = 1.3
@@ -46,6 +54,30 @@ class Suspension
     
     on create
         contactNormalWorldSpace:Set(0, 1, 0)
+    end
+    
+    
+    /*
+Sets the wheel's suspension and driving settings to common starting values.
+This resets the tuning, steering, engine, brake, and contact state. It leaves
+the wheel's position, direction, axle, rest length, and radius unchanged.
+*/
+    action SetToDefaults
+        suspensionStiffness = 5.88
+        dampingCompression = 0.83
+        dampingRelaxation = 0.88
+        frictionSlip = 10.5
+        maxSuspensionForce = 6000
+        rollInfluence = 0.1
+
+        steering = 0
+        engineForce = 0
+        brake = 0
+        suspensionForce = 0
+        wheelRotation = 0
+        steeringEnabled = false
+        inContact = false
+        groundBody = undefined
     end
     
     /*
@@ -502,76 +534,173 @@ value.
     action SetInContact(boolean inContact)
         me:inContact = inContact
     end
+    
+    /*
+Returns the object beneath this wheel when its suspension ray hits a surface.
+The vehicle uses this object to apply the wheel's forces to the ground. It is
+undefined for a physics step in which the suspension ray hits no ground object.
+*/
     action GetGroundBody returns Item3D
         return groundBody
     end
 
+    /*
+Sets the object beneath this wheel. The vehicle uses it to apply the wheel's
+suspension and tire forces to the ground. Set this to undefined for a physics
+step in which the suspension ray hits no ground object.
+*/
     action SetGroundBody(Item3D groundBody)
         me:groundBody = groundBody
     end
 
+    /*
+Returns the impulse produced by this wheel's suspension for the current
+physics step. It points along the ground contact's normal, and its size
+depends on the suspension force and the length of the physics step. The
+vehicle applies it to the chassis to push it away from the ground.
+*/
     action GetSuspensionImpulse returns Vector3
         return suspensionImpulse
     end
 
+    /*
+Sets the impulse produced by this wheel's suspension for the current
+physics step. It points along the ground contact's normal, and its size
+depends on the suspension force and the length of the physics step. The
+vehicle applies it to the chassis to push it away from the ground.
+*/
     action SetSuspensionImpulse(Vector3 suspensionImpulse)
         me:suspensionImpulse = suspensionImpulse
     end
 
+    /*
+Returns the point on the chassis where this wheel's suspension impulse is
+applied, measured from the chassis's center of mass. The vehicle uses this
+offset to apply the impulse at the wheel's ground contact point, which can
+also affect how the chassis turns.
+*/
     action GetSuspensionChassisPoint returns Vector3
         return suspensionChassisPoint
     end
 
+    /*
+Sets the point on the chassis where this wheel's suspension impulse is
+applied, measured from the chassis's center of mass. The vehicle uses this
+offset to apply the impulse at the wheel's ground contact point, which can
+also affect how the chassis turns.
+*/
     action SetSuspensionChassisPoint(Vector3 suspensionChassisPoint)
         me:suspensionChassisPoint = suspensionChassisPoint
     end
 
+    /*
+Returns the ground contact point for this wheel's suspension, measured from
+the ground body's center of mass. The vehicle uses this offset to find the
+ground body's velocity at the contact point when calculating suspension
+motion.
+*/
     action GetSuspensionGroundPoint returns Vector3
         return suspensionGroundPoint
     end
 
+    /*
+Sets the ground contact point for this wheel's suspension, measured from the
+ground body's center of mass. The vehicle uses this offset to find the ground
+body's velocity at the contact point when calculating suspension motion.
+*/
     action SetSuspensionGroundPoint(Vector3 suspensionGroundPoint)
         me:suspensionGroundPoint = suspensionGroundPoint
     end
 
+    /*
+Returns the total tire impulse for this wheel during the current physics step.
+It combines the forward impulse that drives or brakes the vehicle with the
+sideways impulse that helps the tire grip the ground. The vehicle applies
+these impulses at the wheel's ground contact point.
+*/
     action GetTireImpulse returns Vector3
         return tireImpulse
     end
 
+    /*
+Sets the total tire impulse for this wheel during the current physics step.
+It combines the forward impulse that drives or brakes the vehicle with the
+sideways impulse that helps the tire grip the ground. The vehicle applies
+these impulses at the wheel's ground contact point.
+*/
     action SetTireImpulse(Vector3 tireImpulse)
         me:tireImpulse = tireImpulse
     end
 
+    /*
+Returns this wheel's forward tire impulse for the current physics step. The
+vehicle calculates it from engine force or braking, then applies it to the
+chassis along the tire's forward direction to drive or slow the vehicle.
+*/
     action GetTireForwardImpulse returns Vector3
         return tireForwardImpulse
     end
 
+    /*
+Sets this wheel's forward tire impulse for the current physics step. The
+vehicle applies it to the chassis along the tire's forward direction to drive
+or slow the vehicle.
+*/
     action SetTireForwardImpulse(Vector3 tireForwardImpulse)
         me:tireForwardImpulse = tireForwardImpulse
     end
 
+    /*
+Returns this wheel's sideways tire impulse for the current physics step. The
+vehicle calculates it from the tire's grip and sideways motion, then applies
+it at the contact point to resist sliding and help steer the chassis.
+*/
     action GetTireSideImpulse returns Vector3
         return tireSideImpulse
     end
 
+    /*
+Sets this wheel's sideways tire impulse for the current physics step. The
+vehicle applies it at the contact point to resist sliding and help steer the
+chassis.
+*/
     action SetTireSideImpulse(Vector3 tireSideImpulse)
         me:tireSideImpulse = tireSideImpulse
     end
 
+    /*
+Returns the wheel's tire contact point relative to the chassis's center of
+mass. The vehicle uses this offset to apply tire impulses to the chassis at
+the contact point, which can also affect how the chassis turns.
+*/
     action GetTireChassisPoint returns Vector3
         return tireChassisPoint
     end
 
+    /*
+Sets the wheel's tire contact point relative to the chassis's center of mass.
+The vehicle uses this offset to apply tire impulses to the chassis at the
+contact point, which can also affect how the chassis turns.
+*/
     action SetTireChassisPoint(Vector3 tireChassisPoint)
         me:tireChassisPoint = tireChassisPoint
     end
 
+    /*
+Returns the wheel's tire contact point relative to the ground body's center
+of mass. The vehicle uses this offset to apply the sideways tire impulse to a
+movable ground body at the contact point.
+*/
     action GetTireGroundPoint returns Vector3
         return tireGroundPoint
     end
 
+    /*
+Sets the wheel's tire contact point relative to the ground body's center of
+mass. The vehicle uses this offset to apply the sideways tire impulse to a
+movable ground body at the contact point.
+*/
     action SetTireGroundPoint(Vector3 tireGroundPoint)
         me:tireGroundPoint = tireGroundPoint
     end
-
 end
