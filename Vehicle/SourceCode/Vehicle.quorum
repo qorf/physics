@@ -24,6 +24,7 @@ class Vehicle
     public number steeringClamp = 0.30
     public number currentSpeedKPH = 0
     PhysicsRaycast raycast
+    PhysicsRaycastResult raycastResult
 
     action Initialize(Layer3D layer, Item3D vehicleChassis)
         world = layer
@@ -180,8 +181,8 @@ if timeStep <= 0 or chassis = undefined
 
         boolean hitDetected = false
         if raycast not= undefined and hardPointValid
-            raycast:Cast(world, suspensionOriginWorldSpace, rayEnd, chassis)
-            hitDetected = raycast:hit
+            raycast:Cast(world, suspensionOriginWorldSpace, rayEnd, chassis, raycastResult)
+            hitDetected = raycastResult:IsHit()
         elseif not hardPointValid
             //output "WARNING: Invalid hard point Y = " + hardPointY + " (chassis Y = " + chassis:GetY() + ")"
         end
@@ -191,12 +192,12 @@ if timeStep <= 0 or chassis = undefined
         wheel:SetGroundBody(undefined)
 
         if hitDetected
-            wheel:SetGroundBody(raycast:hitBody)
+            wheel:SetGroundBody(raycastResult:GetHitBody())
             Vector3 contactPointWorldSpace = wheel:GetContactPointWorldSpace()
             Vector3 contactNormalWorldSpace = wheel:GetContactNormalWorldSpace()
-            contactPointWorldSpace:Set(raycast:hitPoint)
-            contactNormalWorldSpace:Set(raycast:hitNormal)
-            number hitDistance = rayLength * raycast:fraction
+            contactPointWorldSpace:Set(raycastResult:GetHitPointWorldSpace())
+            contactNormalWorldSpace:Set(raycastResult:GetHitNormalWorldSpace())
+            number hitDistance = rayLength * raycastResult:GetFraction()
             wheel:SetSuspensionLength(Clamp(hitDistance - wheel:GetRadius(), wheel:GetRestLength() - maxSuspensionTravel, wheel:GetRestLength() + maxSuspensionTravel))
 
             Vector3 chassisRelativePoint

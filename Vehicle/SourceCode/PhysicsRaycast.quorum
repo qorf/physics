@@ -19,19 +19,19 @@ use Libraries.Containers.Iterator
 */
 class PhysicsRaycast
     Math math
-    public boolean hit = false
-    public Item3D hitBody
-    public Vector3 hitPoint
-    public Vector3 hitNormal
-    public number fraction = 1
 
     /*
-        Casts a segment against the box collision shapes in a Layer3D, returning
-        the nearest hit. This is a physics query, not the approximate UI picker.
-        Boxes are sufficient for the flat floor, pallet, and load geometry in the
-        forklift example. The query deliberately ignores the supplied chassis.
+    Casts a segment against the box collision shapes in a Layer3D, returning
+    the nearest hit. This is a physics query, not the approximate UI picker.
+    Boxes are sufficient for the flat floor, pallet, and load geometry in the
+    forklift example. The query deliberately ignores the supplied chassis.
+
+    Attribute: Parameter layer The 3D layer to search for a hit.
+    Attribute: Parameter from The world-space start point of the segment.
+    Attribute: Parameter to The world-space end point of the segment.
+    Attribute: Parameter ignoreBody The item to skip during the query.
     */
-    action Cast(Layer3D layer, Vector3 from, Vector3 to, Item3D ignoreBody)
+    action Cast(Layer3D layer, Vector3 from, Vector3 to, Item3D ignoreBody, PhysicsRaycastResult result)
         BroadphaseCollision3D physicsTree = layer:GetCollisionManager():GetBroadphase()
         Vector3 minimum
 minimum:SetX(math:MinimumOf(from:GetX(), to:GetX()))
@@ -50,10 +50,8 @@ rayBounds:Set(minimum, maximum)
         BroadphaseCollision3D candidates
 List<Item3DNode> nodes = physicsTree:Query(rayBounds)
         Iterator<Item3DNode> nodeIterator = nodes:GetIterator()
-        output nodes:GetSize()
         
-        hit = false
-        hitBody = undefined
+        result:SetToDefault()
         fraction = 1
 
         Vector3 segment
@@ -132,24 +130,26 @@ List<Item3DNode> nodes = physicsTree:Query(rayBounds)
                 end
 
                 if intersects and enter >= 0 and enter <= fraction and enter <= 1 and enterAxis >= 0
-                    hit = true
-                    fraction = enter
-                    hitBody = item
-                    hitPoint:Set(from)
+                    result:SetHit(true)
+                    result:SetFraction(enter)
+                    result:SetHitBody(item)
+                    result:GetHitPointWorldSpace():Set(from)
                     Vector3 traveled
                     traveled:Set(segment)
                     traveled:Scale(enter)
-                    hitPoint:Add(traveled)
-                    hitNormal:Set(0, 0, 0)
+                    result:GetHitNormalWorldSpace():Add(traveled)
+                    
+                    Vector3 resultHitNormalWorldSpace = result:GetHitNormalWorldSpace()
+                    resultHitNormalWorldSpace:Set(0, 0, 0)
                     if enterAxis = 0
-                        hitNormal:Set(enterSign, 0, 0)
+                        resultHitNormalWorldSpace:Set(enterSign, 0, 0)
                     elseif enterAxis = 1
-                        hitNormal:Set(0, enterSign, 0)
+                        resultHitNormalWorldSpace:Set(0, enterSign, 0)
                     else
-                        hitNormal:Set(0, 0, enterSign)
+                        resultHitNormalWorldSpace:Set(0, 0, enterSign)
                     end
-                    transform:GetBasis():Transform(hitNormal)
-                    hitNormal:Normalize()
+                    transform:GetBasis():Transform(resultHitNormalWorldSpace)
+                    resultHitNormalWorldSpace:Normalize()
                 end
             end
             i = i + 1
