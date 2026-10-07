@@ -22,10 +22,6 @@ use Libraries.Interface.Item3D
 class Main is Game
     Model ground
     Model chassis
-    Model mast
-    Model forks
-    Model leftProng
-    Model rightProng
     Model load
     Model leftWheel
     Model rightWheel
@@ -147,58 +143,6 @@ class Main is Game
         Add(wheel)
     end
 
-    action BuildMastAndForks(Color colors)
-        // Lift body: thin vertical bar that hinges to the chassis
-        mast:LoadBox(1, 4, 0.1, colors:DarkGray())
-        mast:EnablePhysics(true)
-        mast:RequireSimulation(true)
-        mast:SetResponsive()
-        mast:SetMass(10)
-        mast:SetFriction(0.5)
-        mast:SetRestitution(0)
-        mast:SetPosition(0, 2.5, 3.05)
-        mast:SetName("Lift Body")
-        Add(mast)
-
-        // Fork carriage: main bar with two prongs that slide along the mast
-        forks:LoadBox(2, 0.2, 0.2, colors:DarkGray())
-        forks:EnablePhysics(true)
-        forks:RequireSimulation(true)
-        forks:SetResponsive()
-        forks:SetMass(5)
-        forks:SetFriction(0.9)
-        forks:SetRestitution(0)
-        forks:SetPosition(0, 0.6, 3.2)
-        forks:SetName("Fork Carriage")
-        Add(forks)
-
-        // Left fork prong (visual only, physics handled by carriage)
-        leftProng:LoadBox(0.2, 0.04, 1.2, colors:DarkGray())
-        leftProng:SetPosition(-0.9, 0.52, 3.9)
-        leftProng:SetName("Left Prong")
-        Add(leftProng)
-
-        // Right fork prong (visual only, physics handled by carriage)
-        rightProng:LoadBox(0.2, 0.04, 1.2, colors:DarkGray())
-        rightProng:SetPosition(0.9, 0.52, 3.9)
-        rightProng:SetName("Right Prong")
-        Add(rightProng)
-
-        // Load: pallet with side supports
-        Model cargo
-        cargo:LoadBox(4, 1, 1, colors:Blue())
-        cargo:EnablePhysics(true)
-        cargo:RequireSimulation(true)
-        cargo:SetResponsive()
-        cargo:SetMass(350)
-        cargo:SetFriction(0.8)
-        cargo:SetRestitution(0)
-        cargo:SetPosition(0, 3.5, 7.0)
-        cargo:SetName("Load")
-        load = cargo
-        Add(load)
-    end
-
     action BuildVehicle
         vehicle:SetLayer(GetCurrentLayer3D())
         vehicle:SetChassis(chassis)
@@ -237,7 +181,6 @@ class Main is Game
 vehicle:Update(seconds)
         DriveAndOperate()
     end
-
 
     action DriveAndOperate
         boolean shifting = monitor:IsKeyPressed(keys:SHIFT_LEFT) or monitor:IsKeyPressed(keys:SHIFT_RIGHT)
