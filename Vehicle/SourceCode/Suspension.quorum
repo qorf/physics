@@ -28,6 +28,7 @@ class Suspension
     
     //A set of values representing the suspension
     number restLength = 1.3
+    number maxSuspensionTravel = 5
     number radius = 0.4
     number suspensionLength = 1.3
     number suspensionStiffness = 25
@@ -78,6 +79,7 @@ the wheel's position, direction, axle, rest length, and radius unchanged.
         dampingRelaxation = 0.88
         frictionSlip = 10.5
         maxSuspensionForce = 6000
+        maxSuspensionTravel = 5
         rollInfluence = 0.1
 
         steering = 0
@@ -243,6 +245,34 @@ Sets the suspension's starting length.
 */
     action SetRestLength(number restLength)
         me:restLength = restLength
+    end
+
+    /*
+Returns how far, in meters, the suspension can move from its rest length.
+When the wheel touches the ground, its suspension length is kept between
+the rest length minus this value and the rest length plus this value. The
+default is 5 meters.
+
+The default is 5 meters.
+*/
+    action GetMaxSuspensionTravel returns number
+        return maxSuspensionTravel
+    end
+
+    /*
+Sets how far, in meters, the suspension can move from its rest length.
+When the wheel touches the ground, its suspension length is kept between
+the rest length minus this value and the rest length plus this value.
+
+Because the vehicle only finds the ground within the rest length plus the
+wheel radius, a wheel never extends past its rest length. In practice, this
+value limits how far the wheel can be pushed up toward the chassis, and it
+only has an effect when it is smaller than the rest length. This is measured in meters.
+
+Attribute: Parameter maxSuspensionTravel The largest change from the rest length, in meters
+*/
+    action SetMaxSuspensionTravel(number maxSuspensionTravel)
+        me:maxSuspensionTravel = maxSuspensionTravel
     end
 
     /*

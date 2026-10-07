@@ -35,7 +35,6 @@ class Vehicle
     Layer3D layer = undefined
     Item3D chassis = undefined
     Array<Suspension> wheels
-    number maxSuspensionTravel = 2.0
     number steeringClamp = 0.30
     number currentSpeedKilometersPerHour = 0
     PhysicsRaycast raycast
@@ -325,7 +324,9 @@ if timeStep <= 0 or chassis = undefined
         TransformByChassisBasis(axleWorldSpace, chassisRotation)
         axleWorldSpace:Normalize()
 
-        number rayLength = wheel:GetRestLength() + wheel:GetRadius() + maxSuspensionTravel
+        // Like Bullet, the ray reaches only to the bottom of a wheel at rest
+        // length, so a wheel hanging below its rest length is not in contact.
+        number rayLength = wheel:GetRestLength() + wheel:GetRadius()
         Vector3 rayEnd
         rayEnd:Set(directionWorldSpace)
         rayEnd:Scale(rayLength)
@@ -352,7 +353,8 @@ if timeStep <= 0 or chassis = undefined
             contactPointWorldSpace:Set(raycastResult:GetHitPointWorldSpace())
             contactNormalWorldSpace:Set(raycastResult:GetHitNormalWorldSpace())
             number hitDistance = rayLength * raycastResult:GetFraction()
-            wheel:SetSuspensionLength(Clamp(hitDistance - wheel:GetRadius(), wheel:GetRestLength() - maxSuspensionTravel, wheel:GetRestLength() + maxSuspensionTravel))
+            number travel = wheel:GetMaxSuspensionTravel()
+            wheel:SetSuspensionLength(Clamp(hitDistance - wheel:GetRadius(), wheel:GetRestLength() - travel, wheel:GetRestLength() + travel))
 
             Vector3 chassisRelativePoint
             chassisRelativePoint:Set(contactPointWorldSpace)
@@ -387,7 +389,12 @@ if timeStep <= 0 or chassis = undefined
             suspensionChassisPoint:Set(chassisRelativePoint)
             wheel:GetSuspensionGroundPoint():Set(groundRelativePoint)
         else
-            wheel:SetSuspensionLength(wheel:GetRestLength() + maxSuspensionTravel)
+            // Like Bullet, a wheel whose ray misses rests at its rest length,
+            // with its contact point at the end of the ray and its normal
+            // pointing back up the suspension.
+            wheel:SetSuspensionLength(wheel:GetRestLength())
+            wheel:GetContactPointWorldSpace():Set(rayEnd)
+            wheel:GetContactNormalWorldSpace():Set(directionWorldSpace):MakeOpposite()
         end
     end
 
