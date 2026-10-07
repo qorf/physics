@@ -115,7 +115,7 @@ class Main is Game
     end
 
     action BuildChassis(Color colors)
-        chassis:LoadBox(2, 1, 4, colors:Yellow())
+        chassis:LoadBox(2, 1, 4, colors:Green())
         chassis:EnablePhysics(true)
         chassis:RequireSimulation(true)
         chassis:SetResponsive()
@@ -137,7 +137,14 @@ class Main is Game
     end
 
     action BuildWheel(Model wheel, Color colors, number x, number z)
-        wheel:LoadSphere(0.5, 0.5, 0.5, colors:Black())
+        // A low-division cylinder (diameter 1 = 2 * wheel radius) with a
+        // contrasting spoke, so spin and steering are visible. The cylinder's
+        // axis starts along Y and is rotated onto X to line up with the axle.
+        wheel:LoadCylinder(1, 0.4, 1, 8, colors:Blue())
+        Model spoke
+        spoke:LoadBox(0.9, 0.44, 0.15, colors:Red())
+        wheel:Add(spoke)
+        wheel:Rotate(0, 0, 1, 90)
         wheel:SetPosition(x, 0.5, z)
         wheel:SetName("Raycast Wheel")
         Add(wheel)

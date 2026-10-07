@@ -2,6 +2,8 @@ package Libraries.Game.Physics
 
 use Libraries.Interface.Item3D
 use Libraries.Compute.Vector3
+use Libraries.Compute.Matrix4
+use Libraries.Containers.Array
 
 /*The Suspension class stores the setup and current state for one vehicle wheel.
 Add a wheel to a Vehicle to get its Suspension object. You can then set that
@@ -39,6 +41,7 @@ class Suspension
     number brake = 0
     number suspensionForce = 0
     number wheelRotation = 0
+    number deltaRotation = 0
     boolean inContact = false
     Item3D groundBody = undefined
 
@@ -51,6 +54,13 @@ class Suspension
     Vector3 tireSideImpulse
     Vector3 tireChassisPoint
     Vector3 tireGroundPoint
+
+    // The visual's rest pose, captured by SetVisual. The vehicle rotates the
+    // visual and its children from this pose each update.
+    Matrix4 visualRestRotation
+    Array<Item3D> visualParts
+    Array<Matrix4> visualPartRestRotations
+    Array<Vector3> visualPartRestPositions
     
     on create
         contactNormalWorldSpace:Set(0, 1, 0)
@@ -75,6 +85,7 @@ the wheel's position, direction, axle, rest length, and radius unchanged.
         brake = 0
         suspensionForce = 0
         wheelRotation = 0
+        deltaRotation = 0
         steeringEnabled = false
         inContact = false
         groundBody = undefined
@@ -90,10 +101,69 @@ be a cylinder or model positioned at the wheel's current world-space location. I
 
     /*
 Sets the Item3D used to show this wheel in the scene. The vehicle updates this
-item's position and rotation to display the wheel.
+item's position and rotation to display the wheel. Before calling this action,
+orient the item (and any children) as it should look on an unsteered,
+unspun wheel of a chassis with no rotation. The vehicle uses that pose as the
+starting point when it applies steering, spin, and the chassis rotation.
 */
     action SetVisual(Item3D visual)
         me:visual = visual
+        visualParts:Empty()
+        visualPartRestRotations:Empty()
+        visualPartRestPositions:Empty()
+        if visual not= undefined
+            visualRestRotation:Set(visual:GetRotationTransform())
+            CaptureRestPose(visual)
+        end
+    end
+
+    /*
+Records the rotation and parent-relative position of every child of the
+given item, so the vehicle can rotate them along with the wheel.
+Attribute: Parameter item The item whose children to record
+*/
+    private action CaptureRestPose(Item3D item)
+        integer i = 0
+        repeat while i < item:GetItemCount()
+            Item3D child = item:GetItem(i)
+            Matrix4 rotation
+            rotation:Set(child:GetRotationTransform())
+            visualParts:Add(child)
+            visualPartRestRotations:Add(rotation)
+            visualPartRestPositions:Add(child:GetPosition())
+            CaptureRestPose(child)
+            i = i + 1
+        end
+    end
+
+    /*
+Returns the visual's rotation at the time SetVisual was called.
+*/
+    action GetVisualRestRotation returns Matrix4
+        return visualRestRotation
+    end
+
+    /*
+Returns the visual's children, in the same order as the rest rotations and
+positions recorded by SetVisual.
+*/
+    action GetVisualParts returns Array<Item3D>
+        return visualParts
+    end
+
+    /*
+Returns each visual child's rotation at the time SetVisual was called.
+*/
+    action GetVisualPartRestRotations returns Array<Matrix4>
+        return visualPartRestRotations
+    end
+
+    /*
+Returns each visual child's position relative to its parent at the time
+SetVisual was called.
+*/
+    action GetVisualPartRestPositions returns Array<Vector3>
+        return visualPartRestPositions
     end
 
     /*
@@ -502,19 +572,34 @@ This setter does not clamp it, and the next vehicle update may replace it.
 
     /*
 Returns this wheel's spin angle around its axle, in radians. Zero means no
-rotation. The vehicle currently stores this value but does not update it or
-use it to rotate the wheel's visual item.
+rotation. The vehicle updates this value from the wheel's rolling speed and
+uses it to rotate the wheel's visual item.
 */
     action GetWheelRotation returns number
         return wheelRotation
     end
 
     /*
-Sets this wheel's spin angle around its axle, in radians. The vehicle currently
-stores this value but does not use it to rotate the wheel's visual item.
+Sets this wheel's spin angle around its axle, in radians.
 */
     action SetWheelRotation(number wheelRotation)
         me:wheelRotation = wheelRotation
+    end
+
+    /*
+Returns how far, in radians, the wheel spun during the latest vehicle update.
+While the wheel is off the ground, it keeps spinning by this amount and slows
+down a little each update.
+*/
+    action GetDeltaRotation returns number
+        return deltaRotation
+    end
+
+    /*
+Sets how far, in radians, the wheel spins each update while off the ground.
+*/
+    action SetDeltaRotation(number deltaRotation)
+        me:deltaRotation = deltaRotation
     end
 
     /*
