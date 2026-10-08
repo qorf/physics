@@ -52,7 +52,9 @@ List<Item3DNode> nodes = physicsTree:Query(rayBounds)
         Iterator<Item3DNode> nodeIterator = nodes:GetIterator()
         
         result:SetToDefault()
-        fraction = 1
+        // The closest hit so far, as a fraction of the segment. Like Bullet,
+        // a hit replaces the current one only if it is strictly closer.
+        number fraction = 1
 
         Vector3 segment
         segment:Set(to)
@@ -129,15 +131,17 @@ List<Item3DNode> nodes = physicsTree:Query(rayBounds)
                     axis = axis + 1
                 end
 
-                if intersects and enter >= 0 and enter <= fraction and enter <= 1 and enterAxis >= 0
+                if intersects and enter >= 0 and enter < fraction and enterAxis >= 0
+                    fraction = enter
                     result:SetHit(true)
                     result:SetFraction(enter)
                     result:SetHitBody(item)
-                    result:GetHitPointWorldSpace():Set(from)
+                    // Hit point = from + segment * enter
                     Vector3 traveled
                     traveled:Set(segment)
                     traveled:Scale(enter)
-                    result:GetHitNormalWorldSpace():Add(traveled)
+                    result:GetHitPointWorldSpace():Set(from)
+                    result:GetHitPointWorldSpace():Add(traveled)
                     
                     Vector3 resultHitNormalWorldSpace = result:GetHitNormalWorldSpace()
                     resultHitNormalWorldSpace:Set(0, 0, 0)

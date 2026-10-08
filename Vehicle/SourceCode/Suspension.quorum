@@ -26,16 +26,17 @@ class Suspension
     Vector3 contactPointWorldSpace
     Vector3 contactNormalWorldSpace
     
-    //A set of values representing the suspension
+    //A set of values representing the suspension. The tuning values match
+    //Bullet's btVehicleTuning defaults, as does SetToDefaults.
     number restLength = 1.3
     number maxSuspensionTravel = 5
     number radius = 0.4
     number suspensionLength = 1.3
-    number suspensionStiffness = 25
-    number dampingCompression = 2.5
-    number dampingRelaxation = 2.0
+    number suspensionStiffness = 5.88
+    number dampingCompression = 0.83
+    number dampingRelaxation = 0.88
     number maxSuspensionForce = 6000
-    number frictionSlip = 100
+    number frictionSlip = 10.5
     number rollInfluence = 0.1
     number steering = 0
     number engineForce = 0
@@ -406,7 +407,7 @@ Sets the ground surface's contact normal in world space. For example, use
 
     /*
 Returns the suspension spring stiffness. Use 0 or greater. There is no
-upper limit. A typical default might be in the 5 or 6 range.
+upper limit. The default is 5.88, which is Bullet's default.
 
 Attribute: returns a positive number representing the stiffness
 */
@@ -416,7 +417,7 @@ Attribute: returns a positive number representing the stiffness
 
     /*
 Sets the suspension spring stiffness. Use 0 or greater. There is no
-upper limit. A typical default might be in the 5 or 6 range.
+upper limit. The default is 5.88, which is Bullet's default.
 */
     action SetSuspensionStiffness(number suspensionStiffness)
         me:suspensionStiffness = suspensionStiffness

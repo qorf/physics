@@ -173,6 +173,12 @@ class Main is Game
         wheel:SetRestLength(restLength)
         wheel:SetRadius(radius)
         wheel:SetSteeringEnabled(frontWheel)
+        // Tuned for this forklift. These are stiffer and grippier than
+        // Suspension's defaults, which match Bullet's btVehicleTuning.
+        wheel:SetSuspensionStiffness(25)
+        wheel:SetDampingCompression(2.5)
+        wheel:SetDampingRelaxation(2.0)
+        wheel:SetFrictionSlip(100)
         return wheel
     end
 
