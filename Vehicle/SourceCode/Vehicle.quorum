@@ -9,6 +9,7 @@ use Libraries.Compute.Math
 use Libraries.Compute.Matrix3
 use Libraries.Compute.Matrix4
 use Libraries.Containers.Iterator
+use Libraries.Game.Collision.RayCastResult3D
 
 
 /*
@@ -38,7 +39,7 @@ class Vehicle
     number steeringClamp = 0.30
     number currentSpeedKilometersPerHour = 0
     PhysicsRaycast raycast
-    PhysicsRaycastResult raycastResult
+    RayCastResult3D raycastResult
     
     /*
         This action adds a wheel setup to the end of the vehicle's list.

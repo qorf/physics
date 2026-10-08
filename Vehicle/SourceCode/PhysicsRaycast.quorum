@@ -12,6 +12,7 @@ use Libraries.Game.BoundingBox
 use Libraries.Containers.List
 use Libraries.Game.Collision.Item3DNode
 use Libraries.Containers.Iterator
+use Libraries.Game.Collision.RayCastResult3D
 
 /*
     Result of a PhysicsRaycast.Cast call. Fraction is measured along the segment,
@@ -31,7 +32,7 @@ class PhysicsRaycast
     Attribute: Parameter to The world-space end point of the segment.
     Attribute: Parameter ignoreBody The item to skip during the query.
     */
-    action Cast(Layer3D layer, Vector3 from, Vector3 to, Item3D ignoreBody, PhysicsRaycastResult result)
+    action Cast(Layer3D layer, Vector3 from, Vector3 to, Item3D ignoreBody, RayCastResult3D result) returns boolean
         BroadphaseCollision3D physicsTree = layer:GetCollisionManager():GetBroadphase()
         Vector3 minimum
 minimum:SetX(math:MinimumOf(from:GetX(), to:GetX()))
@@ -46,9 +47,8 @@ maximum:SetZ(math:MaximumOf(from:GetZ(), to:GetZ()))
 BoundingBox rayBounds
 rayBounds:Set(minimum, maximum)
         
-        
         BroadphaseCollision3D candidates
-List<Item3DNode> nodes = physicsTree:Query(rayBounds)
+        List<Item3DNode> nodes = physicsTree:Query(rayBounds)
         Iterator<Item3DNode> nodeIterator = nodes:GetIterator()
         
         result:SetToDefault()
@@ -64,99 +64,18 @@ List<Item3DNode> nodes = physicsTree:Query(rayBounds)
         repeat while nodeIterator:HasNext()
             Item3DNode itemNode = nodeIterator:Next()
             Item3D item = itemNode:GetItem()
-            if item not= ignoreBody and item:GetShape() not= undefined and item:GetShapeType() = item:GetShape():BOX
-                Box box = cast(Box, item:GetShape())
-                PhysicsPosition3D transform
-                transform:Set(item:GetCollisionTransform())
-
-                Vector3 localFrom
-                transform:InverseTransform(from, localFrom)
-                Vector3 localTo
-                transform:InverseTransform(to, localTo)
-                Vector3 localDelta
-                localDelta:Set(localTo)
-                localDelta:Subtract(localFrom)
-                Vector3 half = box:GetHalfExtentsWithMargin()
-
-                number enter = 0
-                number leave = 1
-                integer enterAxis = -1
-                number enterSign = 0
-                boolean intersects = true
-                integer axis = 0
-                repeat while axis < 3 and intersects
-                    number origin = 0
-                    number delta = 0
-                    number extent = 0
-                    if axis = 0
-                        origin = localFrom:GetX()
-                        delta = localDelta:GetX()
-                        extent = half:GetX()
-                    elseif axis = 1
-                        origin = localFrom:GetY()
-                        delta = localDelta:GetY()
-                        extent = half:GetY()
-                    else
-                        origin = localFrom:GetZ()
-                        delta = localDelta:GetZ()
-                        extent = half:GetZ()
-                    end
-
-                    if math:AbsoluteValue(delta) < 0.0000001
-                        if origin < -extent or origin > extent
-                            intersects = false
-                        end
-                    else
-                        number first = (-extent - origin) / delta
-                        number second = (extent - origin) / delta
-                        number sign = -1
-                        if first > second
-                            number swap = first
-                            first = second
-                            second = swap
-                            sign = 1
-                        end
-                        if first > enter
-                            enter = first
-                            enterAxis = axis
-                            enterSign = sign
-                        end
-                        if second < leave
-                            leave = second
-                        end
-                        if enter > leave
-                            intersects = false
-                        end
-                    end
-                    axis = axis + 1
-                end
-
-                if intersects and enter >= 0 and enter < fraction and enterAxis >= 0
-                    fraction = enter
-                    result:SetHit(true)
-                    result:SetFraction(enter)
+            CollisionShape3D shape = item:GetShape()
+            PhysicsPosition3D transform = item:GetCollisionTransform()
+if item not= ignoreBody and shape not= undefined and transform not= undefined
+if shape:RayCast(from, to, transform, result)
                     result:SetHitBody(item)
-                    // Hit point = from + segment * enter
-                    Vector3 traveled
-                    traveled:Set(segment)
-                    traveled:Scale(enter)
-                    result:GetHitPointWorldSpace():Set(from)
-                    result:GetHitPointWorldSpace():Add(traveled)
-                    
-                    Vector3 resultHitNormalWorldSpace = result:GetHitNormalWorldSpace()
-                    resultHitNormalWorldSpace:Set(0, 0, 0)
-                    if enterAxis = 0
-                        resultHitNormalWorldSpace:Set(enterSign, 0, 0)
-                    elseif enterAxis = 1
-                        resultHitNormalWorldSpace:Set(0, enterSign, 0)
-                    else
-                        resultHitNormalWorldSpace:Set(0, 0, enterSign)
-                    end
-                    transform:GetBasis():Transform(resultHitNormalWorldSpace)
-                    resultHitNormalWorldSpace:Normalize()
+                    hitAnything = true
                 end
             end
+            
             i = i + 1
         end
+        
+        return false
     end
 end
