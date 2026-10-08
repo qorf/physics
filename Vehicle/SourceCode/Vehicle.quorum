@@ -38,7 +38,6 @@ class Vehicle
     Array<Suspension> wheels
     number steeringClamp = 0.30
     number currentSpeedKilometersPerHour = 0
-    PhysicsRaycast raycast
     RayCastResult3D raycastResult
     
     /*
@@ -338,8 +337,8 @@ if timeStep <= 0 or chassis = undefined
         boolean hardPointValid = hardPointY > -1000 and hardPointY < 1000
 
         boolean hitDetected = false
-        if raycast not= undefined and hardPointValid
-            raycast:Cast(layer, suspensionOriginWorldSpace, rayEnd, chassis, raycastResult)
+        if layer not= undefined and hardPointValid
+            layer:RayCastPhysics(suspensionOriginWorldSpace, rayEnd, chassis, raycastResult)
             hitDetected = raycastResult:IsHit()
         end
 
