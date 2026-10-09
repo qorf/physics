@@ -7,13 +7,13 @@ use Libraries.Game.Graphics.DirectionalLight
 use Libraries.Game.Graphics.PointLight
 use Libraries.Game.InputMonitor
 use Libraries.Game.Collision.PhysicsPosition3D
-use Libraries.Game.Physics.Vehicle
-use Libraries.Game.Physics.Suspension
 use Libraries.Interface.Events.KeyboardEvent
 use Libraries.Compute.Vector3
 use Libraries.Compute.Random
 use Libraries.Game.Physics.PhysicsProperties3D
 use Libraries.Interface.Item3D
+use Libraries.Game.Physics.Vehicles.Vehicle
+use Libraries.Game.Physics.Vehicles.Suspension
 
 /*
     A small Bullet-style forklift. Arrow keys steer and drive; Shift+Left/Right
@@ -151,7 +151,6 @@ class Main is Game
     end
 
     action BuildVehicle
-        vehicle:SetLayer(GetCurrentLayer3D())
         vehicle:SetChassis(chassis)
         // Hard points positioned so suspension starts at rest length (uncompressed)
         // Chassis at Y=1.3, ground at Y=0, wheel radius 0.5, rest length 1.3
@@ -161,6 +160,7 @@ class Main is Game
         vehicle:Add(AddWheel(rightWheel, MakeVector(0.88, 0.5, 1.5), MakeVector(0, -1, 0), MakeVector(1, 0, 0), 1.3, 0.5, true))
         vehicle:Add(AddWheel(rearLeftWheel, MakeVector(-0.88, 0.5, -2.5), MakeVector(0, -1, 0), MakeVector(1, 0, 0), 1.3, 0.5, false))
         vehicle:Add(AddWheel(rearRightWheel, MakeVector(0.88, 0.5, -2.5), MakeVector(0, -1, 0), MakeVector(1, 0, 0), 1.3, 0.5, false))
+        GetCurrentLayer3D():Add(vehicle)
     end
     
     
@@ -191,7 +191,6 @@ class Main is Game
     number actualTime = 0
     action Update(number seconds)
         actualTime = actualTime + seconds
-vehicle:Update(seconds)
         DriveAndOperate()
     end
 
