@@ -1,36 +1,346 @@
 use Libraries.Game.Game
+use Libraries.Game.InputMonitor
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.Camera
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Graphics.PixelMap
+use Libraries.Game.Graphics.Format
+use Libraries.Game.Graphics.Worlds.Terrain
+use Libraries.Compute.Vector3
+use Libraries.Compute.Matrix3
+use Libraries.Compute.Math
+use Libraries.Compute.BitwiseOperations
+use Libraries.Compute.Noise.PerlinNoise
+use Libraries.Interface.Item3D
+use Libraries.Interface.Events.KeyboardEvent
+use Libraries.Game.Physics.Vehicles.Vehicle
+use Libraries.Game.Physics.Vehicles.Suspension
+use Libraries.Interface.Behaviors.Games.VehicleMovementBehavior
 
 /*
-    This is a default class for creating a game in Quorum. Note that the Main 
-    action begins by calling StartGame(), which loads a window a game can 
-    be displayed in. The action CreateGame is where the game should load any 
-    assets, like images to be displayed, frames of animation, or sounds to be
-    played. 
+    A raycast vehicle driving over rolling hills. The hills are a Terrain built
+    from a height map that is generated with Perlin noise, so no image file is
+    needed. Arrow keys drive and steer, the space bar brakes, and R puts the
+    vehicle back on its wheels in the middle of the map.
 */
 class Main is Game
-    /*
-        This action, Main, starts our computer program. In Quorum, programs always
-        begin from Main.
-    */
+    Terrain terrain
+    Model chassis
+    Model leftWheel
+    Model rightWheel
+    Model rearLeftWheel
+    Model rearRightWheel
+    Vehicle vehicle
+    VehicleMovementBehavior movement
+    PerlinNoise noise
+    BitwiseOperations ops
+    InputMonitor monitor
+    KeyboardEvent keys
+    Math math
+
+    // How many height samples run along each side of the terrain, and how far
+    // apart they are in the world. 257 samples half a unit apart make a square
+    // 128 units across, with triangles small enough that the wheels follow the
+    // ground closely.
+    integer mapSize = 257
+    number terrainScale = 0.5
+
+    // How tall the highest possible ground is before the terrain is scaled.
+    // The noise mostly stays in the middle of its range, so the hills in
+    // practice rise and fall a few units around the middle height.
+    number heightScale = 24
+
+    // Where the terrain's corner sits. The terrain is centered on the origin
+    // and lowered so its middle height is close to 0.
+    number baseX = -64
+    number baseY = -6
+    number baseZ = -64
+
+    // How far above the ground the chassis center is placed when the vehicle
+    // is reset. The wheels reach 1.1 units below the chassis center at rest,
+    // so a little more than that drops it gently onto its wheels.
+    number dropHeight = 1.4
+
+    // The chase camera sits this far behind the vehicle along its facing,
+    // and this far above it.
+    number cameraBehind = 12
+    number cameraAbove = 5
+
     action Main
+        // Terrain currently builds its mesh with the Vulkan renderer only.
+        UseVulkan(true)
         StartGame()
     end
 
-    /*
-        This action sets up the default values for a game. For example, we might
-        use the Libraries.Game.Graphics.Drawable class to load up an image or 
-        a shape. Or, we might add a Libraries.Interface.Button for making something clickable
-        or a Libraries.Interface.TextBox for gathering user input in a game.
-    */
     action CreateGame
+        EnablePhysics3D(true)
+        SetGravity3D(0, -9.8, 0)
+        Color colors
+
+        DirectionalLight sunlight
+        sunlight:SetIntensity(2.5)
+        sunlight:SetColor(colors:LightGray())
+        sunlight:SetDirection(-1, -4, 2)
+        Add(sunlight)
+
+        BuildTerrain()
+        BuildChassis(colors)
+        BuildWheels(colors)
+        BuildVehicle()
+        ResetVehicle()
+        PlaceCamera()
+    end
+
+    action Update(number seconds)
+        if monitor:IsKeyPressed(keys:R)
+            ResetVehicle()
+        end
+
+        // Driving off the edge of the map drops the vehicle into nothing, so
+        // bring it back once it has fallen well below the lowest ground.
+        if chassis:GetY() < baseY - 20
+            ResetVehicle()
+        end
+
+        PlaceCamera()
     end
 
     /*
-        The update action is called on every "frame" of animation in a game. This
-        action should be used to do operations on items. So, for example, we 
-        might use this action to change frames of animation, to rotate items, 
-        or to make creatures jump.
+    This action builds the terrain from a generated height map and gives it a
+    physics shape, so the vehicle's wheel rays have ground to land on.
     */
-    action Update(number seconds)
+    action BuildTerrain
+        // Rolling hills about every forty units, with three finer layers of
+        // bumps laid over them.
+        noise:SetSeed(2026)
+        noise:SetFrequency(0.0125)
+        noise:SetOctaves(4)
+
+        text key = "AllTerrainVehicle Hills"
+        terrain:SetName(key)
+
+        // The height scale is read while the map is turned into a mesh, so it
+        // has to be set before the map is loaded.
+        terrain:SetHeightScale(heightScale)
+        terrain:LoadHeightMap(GenerateHeightMap(), key)
+
+        terrain:EnablePhysics(true)
+        terrain:SetMass(0)
+        terrain:SetFriction(1)
+
+        terrain:Scale(terrainScale, terrainScale, terrainScale)
+        terrain:SetX(baseX)
+        terrain:SetY(baseY)
+        terrain:SetZ(baseZ)
+        Add(terrain)
+    end
+
+    /*
+    This action builds the height map, one sample at a time, from the noise.
+    */
+    action GenerateHeightMap returns PixelMap
+        PixelMap map
+        Format format
+        format:SetValue(format:RGBA8888)
+        map:CreatePixelMap(mapSize, mapSize, format)
+
+        integer row = 0
+        repeat while row < mapSize
+            integer column = 0
+            repeat while column < mapSize
+                // Terrain reads the row as a z position and the column as an x
+                // position, so the pixels are written in that order.
+                number height = GetHeightAtSample(column, row)
+                map:SetPixel(row, column, PackHeight(EncodeHeight(height)))
+                column = column + 1
+            end
+            row = row + 1
+        end
+
+        return map
+    end
+
+    /*
+    This action returns the height of the ground at a sample position, from 0
+    to 1.
+    */
+    action GetHeightAtSample(number sampleX, number sampleZ) returns number
+        return noise:ToUnitRange(noise:GetAdditiveNoise(sampleX, sampleZ))
+    end
+
+    /*
+    This action returns how high the ground is at a position in the world, by
+    asking the noise the same question the height map was built from.
+    */
+    action GetGroundHeightAt(number worldX, number worldZ) returns number
+        number sampleX = (worldX - baseX) / terrainScale
+        number sampleZ = (worldZ - baseZ) / terrainScale
+        return baseY + GetHeightAtSample(sampleX, sampleZ) * heightScale * terrainScale
+    end
+
+    /*
+    This action turns a height from 0 to 1 into the sixteen bits a height map
+    can hold. Terrain reads it back as two bytes divided by 65536, so the top
+    is 65535, and anything outside the range is limited rather than wrapped.
+    */
+    action EncodeHeight(number height) returns integer
+        integer level = cast(integer, height * 65536)
+        if level < 0
+            level = 0
+        end
+        if level > 65535
+            level = 65535
+        end
+        return level
+    end
+
+    /*
+    This action packs a sixteen bit height into a pixel. Red holds the coarse
+    byte and green the fine byte. Blue repeats the coarse byte so the map still
+    looks like a height map if it is viewed as a picture.
+    */
+    action PackHeight(integer level) returns integer
+        integer coarse = ops:ShiftRight(level, 8)
+        integer fine = ops:And(level, 255)
+
+        integer code = ops:ShiftLeft(coarse, 24)
+        code = ops:Or(code, ops:ShiftLeft(fine, 16))
+        code = ops:Or(code, ops:ShiftLeft(coarse, 8))
+        return ops:Or(code, 255)
+    end
+
+    action BuildChassis(Color colors)
+        chassis:LoadBox(2, 1, 4, colors:Green())
+        chassis:EnablePhysics(true)
+        chassis:SetResponsive()
+        chassis:SetMass(800)
+        chassis:SetFriction(0.6)
+        chassis:SetRestitution(0)
+        chassis:SetLinearDamping(0.05)
+        chassis:SetAngularDamping(0.8)
+        chassis:SetName("Vehicle Chassis")
+        Add(chassis)
+    end
+
+    action BuildWheels(Color colors)
+        BuildWheel(leftWheel, colors)
+        BuildWheel(rightWheel, colors)
+        BuildWheel(rearLeftWheel, colors)
+        BuildWheel(rearRightWheel, colors)
+    end
+
+    action BuildWheel(Model wheel, Color colors)
+        // A low-division cylinder (diameter 0.8 = 2 * wheel radius) with a
+        // contrasting spoke, so spin and steering are visible. The cylinder's
+        // axis starts along Y and is rotated onto X to line up with the axle.
+        // The vehicle places the wheel every frame, so no position is needed.
+        wheel:LoadCylinder(0.8, 0.4, 0.8, 8, colors:Blue())
+        Model spoke
+        spoke:LoadBox(0.7, 0.44, 0.15, colors:Red())
+        wheel:Add(spoke)
+        wheel:Rotate(0, 0, 1, 90)
+        wheel:SetName("Raycast Wheel")
+        Add(wheel)
+    end
+
+    action BuildVehicle
+        vehicle:SetChassis(chassis)
+        // The vehicle is kept low and wide so it is hard to roll over. The hard
+        // points sit 0.3 below the chassis center, and with a rest length of
+        // 0.4 and a radius of 0.4, the bottom of each wheel is 1.1 below the
+        // chassis center at rest. The wheels are 1.1 to each side, as far out
+        // as the ground is down, so the vehicle only tips on slopes steeper
+        // than about 45 degrees, or in turns of more than about 1 g.
+        vehicle:Add(AddWheel(leftWheel, MakeVector(-1.1, -0.3, 1.5), true))
+        vehicle:Add(AddWheel(rightWheel, MakeVector(1.1, -0.3, 1.5), true))
+        vehicle:Add(AddWheel(rearLeftWheel, MakeVector(-1.1, -0.3, -1.5), false))
+        vehicle:Add(AddWheel(rearRightWheel, MakeVector(1.1, -0.3, -1.5), false))
+        GetCurrentLayer3D():Add(vehicle)
+
+        // The movement behavior drives the vehicle from the arrow keys, with the
+        // space bar as the brake. No drive wheels are chosen, so all four
+        // wheels drive, which helps on hills.
+        movement:SetVehicle(vehicle)
+        movement:SetEngineForce(3000)
+        movement:SetReverseForce(2000)
+        movement:SetMaximumSteering(0.45)
+        chassis:AddBehavior(movement)
+    end
+
+    action AddWheel(Item3D visual, Vector3 connection, boolean frontWheel) returns Suspension
+        Suspension wheel
+        wheel:SetVisual(visual)
+        wheel:SetConnectionPoint(connection)
+        wheel:SetDirection(MakeVector(0, -1, 0))
+        wheel:SetAxle(MakeVector(1, 0, 0))
+        wheel:SetRestLength(0.4)
+        wheel:SetRadius(0.4)
+        wheel:SetSteeringEnabled(frontWheel)
+        // Softer than the flat-ground demo, so the wheels soak up bumps instead
+        // of bouncing the chassis over them. The grip is close to Bullet's
+        // default, so the tires slide before the vehicle tips over.
+        wheel:SetSuspensionStiffness(20)
+        wheel:SetDampingCompression(2.5)
+        wheel:SetDampingRelaxation(2.0)
+        wheel:SetFrictionSlip(10)
+        // Apply the tires' sideways push almost level with the chassis center
+        // instead of at the ground, so turning and side slopes barely roll the
+        // vehicle. 1 would push at the ground; 0 removes the rolling entirely.
+        wheel:SetRollInfluence(0.02)
+        return wheel
+    end
+
+    /*
+    This action puts the vehicle upright in the middle of the map, a little
+    above the ground there, and stops it moving.
+    */
+    action ResetVehicle
+        Vector3 stop
+        chassis:SetYawPitchRoll(0, 0, 0)
+        chassis:SetPosition(0, GetGroundHeightAt(0, 0) + dropHeight, 0)
+        chassis:SetLinearVelocity(stop)
+        chassis:SetAngularVelocity(stop)
+        chassis:Simulate(true)
+    end
+
+    /*
+    This action stands the camera behind the vehicle along its facing and
+    points it at the vehicle, so the view turns as the vehicle turns.
+    */
+    action PlaceCamera
+        Camera camera = GetCamera3D()
+
+        // The vehicle drives along its own z axis, the third column of its
+        // rotation. Only the level part of that direction is used, so the
+        // camera does not swing up and down as the vehicle climbs.
+        Matrix3 basis = chassis:GetCenterOfMassTransform():GetBasis()
+        Vector3 forward = basis:GetColumn(2)
+        number faceX = forward:GetX()
+        number faceZ = forward:GetZ()
+        number flat = math:SquareRoot(faceX * faceX + faceZ * faceZ)
+        if flat < 0.0001
+            // Pointing straight up or down, so there is no heading. Any fixed
+            // direction works until the vehicle levels out again.
+            faceX = 0
+            faceZ = 1
+        else
+            faceX = faceX / flat
+            faceZ = faceZ / flat
+        end
+
+        camera:SetPosition(chassis:GetX() - faceX * cameraBehind,
+            chassis:GetY() + cameraAbove,
+            chassis:GetZ() - faceZ * cameraBehind)
+
+        // Set the camera's up before aiming it, so no roll builds up over time.
+        camera:SetUp(0, 1, 0)
+        camera:LookAt(chassis:GetX(), chassis:GetY(), chassis:GetZ())
+    end
+
+    action MakeVector(number x, number y, number z) returns Vector3
+        Vector3 result
+        result:Set(x, y, z)
+        return result
     end
 end
