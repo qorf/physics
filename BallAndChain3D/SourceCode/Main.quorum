@@ -1,0 +1,152 @@
+use Libraries.Game.Game
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Interface.Item3D
+use Libraries.Game.Collision.PhysicsPosition3D
+use Libraries.Game.Physics.Joints.CustomizableJoint3D
+
+/*
+This example shows a CustomizableJoint3D, which lets you choose, for each
+direction, how far one item may move and turn compared to another. By
+default, the items may not move apart at all, but may turn freely.
+
+Here, customizable joints make a chain for a wrecking ball. The chain hangs
+from a post that does not move. It is made of five links, with a heavy ball
+at the end. Each joint keeps two neighbors together, like the default, but
+also limits how far they may bend, about 30 degrees each way. That is what
+makes it a chain and not a loose string: it can curve, but it cannot fold
+back on itself. The joint at the post has no bending limit, so the whole
+chain can swing.
+
+The chain starts level, to the left of the post. Gravity swings it down,
+and the ball smashes into a tall stack of boxes on the floor to the right.
+*/
+class Main is Game
+    Color color
+
+    action Main
+        UseVulkan(true)
+        StartGame()
+    end
+
+    action CreateGame
+        EnablePhysics3D(true)
+        SetGravity3D(0, -9.8, 0)
+
+        Model floor
+        floor:LoadBox(20, 1, 20, color:Gray())
+        floor:SetPosition(0, -0.5, 0)
+        floor:EnablePhysics(true)
+        floor:SetUnmovable()
+        Add(floor)
+
+        // The post does not move. The chain hangs from its center.
+        Model post
+        post:LoadBox(0.16, 0.16, 0.16, color:Gray())
+        post:SetPosition(0, 4.5, 0)
+        post:EnablePhysics(true)
+        post:SetUnmovable()
+        Add(post)
+
+        // Each link is 0.4 long, and the joints are 0.6 apart, at the
+        // points halfway between links. The small gaps keep the links from
+        // bumping into each other as the chain bends. The first link joins
+        // the post at the post's center, with no bending limit.
+        Item3D previous = post
+        integer i = 0
+        repeat while i < 5
+            Model link
+            link:LoadBox(0.4, 0.1, 0.1, color:Gray())
+            link:SetPosition(-0.3 - 0.6 * i, 4.5, 0)
+            link:EnablePhysics(true)
+            link:SetResponsive()
+            Add(link)
+
+            if i = 0
+                Join(post, 0, link, 0.3, false)
+            else
+                Join(previous, -0.3, link, 0.3, true)
+            end
+            previous = link
+            i = i + 1
+        end
+
+        // The ball is much heavier than the links, so it hits hard. It hangs
+        // 0.6 past the last joint point, so it does not touch the last link.
+        Model ball
+        ball:LoadSphere(1, 1, 1, color:Red())
+        ball:SetPosition(-3.6, 4.5, 0)
+        ball:EnablePhysics(true)
+        ball:SetResponsive()
+        ball:SetMass(15)
+        Add(ball)
+        Join(previous, -0.3, ball, 0.6, true)
+
+        // A stack of 60 boxes, 3 deep, 4 wide, and 5 high, just past the
+        // bottom of the ball's swing.
+        integer level = 0
+        repeat while level < 5
+            integer row = 0
+            repeat while row < 3
+                integer column = 0
+                repeat while column < 4
+                    AddBox(0.95 + 0.5 * row, 0.25 + 0.5 * level, -0.75 + 0.5 * column)
+                    column = column + 1
+                end
+                row = row + 1
+            end
+            level = level + 1
+        end
+
+        DirectionalLight light
+        light:SetColor(1,1,1,1)
+        light:SetDirection(0, -2, 1)
+        light:SetIntensity(100)
+        Add(light)
+        // Look at the scene from above and to the front left, so both the
+        // swing and the depth of the stack show.
+        GetCamera3D():SetPosition(-3, 5, -8)
+        GetCamera3D():LookAt(0, 1.5, 0)
+    end
+
+    /*
+    This action joins two items with a customizable joint. The joint point is
+    along each item's x axis, at the given distance from that item's center.
+    By default, the items may not move apart but may turn freely. If
+    bendLimit is true, each may also turn no more than 0.5 radians, about 30
+    degrees, either way compared to the other, around each of the three
+    axes.
+    */
+    action Join(Item3D first, number firstOffset, Item3D second, number secondOffset, boolean bendLimit)
+        PhysicsPosition3D frameOnFirst
+        frameOnFirst:SetToIdentity()
+        frameOnFirst:GetOrigin():Set(firstOffset, 0, 0)
+        PhysicsPosition3D frameOnSecond
+        frameOnSecond:SetToIdentity()
+        frameOnSecond:GetOrigin():Set(secondOffset, 0, 0)
+
+        CustomizableJoint3D joint
+        joint:Initialize(first, second, frameOnFirst, frameOnSecond, true)
+        if bendLimit
+            // Axes 0, 1, and 2 are moving along x, y, and z. Axes 3, 4, and
+            // 5 are turning around them.
+            joint:SetLimit(3, -0.5, 0.5)
+            joint:SetLimit(4, -0.5, 0.5)
+            joint:SetLimit(5, -0.5, 0.5)
+        end
+        GetCurrentLayer3D():Add(joint)
+    end
+
+    /*
+    This action adds one box of the stack, 0.5 on each side.
+    */
+    action AddBox(number x, number y, number z)
+        Model box
+        box:LoadBox(0.5, 0.5, 0.5, color:Blue())
+        box:SetPosition(x, y, z)
+        box:EnablePhysics(true)
+        box:SetResponsive()
+        Add(box)
+    end
+end

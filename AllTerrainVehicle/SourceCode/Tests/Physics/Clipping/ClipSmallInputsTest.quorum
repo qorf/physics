@@ -1,0 +1,39 @@
+package Physics.Tests
+
+use Libraries.Compute.Vector3
+use Libraries.Containers.Array
+use Libraries.Game.Collision.Narrowphase.ContactClipper3D
+
+/*
+A single point and a line segment, which are not closed polygons.
+*/
+class ClipSmallInputsTest is PhysicsTest
+    on create
+        SetName("Contact clipper: points and segments")
+    end
+
+    action Run
+        ContactClipper3D clipper
+        Array<Vector3> source = clipper:CreatePointArray()
+        Array<Vector3> clipped = clipper:CreatePointArray()
+        Vector3 up = MakeVector(0, 1, 0)
+
+        source:Get(0):Set(0, 1, 0)
+        CheckWhole("small: point kept", clipper:ClipAgainstPlane(source, 1, clipped, up, 0), 1)
+        CheckWhole("small: point dropped", clipper:ClipAgainstPlane(source, 1, clipped, up, 2), 0)
+
+        // A segment from y = -1 to y = 1, cut at y = 0.
+        source:Get(0):Set(0, -1, 0)
+        source:Get(1):Set(0, 1, 0)
+        integer count = clipper:ClipAgainstPlane(source, 2, clipped, up, 0)
+        CheckWhole("small: segment cut count", count, 2)
+        CheckVector("small: segment keeps its upper end", clipped:Get(0), 0, 1, 0)
+        CheckVector("small: segment cut at the plane", clipped:Get(1), 0, 0, 0)
+
+        count = clipper:ClipAgainstPlane(source, 2, clipped, up, -3)
+        CheckWhole("small: segment fully kept", count, 2)
+        count = clipper:ClipAgainstPlane(source, 2, clipped, up, 3)
+        CheckWhole("small: segment fully dropped", count, 0)
+        CheckWhole("small: nothing in, nothing out", clipper:ClipAgainstPlane(source, 0, clipped, up, 0), 0)
+    end
+end

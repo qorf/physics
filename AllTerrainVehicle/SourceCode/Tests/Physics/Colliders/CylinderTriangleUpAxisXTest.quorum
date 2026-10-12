@@ -1,0 +1,30 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.Shapes.Cylinder
+
+/*
+A cylinder whose up axis is x, with no rotation, lies along x in the
+same way.
+
+Unless a test says otherwise, the triangle is the large flat one with
+a margin of 0.04, and the cylinder has radius 0.3 and height 1, made
+by Cylinder:Set(0.6, 1, 0.6), standing along y. Standing with its
+center at 0.53, its bottom is at 0.03, 0.01 into the surface.
+*/
+class CylinderTriangleUpAxisXTest is PhysicsTest
+    on create
+        SetName("Cylinder and triangle: up axis x")
+    end
+
+    action Run
+        Cylinder cylinder
+        cylinder:Set(1, 0.6, 0.6)
+        cylinder:SetUpAxis(0)
+        LocalCollisionPoints3D points = RunCylinder(MakeLargeTriangle(0.04), cylinder, MakeTransform(0, 0.33, 0, 0, 1, 0, 0), false)
+        CheckWhole("cylinder up axis x: two contacts", points:GetPointCount(), 2)
+        CheckAllContacts("cylinder up axis x", points, 0, -1, 0, -0.01)
+        CheckWhole("cylinder up axis x: one end", CountContactsNear(points, 0.5, 0.03, 0), 1)
+        CheckWhole("cylinder up axis x: other end", CountContactsNear(points, -0.5, 0.03, 0), 1)
+    end
+end

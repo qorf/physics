@@ -1,0 +1,38 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+A sphere beside an edge and one beside a corner. In both, the center is
+0.5 from the closest point and the radius is 0.6, so they overlap by 0.1,
+and the normal points along the line from the closest point to the center.
+
+Unless a test says otherwise, the triangle is the standard one with no
+margin, and the triangle is item A, the way terrain calls it. A stored
+contact's normal then points from the sphere toward the triangle, and
+its point on B is on the sphere's surface.
+*/
+class SphereTriangleEdgeAndCornerTest is PhysicsTest
+    on create
+        SetName("Sphere and triangle: edge and corner")
+    end
+
+    action Run
+        // Beside edge 0, which runs along the x axis. The closest point is
+        // (0.5, 0, 0), and the center is up and out from it.
+        LocalCollisionPoints3D points = RunSphere(0.5, 0.3, 0.4, 0.6, 0, false)
+        CheckContact("sphere edge", points, 0, -0.6, -0.8, 0.5, -0.06, -0.08, -0.1)
+        if points:GetPointCount() = 1
+            CheckVector("sphere edge: point on A is on the edge",
+                points:GetCollisionPoint(0):GetWorldPositionOnA(), 0.5, 0, 0)
+        end
+
+        // Past corner 0, level with the triangle.
+        points = RunSphere(-0.3, 0, 0.4, 0.6, 0, false)
+        CheckContact("sphere corner", points, 0.6, 0, -0.8, 0.06, 0, -0.08, -0.1)
+        if points:GetPointCount() = 1
+            CheckVector("sphere corner: point on A is the corner",
+                points:GetCollisionPoint(0):GetWorldPositionOnA(), 0, 0, 0)
+        end
+    end
+end

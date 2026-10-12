@@ -1,0 +1,52 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.Shapes.Cylinder
+use Libraries.Game.Collision.RayCastResult3D
+
+/*
+Tests Cylinder:RayCast, with a cylinder of radius 0.3 and height 1. A ray
+from above lands on the top cap, and a ray from the side lands on the
+curved side, each with the matching normal. A cylinder whose height runs
+along x is tested too.
+*/
+class CylinderRayCastTest is PhysicsTest
+    on create
+        SetName("Cylinder ray cast")
+    end
+
+    action Run
+        Cylinder cylinder = MakeCylinder()
+        RayCastResult3D result
+
+        result:SetToDefault()
+        cylinder:RayCast(MakeVector(0.1, 5, 0), MakeVector(0.1, -5, 0), MakeTransform(0, 0, 0, 0, 1, 0, 0), result)
+        CheckNumber("onto the cap: fraction", result:GetFraction(), 0.45)
+        CheckVector("onto the cap: point", result:GetHitPointWorldSpace(), 0.1, 0.5, 0)
+        CheckVector("onto the cap: normal", result:GetHitNormalWorldSpace(), 0, 1, 0)
+
+        result:SetToDefault()
+        cylinder:RayCast(MakeVector(-5, 0.2, 0), MakeVector(5, 0.2, 0), MakeTransform(0, 0, 0, 0, 1, 0, 0), result)
+        CheckNumber("onto the side: fraction", result:GetFraction(), 0.47)
+        CheckVector("onto the side: point", result:GetHitPointWorldSpace(), -0.3, 0.2, 0)
+        CheckVector("onto the side: normal", result:GetHitNormalWorldSpace(), -1, 0, 0)
+
+        result:SetToDefault()
+        CheckThat("passing above misses", not cylinder:RayCast(MakeVector(-5, 0.6, 0), MakeVector(5, 0.6, 0), MakeTransform(0, 0, 0, 0, 1, 0, 0), result))
+        CheckThat("passing beside misses", not cylinder:RayCast(MakeVector(-5, 0, 0.4), MakeVector(5, 0, 0.4), MakeTransform(0, 0, 0, 0, 1, 0, 0), result))
+        CheckThat("starting inside misses", not cylinder:RayCast(MakeVector(0, 0, 0), MakeVector(5, 0, 0), MakeTransform(0, 0, 0, 0, 1, 0, 0), result))
+
+        // Height along x: 1 long, radius 0.3.
+        Cylinder alongX
+        alongX:Set(1, 0.6, 0.6)
+        alongX:SetUpAxis(0)
+        result:SetToDefault()
+        alongX:RayCast(MakeVector(0.4, 5, 0), MakeVector(0.4, -5, 0), MakeTransform(0, 0, 0, 0, 1, 0, 0), result)
+        CheckNumber("along x, from above: fraction", result:GetFraction(), 0.47)
+        CheckVector("along x, from above: normal", result:GetHitNormalWorldSpace(), 0, 1, 0)
+
+        result:SetToDefault()
+        alongX:RayCast(MakeVector(-5, 0, 0), MakeVector(5, 0, 0), MakeTransform(0, 0, 0, 0, 1, 0, 0), result)
+        CheckNumber("along x, onto the end: fraction", result:GetFraction(), 0.45)
+        CheckVector("along x, onto the end: normal", result:GetHitNormalWorldSpace(), -1, 0, 0)
+    end
+end

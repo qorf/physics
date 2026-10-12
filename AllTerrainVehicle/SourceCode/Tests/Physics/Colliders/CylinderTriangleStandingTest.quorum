@@ -1,0 +1,26 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+A standing cylinder rests on its bottom cap. The eight points around the
+rim all reach the triangle, and four of them are kept.
+
+Unless a test says otherwise, the triangle is the large flat one with
+a margin of 0.04, and the cylinder has radius 0.3 and height 1, made
+by Cylinder:Set(0.6, 1, 0.6), standing along y. Standing with its
+center at 0.53, its bottom is at 0.03, 0.01 into the surface.
+*/
+class CylinderTriangleStandingTest is PhysicsTest
+    on create
+        SetName("Cylinder and triangle: standing")
+    end
+
+    action Run
+        LocalCollisionPoints3D points = RunCylinder(MakeLargeTriangle(0.04), MakeCylinder(), MakeTransform(0, 0.53, 0, 0, 1, 0, 0), false)
+        CheckWhole("cylinder standing: four contacts", points:GetPointCount(), 4)
+        CheckAllContacts("cylinder standing", points, 0, -1, 0, -0.01)
+        CheckThat("cylinder standing: contacts on the rim", AllContactsAtRadius(points, 0.3, 1))
+        CheckThat("cylinder standing: did not use the general test", not CylinderUsedGeneralTest())
+    end
+end

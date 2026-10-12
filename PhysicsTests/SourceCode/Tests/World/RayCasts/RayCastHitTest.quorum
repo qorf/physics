@@ -1,0 +1,32 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Game.Collision.RayCastResult3D
+
+/*
+Tests a ray cast straight down onto the ground. The ray runs from 5 above
+the origin to 5 below it, and the ground's top is at 0, so it should hit
+the ground halfway along, at the origin, where the ground faces straight up.
+*/
+class RayCastHitTest is PhysicsWorldTest
+    on create
+        SetName("World: a ray cast hits the ground")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        Item3D ground = AddGround(layer)
+        Step(layer)
+
+        RayCastResult3D result
+        boolean hit = layer:RayCastPhysics(MakeVector(0, 5, 0), MakeVector(0, -5, 0), result)
+
+        CheckThat("the ray hit", hit)
+        CheckThat("the result says it hit", result:IsHit())
+        CheckThat("the ray hit the ground", result:GetHitBody() = ground)
+        CheckNear("fraction along the ray", result:GetFraction(), 0.5, 0.005)
+        CheckNear("hit point height", result:GetHitPointWorldSpace():GetY(), 0, 0.05)
+        CheckNear("hit normal's y", result:GetHitNormalWorldSpace():GetY(), 1, 0.001)
+    end
+end

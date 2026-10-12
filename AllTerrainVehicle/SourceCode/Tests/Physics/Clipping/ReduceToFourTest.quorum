@@ -1,0 +1,80 @@
+package Physics.Tests
+
+use Libraries.Compute.Math
+use Libraries.Compute.Vector3
+use Libraries.Containers.Array
+use Libraries.Containers.Number32BitArray
+use Libraries.Containers.Integer32BitArray
+use Libraries.Game.Collision.Narrowphase.ContactClipper3D
+
+/*
+Choosing at most four contact points.
+*/
+class ReduceToFourTest is PhysicsTest
+    on create
+        SetName("Contact clipper: reducing to four points")
+    end
+
+    action Run
+        Math math
+        ContactClipper3D clipper
+        Array<Vector3> points = clipper:CreatePointArray()
+        Number32BitArray depths
+        depths:SetSize(clipper:MAXIMUM_POINTS)
+        Integer32BitArray chosen
+        chosen:SetSize(clipper:MAXIMUM_POINTS)
+        Vector3 up = MakeVector(0, 1, 0)
+
+        // Three points: all of them, in order.
+        integer i = 0
+        repeat while i < 3
+            points:Get(i):Set(i, 0, 0)
+            depths:Set(i, -0.01)
+            i = i + 1
+        end
+        integer count = clipper:ReduceToFour(points, depths, 3, up, chosen)
+        CheckWhole("reduce: three points kept", count, 3)
+        CheckWhole("reduce: three points in order", chosen:Get(2), 2)
+
+        // Eight points around a circle, with point 5 the deepest. The deepest
+        // is chosen first, and the others are a quarter turn apart, which is
+        // every other point: 1, 3, 5 and 7.
+        i = 0
+        repeat while i < 8
+            number angle = i * math:pi / 4
+            points:Get(i):Set(math:Cosine(angle), 0, math:Sine(angle))
+            depths:Set(i, -0.01)
+            i = i + 1
+        end
+        depths:Set(5, -0.05)
+        count = clipper:ReduceToFour(points, depths, 8, up, chosen)
+        CheckWhole("reduce: eight become four", count, 4)
+        CheckWhole("reduce: deepest first", chosen:Get(0), 5)
+
+        boolean oddOnly = true
+        boolean allDifferent = true
+        i = 0
+        repeat while i < 4
+            if chosen:Get(i) mod 2 not= 1
+                oddOnly = false
+            end
+            integer j = i + 1
+            repeat while j < 4
+                if chosen:Get(i) = chosen:Get(j)
+                    allDifferent = false
+                end
+                j = j + 1
+            end
+            i = i + 1
+        end
+        CheckThat("reduce: four different points", allDifferent)
+        CheckThat("reduce: evenly spread around the circle", oddOnly)
+
+        // The same circle seen along a tilted normal still gives four.
+        Vector3 tilted = MakeVector(0.2, 1, 0.1)
+        tilted:Normalize()
+        count = clipper:ReduceToFour(points, depths, 8, tilted, chosen)
+        CheckWhole("reduce: tilted normal gives four", count, 4)
+        CheckWhole("reduce: tilted normal deepest first", chosen:Get(0), 5)
+    end
+end

@@ -1,0 +1,25 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+The standing cylinder as item A. The normal points up, and the points on
+B are on the triangle's thickened surface.
+
+Unless a test says otherwise, the triangle is the large flat one with
+a margin of 0.04, and the cylinder has radius 0.3 and height 1, made
+by Cylinder:Set(0.6, 1, 0.6), standing along y. Standing with its
+center at 0.53, its bottom is at 0.03, 0.01 into the surface.
+*/
+class CylinderTriangleIsItemATest is PhysicsTest
+    on create
+        SetName("Cylinder and triangle: cylinder as item A")
+    end
+
+    action Run
+        LocalCollisionPoints3D points = RunCylinder(MakeLargeTriangle(0.04), MakeCylinder(), MakeTransform(0, 0.53, 0, 0, 1, 0, 0), true)
+        CheckWhole("cylinder as item A: four contacts", points:GetPointCount(), 4)
+        CheckAllContacts("cylinder as item A", points, 0, 1, 0, -0.01)
+        CheckThat("cylinder as item A: points on the triangle", AllContactsAtHeight(points, 0.04))
+    end
+end

@@ -1,0 +1,35 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+Tests BoxBoxCollider with one box resting on another, face to face. Both
+boxes are 1 on each side for collisions. Box B is at the origin, so its top
+is at 0.5. Box A sits 0.02 into it. The four contacts are the corners of B's
+top face, on B, with the normal (0, 1, 0) from B toward A and depth -0.02.
+*/
+class BoxBoxFaceTest is PhysicsTest
+    on create
+        SetName("Box and box: face to face")
+    end
+
+    action Run
+        LocalCollisionPoints3D points = RunBoxBox(MakeCollisionBox(1), MakeTransform(0, 0.98, 0, 0, 1, 0, 0),
+            MakeCollisionBox(1), MakeTransform(0, 0, 0, 0, 1, 0, 0))
+        CheckWhole("four contacts", points:GetPointCount(), 4)
+        CheckAllContacts("face to face", points, 0, 1, 0, -0.02)
+        CheckWhole("corner 1", CountContactsNear(points, 0.5, 0.5, 0.5), 1)
+        CheckWhole("corner 2", CountContactsNear(points, -0.5, 0.5, 0.5), 1)
+        CheckWhole("corner 3", CountContactsNear(points, -0.5, 0.5, -0.5), 1)
+        CheckWhole("corner 4", CountContactsNear(points, 0.5, 0.5, -0.5), 1)
+
+        // A small box on a large one: the contacts are the small box's
+        // footprint, on the large box's top. The small box is 0.5 on each
+        // side and the large one 2, so its top is at 1.
+        points = RunBoxBox(MakeCollisionBox(0.5), MakeTransform(0, 1.23, 0, 0, 1, 0, 0),
+            MakeCollisionBox(2), MakeTransform(0, 0, 0, 0, 1, 0, 0))
+        CheckWhole("small on large: four contacts", points:GetPointCount(), 4)
+        CheckAllContacts("small on large", points, 0, 1, 0, -0.02)
+        CheckWhole("small on large: a corner of the footprint", CountContactsNear(points, 0.25, 1, -0.25), 1)
+    end
+end

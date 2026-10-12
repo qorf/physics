@@ -1,0 +1,85 @@
+package Physics.Tests
+
+use Libraries.Compute.Math
+use Libraries.Game.Collision.PhysicsPosition3D
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.Shapes.Triangle
+use Libraries.Game.Collision.Shapes.Cylinder
+use Libraries.Compute.Random
+
+/*
+Compares CylinderTriangleCollider with the general collision test for
+cylinders of random sizes resting on the large triangle, half of them
+standing and half lying, each tilted up to 8 degrees, so they stay in
+the standing and lying cases. The tolerances are the same as for the
+resting box, since the general test rounds the cylinder's rims.
+*/
+class CylinderTriangleMatchesGeneralTest is PhysicsTest
+    on create
+        SetName("Cylinder and triangle: resting cylinders match the general test")
+    end
+
+    action Run
+        Math math
+        Random random
+        random:SetSeed(79)
+        Triangle triangle = MakeLargeTriangle(0.04)
+        PhysicsPosition3D triangleTransform
+
+        integer samples = 1000
+        integer touching = 0
+        integer skipped = 0
+        integer mismatches = 0
+        integer general = 0
+        integer fastContacts = 0
+        integer generalContacts = 0
+
+        integer i = 0
+        repeat while i < samples
+            Cylinder cylinder
+            number width = 0.2 + 0.6 * random:RandomNumber()
+            cylinder:Set(width, 0.2 + 0.8 * random:RandomNumber(), width)
+
+            // Tilt about a random level direction: up to 8 degrees from
+            // standing, or 90 degrees, give or take 8, to lie down.
+            number heading = 2 * math:pi * random:RandomNumber()
+            number tilt = 8 * random:RandomNumber()
+            if i mod 2 = 1
+                tilt = 82 + 16 * random:RandomNumber()
+            end
+            PhysicsPosition3D transform = MakeTransform(0, 0, 0, math:Cosine(heading), 0, math:Sine(heading), tilt)
+            number lowest = CylinderReachDown(cylinder, transform)
+            // The bottom ends up from 0.04 into the thickened surface, which
+            // is 0.04 above the plane, to 0.05 above it.
+            transform:GetOrigin():Set(-1 + 2 * random:RandomNumber(),
+                lowest + 0.09 * random:RandomNumber(),
+                -1 + 2 * random:RandomNumber())
+
+            LocalCollisionPoints3D fast = RunCylinder(triangle, cylinder, transform, false)
+            if CylinderUsedGeneralTest()
+                general = general + 1
+            end
+            LocalCollisionPoints3D reference = RunGeneralWith(triangle, triangleTransform, cylinder, transform)
+
+            integer outcome = CompareDeepest(fast, reference, 0.035, 0.035)
+            if outcome = 0
+                touching = touching + 1
+                fastContacts = fastContacts + fast:GetPointCount()
+                generalContacts = generalContacts + reference:GetPointCount()
+            elseif outcome = 2
+                skipped = skipped + 1
+            elseif outcome = 3
+                mismatches = mismatches + 1
+                ReportMismatch("cylinder", mismatches, transform:GetOrigin(), fast, reference)
+            end
+            i = i + 1
+        end
+
+        AddNote("Resting cylinder against the general test: " + samples + " cylinders, " + touching + " touching, " +
+            skipped + " on the threshold, " + mismatches + " mismatches, " + general +
+            " handed to the general test. Contacts per touching cylinder: " + AverageText(fastContacts, touching) +
+            " with the collider, " + AverageText(generalContacts, touching) + " with the general test.")
+        CheckThat("resting cylinder matches the general test", mismatches = 0)
+        CheckThat("resting cylinder comparison found contacts to compare", touching > 100)
+    end
+end

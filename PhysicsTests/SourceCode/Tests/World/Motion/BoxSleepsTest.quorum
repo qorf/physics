@@ -1,0 +1,34 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+
+/*
+Tests that a box at rest goes to sleep, and that a sleeping box stays where
+it is. An item sleeps once it, and everything it touches, has moved slower
+than 0.8 and turned slower than 1 for 2 seconds. The box below takes about
+half a second to land, so it is still awake at 0.4 seconds and should be
+asleep well before 5.
+*/
+class BoxSleepsTest is PhysicsWorldTest
+    on create
+        SetName("World: a box at rest goes to sleep")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        AddGround(layer)
+        Item3D box = AddBox(layer, 0, 1.5, 0, 1, 1)
+
+        Advance(layer, 0.4)
+        CheckThat("awake while falling", box:IsSimulated())
+
+        Advance(layer, 4.6)
+        CheckThat("asleep after resting", not box:IsSimulated())
+
+        number height = box:GetY()
+        Advance(layer, 1)
+        CheckNear("a sleeping box does not move", box:GetY(), height, 0.000001)
+        CheckThat("still asleep a second later", not box:IsSimulated())
+    end
+end

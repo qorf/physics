@@ -1,0 +1,36 @@
+package Physics.Tests
+
+use Libraries.Interface.Item3D
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.CollisionPointsResult3D
+use Libraries.Game.Collision.Narrowphase.TriangleCollider3D
+
+/*
+Contacts farther apart than the collision's threshold are not stored, and
+ones just inside it are.
+*/
+class TriangleColliderThresholdTest is PhysicsTest
+    on create
+        SetName("Triangle collider: contact threshold")
+    end
+
+    action Run
+        Item3D triangleItem
+        Item3D shapeItem
+        LocalCollisionPoints3D points
+        points:Set(triangleItem, shapeItem)
+        CollisionPointsResult3D result
+        result:Initialize(triangleItem, shapeItem)
+
+        TriangleCollider3D collider
+        collider:Begin(points, result, false)
+        number threshold = collider:GetContactThreshold()
+        CheckNumber("threshold: matches the collision", threshold, points:GetCollisionBreakingThreshold())
+
+        collider:AddContact(MakeVector(0, 1, 0), MakeVector(0, 1, 0), threshold + 0.01)
+        CheckWhole("threshold: too far is dropped", points:GetPointCount(), 0)
+
+        collider:AddContact(MakeVector(0, 1, 0), MakeVector(0, 1, 0), threshold * 0.5)
+        CheckWhole("threshold: just inside is kept", points:GetPointCount(), 1)
+    end
+end

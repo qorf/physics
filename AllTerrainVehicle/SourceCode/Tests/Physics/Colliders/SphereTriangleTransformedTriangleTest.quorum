@@ -1,0 +1,28 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.PhysicsPosition3D
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.Shapes.Triangle
+
+/*
+The same contact as TestSphereOnFace with the triangle moved by its
+transform. Everything moves with it.
+
+Unless a test says otherwise, the triangle is the standard one with no
+margin, and the triangle is item A, the way terrain calls it. A stored
+contact's normal then points from the sphere toward the triangle, and
+its point on B is on the sphere's surface.
+*/
+class SphereTriangleTransformedTriangleTest is PhysicsTest
+    on create
+        SetName("Sphere and triangle: moved triangle")
+    end
+
+    action Run
+        Triangle triangle = MakeStandardTriangle(0)
+        PhysicsPosition3D transform
+        transform:GetOrigin():Set(5, 1, 0)
+        LocalCollisionPoints3D points = RunSphereOn(triangle, transform, 5.25, 1.4, -0.25, 0.5, false)
+        CheckContact("sphere on a moved triangle", points, 0, -1, 0, 5.25, 0.9, -0.25, -0.1)
+    end
+end

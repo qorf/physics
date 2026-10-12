@@ -1,0 +1,52 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Game.Physics.Vehicles.Vehicle
+
+/*
+Tests that a vehicle's brakes stop it in the right distance. After the test
+vehicle settles, it is set moving at 10 along z and each of its four wheels
+is braked with 1500. Together they slow the 800 kilogram vehicle with 6000,
+7.5 each second, as in the example in Vehicle's SetBrake. It should stop
+after 10 / 7.5 = 1.33 seconds, having gone 10 * 10 / (2 * 7.5) = 6.67.
+
+Whether it has stopped is checked by how far it moves afterward, not by its
+velocity. The vehicle holds the chassis up by pushing it after each step, so
+between steps a resting chassis reads 9.8 / 60 = 0.163 upward: the push that
+the next step's gravity will cancel. It is not moving.
+*/
+class VehicleBrakeTest is PhysicsWorldTest
+    on create
+        SetName("World: a vehicle's brakes stop it")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        AddGround(layer)
+        Vehicle vehicle
+        Item3D chassis = AddVehicle(layer, vehicle, 1.0)
+        Advance(layer, 1.5)
+
+        number startZ = chassis:GetZ()
+        chassis:SetLinearVelocity(MakeVector(0, 0, 10))
+        chassis:Simulate(true)
+        integer i = 0
+        repeat while i < 4
+            vehicle:SetBrake(1500, i)
+            i = i + 1
+        end
+
+        Advance(layer, 2.5)
+        CheckNear("stopping distance", chassis:GetZ() - startZ, 6.67, 0.7)
+        CheckNear("chassis level", GetUp(chassis):GetY(), 1, 0.02)
+
+        number stoppedX = chassis:GetX()
+        number stoppedY = chassis:GetY()
+        number stoppedZ = chassis:GetZ()
+        Advance(layer, 0.5)
+        CheckAtMost("movement along z after stopping", Absolute(chassis:GetZ() - stoppedZ), 0.01)
+        CheckAtMost("movement along x after stopping", Absolute(chassis:GetX() - stoppedX), 0.01)
+        CheckAtMost("movement up or down after stopping", Absolute(chassis:GetY() - stoppedY), 0.01)
+    end
+end

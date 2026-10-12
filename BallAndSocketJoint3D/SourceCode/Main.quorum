@@ -1,0 +1,62 @@
+use Libraries.Game.Game
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Physics.Joints.BallAndSocketJoint3D
+use Libraries.Compute.Vector3
+
+/*
+This example shows a BallAndSocketJoint3D, which pins two items together at
+one point and lets them turn freely around it in every direction, like a
+shoulder or the top of a pendulum on a string. A plank is pinned to a post
+that does not move. The plank starts level and is given a push toward the
+camera, so instead of swinging back and forth in one plane, as it would on a
+hinge, it swings around under the post in a loop.
+*/
+class Main is Game
+    action Main
+        UseVulkan(true)
+        StartGame()
+    end
+
+    action CreateGame
+        EnablePhysics3D(true)
+        SetGravity3D(0, -9.8, 0)
+        Color color
+
+        // The post does not move. The plank hangs from it.
+        Model post
+        post:LoadBox(0.3, 0.3, 0.3, color:Gray())
+        post:SetPosition(0, 3, 0)
+        post:EnablePhysics(true)
+        post:SetUnmovable()
+        Add(post)
+
+        // The plank is 2 long and starts level, to the right of the post.
+        Model plank
+        plank:LoadBox(2, 0.2, 0.2, color:Blue())
+        plank:SetPosition(1.3, 3, 0)
+        plank:EnablePhysics(true)
+        plank:SetResponsive()
+        Add(plank)
+
+        // The pin is at the center of the post. Each item gives that point
+        // in its own coordinates, measured from its own center, so for the
+        // plank it is 1.3 to the left.
+        Vector3 pointOnPost
+        pointOnPost:Set(0, 0, 0)
+        Vector3 pointOnPlank
+        pointOnPlank:Set(-1.3, 0, 0)
+
+        BallAndSocketJoint3D joint
+        joint:Initialize(post, plank, pointOnPost, pointOnPlank)
+        GetCurrentLayer3D():Add(joint)
+
+        plank:SetLinearVelocityZ(-3)
+
+        DirectionalLight light
+        light:SetDirection(0, -2, 1)
+        Add(light)
+        GetCamera3D():SetPosition(0, 3.5, -7)
+    end
+end

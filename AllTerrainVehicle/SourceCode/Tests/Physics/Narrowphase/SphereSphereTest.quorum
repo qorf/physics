@@ -1,0 +1,38 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.Shapes.Sphere
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+Tests SphereSphereCollider. Two spheres of radius 0.5 whose centers are 0.9
+apart overlap by 0.1. The normal points from B's center toward A's, and the
+contact is on B's surface. Spheres that do not overlap give nothing. Spheres
+with the same center use the normal (1, 0, 0).
+*/
+class SphereSphereTest is PhysicsTest
+    on create
+        SetName("Sphere and sphere")
+    end
+
+    action Run
+        Sphere sphereA
+        sphereA:SetRadius(0.5)
+        Sphere sphereB
+        sphereB:SetRadius(0.5)
+
+        LocalCollisionPoints3D points = RunSphereSphere(sphereA, MakeTransform(0, 0.9, 0, 0, 1, 0, 0),
+            sphereB, MakeTransform(0, 0, 0, 0, 1, 0, 0))
+        CheckContact("overlapping", points, 0, 1, 0, 0, 0.5, 0, -0.1)
+        if points:GetPointCount() = 1
+            CheckVector("overlapping: point on A", points:GetCollisionPoint(0):GetWorldPositionOnA(), 0, 0.4, 0)
+        end
+
+        points = RunSphereSphere(sphereA, MakeTransform(0, 1.01, 0, 0, 1, 0, 0),
+            sphereB, MakeTransform(0, 0, 0, 0, 1, 0, 0))
+        CheckWhole("apart gives nothing", points:GetPointCount(), 0)
+
+        points = RunSphereSphere(sphereA, MakeTransform(2, 3, 4, 0, 1, 0, 0),
+            sphereB, MakeTransform(2, 3, 4, 0, 1, 0, 0))
+        CheckContact("same center", points, 1, 0, 0, 2.5, 3, 4, -1)
+    end
+end

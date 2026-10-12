@@ -1,0 +1,72 @@
+package Physics.Tests
+
+use Libraries.Interface.Item3D
+use Libraries.Game.Collision.PhysicsPosition3D
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.CollisionPointsResult3D
+use Libraries.Game.Collision.Shapes.Sphere
+use Libraries.Game.Collision.Shapes.Triangle
+use Libraries.Game.Collision.Shapes.CollisionShape3D
+use Libraries.Game.Collision.Narrowphase.SharedNarrowSolver
+
+/*
+Tests SharedNarrowSolver:CollideTriangle, which terrain calls for each of
+its triangles, with the triangle as item A. It should send spheres, boxes and
+cylinders to their triangle colliders, and any other shape to the general
+collision test. Each case is set up like a collider test with a known result,
+so the right collider gives the right contacts.
+*/
+class RoutingCollideTriangleTest is PhysicsTest
+    on create
+        SetName("Routing: CollideTriangle")
+    end
+
+    action Run
+        // A sphere 0.1 into the standard triangle, as in the sphere tests.
+        Sphere sphere
+        sphere:SetRadius(0.5)
+        LocalCollisionPoints3D points = RunCollideTriangle(MakeStandardTriangle(0), sphere, MakeTransform(0.25, 0.4, -0.25, 0, 1, 0, 0))
+        CheckContact("sphere", points, 0, -1, 0, 0.25, -0.1, -0.25, -0.1)
+
+        // A box lying flat on the large triangle: four contacts.
+        points = RunCollideTriangle(MakeLargeTriangle(0.04), MakeBox(0.5, 0.5, 0.5), MakeTransform(0, 0.28, 0, 0, 1, 0, 0))
+        CheckWhole("box: four contacts", points:GetPointCount(), 4)
+        CheckAllContacts("box", points, 0, -1, 0, -0.01)
+
+        // A cylinder standing on the large triangle: four contacts.
+        points = RunCollideTriangle(MakeLargeTriangle(0.04), MakeCylinder(), MakeTransform(0, 0.53, 0, 0, 1, 0, 0))
+        CheckWhole("cylinder: four contacts", points:GetPointCount(), 4)
+        CheckAllContacts("cylinder", points, 0, -1, 0, -0.01)
+
+        // Another shape, here a small triangle lying 0.05 above the large
+        // one, goes to the general test. With both margins, 0.04 each, the
+        // two reach 0.03 into each other, and the general test gives one
+        // contact.
+        Triangle small
+        small:Set(MakeVector(-0.1, 0, 0.1), MakeVector(0.1, 0, 0.1), MakeVector(0, 0, -0.1))
+        small:SetMargin(0.04)
+        points = RunCollideTriangle(MakeLargeTriangle(0.04), small, MakeTransform(0, 0.05, 0, 0, 1, 0, 0))
+        CheckWhole("another shape: one contact from the general test", points:GetPointCount(), 1)
+        if points:GetPointCount() = 1
+            CheckNumberWithin("another shape: depth", points:GetCollisionPoint(0):GetDistance(), -0.03, 0.001)
+            CheckNumberWithin("another shape: normal", points:GetCollisionPoint(0):GetWorldNormalOnB():GetY(), -1, 0.001)
+        end
+    end
+
+    /*
+    Calls CollideTriangle with the triangle, which has no transform of its
+    own, as item A, and the shape as item B, and returns the stored contacts.
+    */
+    action RunCollideTriangle(Triangle triangle, CollisionShape3D shape, PhysicsPosition3D transform) returns LocalCollisionPoints3D
+        PhysicsPosition3D identity
+        Item3D triangleItem = MakeItemAt(identity)
+        Item3D shapeItem = MakeItemAt(transform)
+        LocalCollisionPoints3D points
+        points:Set(triangleItem, shapeItem)
+        CollisionPointsResult3D result
+        result:Initialize(triangleItem, shapeItem)
+        SharedNarrowSolver solver
+        solver:CollideTriangle(points, triangle, identity, shape, transform, result)
+        return points
+    end
+end

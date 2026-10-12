@@ -1,0 +1,25 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.Shapes.CollisionShape3D
+use Libraries.Game.Collision.Shapes.Box
+
+/*
+Tests Box:Copy. A copy should be the same box: the same size, margin and
+scaling.
+*/
+class BoxCopyTest is PhysicsTest
+    on create
+        SetName("Box shape: copy")
+    end
+
+    action Run
+        Box box
+        box:Set(1, 2, 3)
+        CollisionShape3D shape = box:Copy()
+        CheckThat("the copy is a box", shape:GetType() = shape:BOX)
+        Box copy = cast(Box, shape)
+        CheckVector("the copy has the same size", copy:GetHalfExtentsWithoutMargin(), 0.46, 0.96, 1.46)
+        CheckNumber("the copy has the same margin", copy:GetMargin(), 0.04)
+        CheckVector("the copy has the same outside", copy:GetHalfExtentsWithMargin(), 0.5, 1, 1.5)
+    end
+end

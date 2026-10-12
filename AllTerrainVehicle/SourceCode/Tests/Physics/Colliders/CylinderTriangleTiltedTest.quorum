@@ -1,0 +1,25 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+A cylinder tilted 45 degrees touches on its rim, which the collider
+hands to the general test. With its center at 0.58, the general test's
+rounded rim is about 0.009 into the surface, so there is one contact.
+
+Unless a test says otherwise, the triangle is the large flat one with
+a margin of 0.04, and the cylinder has radius 0.3 and height 1, made
+by Cylinder:Set(0.6, 1, 0.6), standing along y. Standing with its
+center at 0.53, its bottom is at 0.03, 0.01 into the surface.
+*/
+class CylinderTriangleTiltedTest is PhysicsTest
+    on create
+        SetName("Cylinder and triangle: tilted")
+    end
+
+    action Run
+        LocalCollisionPoints3D points = RunCylinder(MakeLargeTriangle(0.04), MakeCylinder(), MakeTransform(0, 0.58, 0, 0, 0, 1, 45), false)
+        CheckThat("cylinder tilted: used the general test", CylinderUsedGeneralTest())
+        CheckWhole("cylinder tilted: one contact", points:GetPointCount(), 1)
+    end
+end

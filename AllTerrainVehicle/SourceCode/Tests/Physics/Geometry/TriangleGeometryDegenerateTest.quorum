@@ -1,0 +1,35 @@
+package Physics.Tests
+
+use Libraries.Compute.Vector3
+use Libraries.Game.Collision.Narrowphase.TriangleGeometry3D
+
+/*
+A triangle with no area is reported as degenerate, and ClosestPoint still
+works by using its edges.
+*/
+class TriangleGeometryDegenerateTest is PhysicsTest
+    on create
+        SetName("Triangle geometry: degenerate triangles")
+    end
+
+    action Run
+        TriangleGeometry3D geometry
+        geometry:Load(MakeVector(0, 0, 0), MakeVector(1, 0, 0), MakeVector(2, 0, 0))
+        CheckThat("degenerate: corners on a line", geometry:IsDegenerate())
+
+        Vector3 closest
+        integer region = geometry:ClosestPoint(MakeVector(0.5, 1, 0), closest)
+        CheckVector("degenerate: closest point on the line", closest, 0.5, 0, 0)
+        CheckThat("degenerate: closest region is an edge", region = geometry:EDGE_0 or region = geometry:EDGE_2)
+
+        region = geometry:ClosestPoint(MakeVector(3, 0, 0), closest)
+        CheckVector("degenerate: past the end", closest, 2, 0, 0)
+        CheckWhole("degenerate: past the end is a corner", region, geometry:CORNER_2)
+
+        TriangleGeometry3D point
+        point:Load(MakeVector(1, 1, 1), MakeVector(1, 1, 1), MakeVector(1, 1, 1))
+        CheckThat("degenerate: one point", point:IsDegenerate())
+        point:ClosestPoint(MakeVector(4, 5, 1), closest)
+        CheckVector("degenerate: one point is its own closest point", closest, 1, 1, 1)
+    end
+end

@@ -1,0 +1,29 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.PhysicsPosition3D
+use Libraries.Game.Collision.Shapes.Triangle
+use Libraries.Game.Collision.Narrowphase.TriangleCollider3D
+
+/*
+LoadTriangle loads the geometry and the margin both ways.
+*/
+class TriangleColliderLoadTest is PhysicsTest
+    on create
+        SetName("Triangle collider: loading a triangle")
+    end
+
+    action Run
+        TriangleCollider3D collider
+        collider:LoadTriangle(MakeVector(0, 0, 0), MakeVector(1, 0, 0), MakeVector(0, 0, -1), 0.04)
+        CheckNumber("load: margin from the call", collider:GetTriangleMargin(), 0.04)
+        CheckVector("load: geometry loaded", collider:GetGeometry():GetNormal(), 0, 1, 0)
+
+        Triangle triangle
+        triangle:Set(MakeVector(0, 1, 0), MakeVector(1, 1, 0), MakeVector(0, 1, -1))
+        triangle:SetMargin(0.07)
+        PhysicsPosition3D identity
+        collider:LoadTriangle(triangle, identity)
+        CheckNumber("load: margin from the triangle", collider:GetTriangleMargin(), 0.07)
+        CheckNumber("load: plane from the triangle", collider:GetGeometry():GetPlaneOffset(), 1)
+    end
+end

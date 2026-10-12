@@ -1,0 +1,31 @@
+package Physics.Tests
+
+use Libraries.Compute.Math
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+A box turned 45 degrees about z rests on one of its edges, which runs
+along z. The two ends of that edge are the contacts.
+
+Unless a test says otherwise, the triangle is a large one lying flat
+at height 0, from MakeLargeTriangle, with the usual margin of 0.04, so
+its thickened surface is at 0.04. The box is 0.5 on each side for
+collisions (see RunBox), with no rotation, and the triangle is item A.
+A box whose center is at 0.28 has its bottom at 0.03, so it sinks 0.01
+into the surface.
+*/
+class BoxTriangleOnEdgeTest is PhysicsTest
+    on create
+        SetName("Box and triangle: resting on an edge")
+    end
+
+    action Run
+        Math math
+        number height = 0.25 * math:SquareRoot(2) + 0.03
+        LocalCollisionPoints3D points = RunBox(MakeLargeTriangle(0.04), MakeTransform(0, height, 0, 0, 0, 1, 45), false)
+        CheckWhole("box on edge: two contacts", points:GetPointCount(), 2)
+        CheckAllContacts("box on edge", points, 0, -1, 0, -0.01)
+        CheckWhole("box on edge: one end", CountContactsNear(points, 0, 0.03, 0.25), 1)
+        CheckWhole("box on edge: other end", CountContactsNear(points, 0, 0.03, -0.25), 1)
+    end
+end

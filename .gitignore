@@ -4,6 +4,7 @@
 **/.DS_Store
 Build/
 Run/
+*.snapshot
 
 # Log file
 *.log

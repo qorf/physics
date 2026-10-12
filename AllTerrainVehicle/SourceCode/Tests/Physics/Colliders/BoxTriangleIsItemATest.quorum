@@ -1,0 +1,27 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+The flat box as item A. The normal points up, from the triangle toward
+the box, and the points on B are on the triangle's thickened surface.
+
+Unless a test says otherwise, the triangle is a large one lying flat
+at height 0, from MakeLargeTriangle, with the usual margin of 0.04, so
+its thickened surface is at 0.04. The box is 0.5 on each side for
+collisions (see RunBox), with no rotation, and the triangle is item A.
+A box whose center is at 0.28 has its bottom at 0.03, so it sinks 0.01
+into the surface.
+*/
+class BoxTriangleIsItemATest is PhysicsTest
+    on create
+        SetName("Box and triangle: box as item A")
+    end
+
+    action Run
+        LocalCollisionPoints3D points = RunBox(MakeLargeTriangle(0.04), MakeTransform(0, 0.28, 0, 0, 1, 0, 0), true)
+        CheckWhole("box as item A: four contacts", points:GetPointCount(), 4)
+        CheckAllContacts("box as item A", points, 0, 1, 0, -0.01)
+        CheckWhole("box as item A: point on the triangle", CountContactsNear(points, 0.25, 0.04, 0.25), 1)
+    end
+end

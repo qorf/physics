@@ -1,0 +1,24 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+Tests that BoxBoxCollider reports nothing for boxes that do not overlap,
+even when the gap is smaller than the contact threshold. Like Bullet's box
+against box test, it only reports boxes that reach into each other.
+*/
+class BoxBoxApartTest is PhysicsTest
+    on create
+        SetName("Box and box: apart")
+    end
+
+    action Run
+        LocalCollisionPoints3D points = RunBoxBox(MakeCollisionBox(1), MakeTransform(0, 1.01, 0, 0, 1, 0, 0),
+            MakeCollisionBox(1), MakeTransform(0, 0, 0, 0, 1, 0, 0))
+        CheckWhole("a small gap gives nothing", points:GetPointCount(), 0)
+
+        points = RunBoxBox(MakeCollisionBox(1), MakeTransform(3, 0, 0, 0, 1, 0, 0),
+            MakeCollisionBox(1), MakeTransform(0, 0, 0, 0, 1, 0, 0))
+        CheckWhole("far apart gives nothing", points:GetPointCount(), 0)
+    end
+end

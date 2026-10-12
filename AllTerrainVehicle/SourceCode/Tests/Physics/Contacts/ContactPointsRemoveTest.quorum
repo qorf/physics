@@ -1,0 +1,39 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.CollisionPoint3D
+
+/*
+Tests LocalCollisionPoints3D:RemoveCollisionPoint. The last point moves into
+the removed point's place, and the slot it left is cleared.
+*/
+class ContactPointsRemoveTest is PhysicsTest
+    on create
+        SetName("Contact points: removing a point")
+    end
+
+    action Run
+        LocalCollisionPoints3D points
+        integer i = 0
+        repeat while i < 3
+            CollisionPoint3D point = MakeContactPoint(i, 0, 0, -0.01)
+            point:SetAppliedImpulse(i + 1)
+            point:SetLifeTime(i + 1)
+            points:AddCollisionPoint(point)
+            i = i + 1
+        end
+
+        points:RemoveCollisionPoint(0)
+        CheckWhole("two points left", points:GetPointCount(), 2)
+        CheckVector("the last point moved into the first place", points:GetCollisionPoint(0):GetLocalPointA(), 2, 0, 0)
+        CheckNumber("with its impulse", points:GetCollisionPoint(0):GetAppliedImpulse(), 3)
+        CheckVector("the middle point is where it was", points:GetCollisionPoint(1):GetLocalPointA(), 1, 0, 0)
+        CheckNumber("the slot left behind has no impulse", points:GetCollisionPoint(2):GetAppliedImpulse(), 0)
+        CheckWhole("the slot left behind has no life time", points:GetCollisionPoint(2):GetLifeTime(), 0)
+
+        // Removing the last point just shortens the list.
+        points:RemoveCollisionPoint(1)
+        CheckWhole("one point left", points:GetPointCount(), 1)
+        CheckVector("the first point stays", points:GetCollisionPoint(0):GetLocalPointA(), 2, 0, 0)
+    end
+end

@@ -1,0 +1,103 @@
+use Libraries.Game.Layer3D
+use Libraries.Game.GameStateManager
+use Libraries.Interface.Item3D
+use Libraries.Game.Collision.Shapes.Box
+
+/*
+HeadlessWorldSpike checks whether a physics world can be built and stepped
+without a game window, which the stepped physics tests would need. It goes
+through the steps one at a time and writes how each went, so if something
+fails, the output shows where.
+
+The world is a ground box, its top at height 0, and a box 1 on each side
+dropped from a height of 3. Box:Set adds the margin, 0.04, outside the size
+it is given, so the ground's top is really at 0.04 and the box is really
+1.08 on each side. If everything works, the box falls, lands, and comes to
+rest with its center at about 0.04 + 0.54 = 0.58.
+
+To run it, make this file the project's main file. It is not part of the
+test suite.
+*/
+class HeadlessWorldSpike
+    action Main
+        output "1. The game's display, which Layer3D reads when it is created"
+        GameStateManager manager
+        check
+            if manager:GetGameDisplay() = undefined
+                output "   There is no game display."
+            else
+                output "   There is a game display."
+            end
+        detect e
+            output "   Reading it failed: " + e:GetErrorMessage()
+        end
+
+        output "2. Creating a Layer3D"
+        Layer3D layer = undefined
+        check
+            Layer3D created
+            layer = created
+            output "   Created."
+        detect e
+            output "   FAILED: " + e:GetErrorMessage()
+            output "A Layer3D cannot be created without a game window, so the stepped tests need one."
+            return now
+        end
+
+        output "3. Turning on physics and gravity"
+        check
+            layer:EnablePhysics(true)
+            layer:SetGravity(0, -9.8, 0)
+            output "   Done."
+        detect e
+            output "   FAILED: " + e:GetErrorMessage()
+            return now
+        end
+
+        output "4. Adding a ground box and a falling box"
+        Item3D ground
+        Item3D crate
+        check
+            Box groundShape
+            groundShape:Set(10, 1, 10)
+            ground:SetShape(groundShape)
+            ground:SetPosition(0, -0.5, 0)
+            ground:EnablePhysics(true)
+            ground:SetMass(0)
+            ground:SetUnmovable()
+            layer:Add(ground)
+
+            Box crateShape
+            crateShape:Set(1, 1, 1)
+            crate:SetShape(crateShape)
+            crate:SetPosition(0, 3, 0)
+            crate:EnablePhysics(true)
+            crate:SetResponsive()
+            crate:SetMass(1)
+            layer:Add(crate)
+            output "   Done. The box starts at a height of " + crate:GetY() + "."
+        detect e
+            output "   FAILED: " + e:GetErrorMessage()
+            return now
+        end
+
+        output "5. Stepping the world for 3 seconds, 1/60 of a second at a time"
+        check
+            integer step = 1
+            repeat while step <= 180
+                layer:TestForCollisions(1.0 / 60.0)
+                if step mod 30 = 0
+                    output "   After " + (step / 60.0) + " seconds: height " + crate:GetY() +
+                        ", vertical speed " + crate:GetLinearVelocity():GetY() +
+                        ", simulated " + crate:IsSimulated()
+                end
+                step = step + 1
+            end
+        detect e
+            output "   FAILED: " + e:GetErrorMessage()
+            return now
+        end
+
+        output "Finished. If the box came to rest near a height of 0.58, the stepped tests can run without a window."
+    end
+end

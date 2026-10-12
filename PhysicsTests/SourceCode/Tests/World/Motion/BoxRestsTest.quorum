@@ -1,0 +1,32 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+
+/*
+Tests that a box dropped onto the ground lands and stays there, upright and
+still, with its bottom on the ground. The box is 1 on each side and starts
+with its bottom 1 above the ground, so it should come to rest with its center
+at a height of 0.5. Resting contacts are allowed to sink in a little, so the
+height may be up to 0.03 off.
+*/
+class BoxRestsTest is PhysicsWorldTest
+    on create
+        SetName("World: a dropped box comes to rest on the ground")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        AddGround(layer)
+        Item3D box = AddBox(layer, 0, 1.5, 0, 1, 1)
+
+        Advance(layer, 3)
+
+        CheckNear("resting height", box:GetY(), 0.5, 0.03)
+        CheckAtMost("speed at rest", Speed(box), 0.05)
+        CheckAtMost("turning at rest", TurningSpeed(box), 0.05)
+        CheckNear("no drift along x", box:GetX(), 0, 0.01)
+        CheckNear("no drift along z", box:GetZ(), 0, 0.01)
+        CheckNear("still upright", GetUp(box):GetY(), 1, 0.001)
+    end
+end

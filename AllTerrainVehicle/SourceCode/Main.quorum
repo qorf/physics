@@ -12,17 +12,29 @@ use Libraries.Compute.Matrix3
 use Libraries.Compute.Math
 use Libraries.Compute.BitwiseOperations
 use Libraries.Compute.Noise.PerlinNoise
+use Libraries.Compute.Random
+use Libraries.Containers.Array
+use Libraries.Game.Physics.PhysicsProperties3D
 use Libraries.Interface.Item3D
 use Libraries.Interface.Events.KeyboardEvent
 use Libraries.Game.Physics.Vehicles.Vehicle
 use Libraries.Game.Physics.Vehicles.Suspension
 use Libraries.Interface.Behaviors.Games.VehicleMovementBehavior
+use Libraries.Game.Graphics.FramesPerSecondLabel
 
 /*
     A raycast vehicle driving over rolling hills. The hills are a Terrain built
     from a height map that is generated with Perlin noise, so no image file is
     needed. Arrow keys drive and steer, the space bar brakes, and R puts the
     vehicle back on its wheels in the middle of the map.
+
+    To give the physics something to show, small balls rain down on the
+    terrain at random places. Each one is a full physics object, so they roll
+    down the hills, pile up, bounce off the vehicle, and can be driven over.
+
+    Stacks of boxes stand at random places for the vehicle to crash into. The
+    ground under each stack is flattened into a small pad, so the stacks start
+    out standing instead of sliding down a slope.
 */
 class Main is Game
     Terrain terrain
@@ -67,8 +79,81 @@ class Main is Game
     number cameraBehind = 12
     number cameraAbove = 5
 
+    // The rain of balls. A new ball falls every dropInterval seconds, from
+    // dropHeightAbove units over the highest possible ground, at a random place
+    // over the terrain. No more than maximumDrops are in the scene at once.
+    // Once the limit is reached, the oldest ball is picked up and dropped
+    // again, so the rain keeps falling.
+    Array<Model> drops
+    Random random
+    integer maximumDrops = 200
+    number dropInterval = 0.05
+    number timeUntilDrop = 0
+    number dropDiameter = 0.2
+    number dropHeightAbove = 10
+
+    // The box stacks. Each stack is stackSize boxes along each side and
+    // stackSize boxes tall, and each box is boxSize along each side. The
+    // stacks are placed at random, but the same places every run, at least
+    // stackClearance from the vehicle's starting point and from each other,
+    // and no more than stackReach from the center of the map.
+    // The ground is flat within padRadius of a stack's center, and blends back
+    // into the hills over the next padBlend units.
+    Array<Vector3> stackSites
+    Random siteRandom
+    PhysicsProperties3D stackProperties
+    integer stackCount = 6
+    integer stackSize = 5
+    number boxSize = 0.5
+    number stackClearance = 14
+    number stackReach = 28
+    number padRadius = 2.5
+    number padBlend = 4
+
+    // Benchmark mode, for comparing performance between builds. The vehicle
+    // is not driven, the rain uses a fixed seed and a fixed time per frame,
+    // so every run does the same work frame by frame. After benchmarkFrames
+    // frames the results are written to the console and the game closes,
+    // which also makes the profiler save its snapshot. The first warmupFrames
+    // frames are reported separately, since they include loading and the
+    // Java compiler warming up.
+    boolean benchmark = false
+    integer benchmarkFrames = 1200
+    integer warmupFrames = 300
+    number benchmarkStep = 1.0 / 60.0
+    integer benchmarkSeed = 1234
+    integer frameCount = 0
+    number firstFrameSeconds = 0
+    number warmupSeconds = 0
+    number measuredSeconds = 0
+    number slowestFrameSeconds = 0
+
+    // A ball this far past any edge of the terrain, or this far below its
+    // base, has left the map and is removed.
+    number edgeMargin = 5
+    number fallLimit = 20
+
+    // Sleep check. While sleepReport is true, a summary of how many boxes and
+    // balls are asleep, awake but still, and moving is written to the console
+    // every reportInterval seconds. Turn rain off for a clean check, since
+    // falling balls wake whatever they land on.
+    boolean sleepReport = false
+    boolean rain = true
+    number reportInterval = 2
+    number timeUntilReport = 2
+    Array<Model> boxes
+
+    // The speeds at or below which the physics counts a body as still, in
+    // units per second and radians per second. These match the sleeping
+    // thresholds in CollisionGroup3D.
+    number linearSleepSpeed = 0.8
+    number angularSleepSpeed = 1
+    FramesPerSecondLabel fpsLabel
+
     action Main
         // Terrain currently builds its mesh with the Vulkan renderer only.
+        
+        SetScreenSize(2000, 1000)
         UseVulkan(true)
         StartGame()
     end
@@ -78,32 +163,249 @@ class Main is Game
         SetGravity3D(0, -9.8, 0)
         Color colors
 
+        if benchmark
+            random:SetSeed(benchmarkSeed)
+        end
+
         DirectionalLight sunlight
         sunlight:SetIntensity(2.5)
         sunlight:SetColor(colors:LightGray())
         sunlight:SetDirection(-1, -4, 2)
         Add(sunlight)
 
+        // The stack sites are chosen first, because the terrain flattens the
+        // ground under them while it is built.
+        ChooseStackSites()
         BuildTerrain()
+        BuildStacks()
         BuildChassis(colors)
         BuildWheels(colors)
         BuildVehicle()
         ResetVehicle()
         PlaceCamera()
+        Add(fpsLabel)
+
+        if benchmark
+            // Nobody drives during a benchmark, so every run is the same.
+            movement:SetActive(false)
+        end
     end
 
     action Update(number seconds)
+        if benchmark
+            RecordFrame(seconds)
+            if frameCount >= benchmarkFrames
+                ReportBenchmark()
+                Exit()
+                return now
+            end
+        end
+
         if monitor:IsKeyPressed(keys:R)
             ResetVehicle()
         end
 
         // Driving off the edge of the map drops the vehicle into nothing, so
         // bring it back once it has fallen well below the lowest ground.
-        if chassis:GetY() < baseY - 20
+        if chassis:GetY() < baseY - fallLimit
             ResetVehicle()
         end
 
+        // In a benchmark, the rain advances by a fixed time each frame, so
+        // the same balls fall on the same frames no matter how fast it runs.
+        number rainSeconds = seconds
+        if benchmark
+            rainSeconds = benchmarkStep
+        end
+        if rain
+            UpdateRain(rainSeconds)
+        end
+
+        if sleepReport
+            timeUntilReport = timeUntilReport - seconds
+            if timeUntilReport <= 0
+                ReportSleep()
+                timeUntilReport = reportInterval
+            end
+        end
         PlaceCamera()
+    end
+
+    /*
+    This action records how long one frame took. The first frame is kept
+    apart, since it includes everything that happened while the game loaded.
+    */
+    action RecordFrame(number seconds)
+        if frameCount = 0
+            firstFrameSeconds = seconds
+        elseif frameCount < warmupFrames
+            warmupSeconds = warmupSeconds + seconds
+        else
+            measuredSeconds = measuredSeconds + seconds
+            if seconds > slowestFrameSeconds
+                slowestFrameSeconds = seconds
+            end
+        end
+        frameCount = frameCount + 1
+    end
+
+    /*
+    This action writes the benchmark results to the console.
+    */
+    action ReportBenchmark
+        integer warmupCount = warmupFrames - 1
+        integer measuredCount = frameCount - warmupFrames
+
+        output "Benchmark finished after " + frameCount + " frames."
+        output "  First frame: " + math:Round(firstFrameSeconds * 1000, 1) + " ms"
+        if warmupCount > 0
+            output "  Warm-up, " + warmupCount + " frames: " + math:Round(warmupSeconds, 2) + " s, average "
+                + math:Round(1000 * warmupSeconds / warmupCount, 2) + " ms per frame"
+        end
+        if measuredCount > 0
+            output "  Measured, " + measuredCount + " frames: " + math:Round(measuredSeconds, 2) + " s, average "
+                + math:Round(1000 * measuredSeconds / measuredCount, 2) + " ms per frame ("
+                + math:Round(measuredCount / measuredSeconds, 1) + " frames per second)"
+            output "  Slowest measured frame: " + math:Round(slowestFrameSeconds * 1000, 1) + " ms"
+        end
+    end
+
+    /*
+    This action writes one line for the boxes and one for the balls, saying
+    how many are asleep, how many are awake but still, and how many are moving.
+    */
+    action ReportSleep
+        output "Boxes: " + DescribeSleep(boxes)
+        output "Balls: " + DescribeSleep(drops)
+    end
+
+    /*
+    This action counts how many of the given items are asleep, awake but
+    still, and moving, along with the fastest speed and spin among the awake
+    ones.
+    */
+    action DescribeSleep(Array<Model> items) returns text
+        integer asleep = 0
+        integer still = 0
+        integer moving = 0
+        number fastest = 0
+        number fastestSpin = 0
+
+        integer i = 0
+        repeat while i < items:GetSize()
+            Model item = items:Get(i)
+            if not item:IsSimulated()
+                asleep = asleep + 1
+            else
+                number speed = item:GetLinearVelocity():Length()
+                number spin = item:GetAngularVelocity():Length()
+                if speed <= linearSleepSpeed and spin <= angularSleepSpeed
+                    still = still + 1
+                else
+                    moving = moving + 1
+                end
+                if speed > fastest
+                    fastest = speed
+                end
+                if spin > fastestSpin
+                    fastestSpin = spin
+                end
+            end
+            i = i + 1
+        end
+
+        return items:GetSize() + " total, " + asleep + " asleep, " + still + " awake but still, "
+            + moving + " moving (fastest awake: " + math:Round(fastest, 2) + " units/s, "
+            + math:Round(fastestSpin, 2) + " rad/s)"
+    end
+
+    /*
+    This action drops new balls at a steady rate and removes any that have
+    left the map.
+    */
+    action UpdateRain(number seconds)
+        RemoveLostDrops()
+
+        timeUntilDrop = timeUntilDrop - seconds
+        repeat while timeUntilDrop <= 0
+            DropBall()
+            timeUntilDrop = timeUntilDrop + dropInterval
+        end
+    end
+
+    /*
+    This action drops one ball. While there is room under the limit it makes
+    a new ball. Once the limit is reached it reuses the oldest ball instead,
+    moving it to the back of the list as the newest.
+    */
+    action DropBall
+        Model ball = undefined
+        if drops:GetSize() < maximumDrops
+            ball = MakeBall()
+            Add(ball)
+        else
+            ball = drops:RemoveFromFront()
+        end
+        drops:Add(ball)
+
+        // A random place over the terrain, kept a little in from the edges,
+        // high above the tallest possible hill.
+        number size = (mapSize - 1) * terrainScale
+        number x = baseX + 1 + random:RandomNumber() * (size - 2)
+        number z = baseZ + 1 + random:RandomNumber() * (size - 2)
+        number y = baseY + heightScale * terrainScale + dropHeightAbove
+
+        Vector3 stop
+        ball:SetPosition(x, y, z)
+        ball:SetLinearVelocity(stop)
+        ball:SetAngularVelocity(stop)
+        ball:Simulate(true)
+    end
+
+    /*
+    This action makes a ball that responds fully to physics: it falls, rolls,
+    bounces, and pushes other objects, including the vehicle.
+    */
+    action MakeBall returns Model
+        Color color
+        Model ball
+        //ball:LoadBox(dropDiameter, dropDiameter, dropDiameter, color:CustomColor(0.3 + 0.7 * random:RandomNumber(), 0.3 + 0.7 * random:RandomNumber(), 0.3 + 0.7 * random:RandomNumber(), 1))
+        ball:LoadSphere(dropDiameter, dropDiameter, dropDiameter, color:CustomColor(0.3 + 0.7 * random:RandomNumber(), 0.3 + 0.7 * random:RandomNumber(), 0.3 + 0.7 * random:RandomNumber(), 1))
+        ball:EnablePhysics(true)
+        ball:SetResponsive()
+        ball:SetMass(1)
+        ball:SetRestitution(0.3)
+        ball:SetFriction(0.5)
+        // A little damping, since there is no rolling friction and a ball
+        // that reaches flat ground would otherwise roll forever.
+        ball:SetLinearDamping(0.05)
+        ball:SetAngularDamping(0.2)
+        ball:SetName("Rain Ball")
+        return ball
+    end
+
+    /*
+    This action removes every ball that has gone past an edge of the terrain
+    or fallen far below it. It walks the list backward so removing a ball does
+    not skip the one after it.
+    */
+    action RemoveLostDrops
+        number size = (mapSize - 1) * terrainScale
+        number lowX = baseX - edgeMargin
+        number highX = baseX + size + edgeMargin
+        number lowZ = baseZ - edgeMargin
+        number highZ = baseZ + size + edgeMargin
+        number lowY = baseY - fallLimit
+
+        integer i = drops:GetSize() - 1
+        repeat while i >= 0
+            Model ball = drops:Get(i)
+            if ball:GetX() < lowX or ball:GetX() > highX or ball:GetZ() < lowZ or ball:GetZ() > highZ or ball:GetY() < lowY
+                drops:RemoveAt(i)
+                Remove(ball)
+            end
+            i = i - 1
+        end
     end
 
     /*
@@ -111,12 +413,6 @@ class Main is Game
     physics shape, so the vehicle's wheel rays have ground to land on.
     */
     action BuildTerrain
-        // Rolling hills about every forty units, with three finer layers of
-        // bumps laid over them.
-        noise:SetSeed(2026)
-        noise:SetFrequency(0.0125)
-        noise:SetOctaves(4)
-
         text key = "AllTerrainVehicle Hills"
         terrain:SetName(key)
 
@@ -166,7 +462,130 @@ class Main is Game
     to 1.
     */
     action GetHeightAtSample(number sampleX, number sampleZ) returns number
+        number height = GetHillHeight(sampleX, sampleZ)
+
+        // Flatten the ground near any stack. Inside the pad the ground is the
+        // pad's height. Past it, the ground eases back into the hills, using a
+        // smooth curve so there is no sharp edge for the wheels to catch.
+        number worldX = baseX + sampleX * terrainScale
+        number worldZ = baseZ + sampleZ * terrainScale
+        integer i = 0
+        repeat while i < stackSites:GetSize()
+            Vector3 site = stackSites:Get(i)
+            number dx = worldX - site:GetX()
+            number dz = worldZ - site:GetZ()
+            number distance = math:SquareRoot(dx * dx + dz * dz)
+            if distance < padRadius
+                return site:GetY()
+            elseif distance < padRadius + padBlend
+                number t = (distance - padRadius) / padBlend
+                number blend = t * t * (3 - 2 * t)
+                height = site:GetY() + (height - site:GetY()) * blend
+            end
+            i = i + 1
+        end
+        return height
+    end
+
+    /*
+    This action returns the height of the hills at a sample position, from 0
+    to 1, before any ground is flattened for the stacks.
+    */
+    action GetHillHeight(number sampleX, number sampleZ) returns number
         return noise:ToUnitRange(noise:GetAdditiveNoise(sampleX, sampleZ))
+    end
+
+    /*
+    This action picks where the box stacks stand. It tries random places in a
+    ring around the center of the map, between stackClearance and stackReach
+    from the vehicle's starting point, keeping ones that are away from the
+    other stacks. Each site stores the height of
+    the hills at its center, from 0 to 1, as its y value. That is the height
+    its pad is flattened to.
+    */
+    action ChooseStackSites
+        // Rolling hills about every forty units, with three finer layers of
+        // bumps laid over them. This is set up here because choosing the
+        // sites already needs the height of the hills.
+        noise:SetSeed(2026)
+        noise:SetFrequency(0.0125)
+        noise:SetOctaves(4)
+        siteRandom:SetSeed(7)
+
+        integer attempts = 0
+        repeat while stackSites:GetSize() < stackCount and attempts < 500
+            number angle = siteRandom:RandomNumber() * 2 * math:pi
+            number reach = stackClearance + siteRandom:RandomNumber() * (stackReach - stackClearance)
+            number x = reach * math:Cosine(angle)
+            number z = reach * math:Sine(angle)
+
+            boolean fits = true
+            integer i = 0
+            repeat while fits and i < stackSites:GetSize()
+                Vector3 other = stackSites:Get(i)
+                number dx = x - other:GetX()
+                number dz = z - other:GetZ()
+                if math:SquareRoot(dx * dx + dz * dz) < stackClearance
+                    fits = false
+                end
+                i = i + 1
+            end
+
+            if fits
+                Vector3 site
+                site:Set(x, GetHillHeight((x - baseX) / terrainScale, (z - baseZ) / terrainScale), z)
+                stackSites:Add(site)
+            end
+            attempts = attempts + 1
+        end
+    end
+
+    /*
+    This action builds a stack of boxes on each pad. The boxes respond fully
+    to physics, so the vehicle can knock them over and scatter them.
+    */
+    action BuildStacks
+        stackProperties:SetResponsiveness(stackProperties:RESPONSIVE)
+        stackProperties:SetFriction(0.5)
+        stackProperties:SetRestitution(0.5)
+
+        integer i = 0
+        repeat while i < stackSites:GetSize()
+            Vector3 site = stackSites:Get(i)
+            BuildStack(site:GetX(), GetGroundHeightAt(site:GetX(), site:GetZ()), site:GetZ())
+            i = i + 1
+        end
+    end
+
+    /*
+    This action builds one stack of boxes, centered on the given point, with
+    its lowest layer resting on the ground at the given height.
+    */
+    action BuildStack(number centerX, number groundY, number centerZ)
+        Color color
+        number start = -(stackSize - 1) * boxSize / 2
+
+        integer level = 0
+        repeat while level < stackSize
+            integer row = 0
+            repeat while row < stackSize
+                integer column = 0
+                repeat while column < stackSize
+                    Model box
+                    box:LoadBox(boxSize, boxSize, boxSize, color:CustomColor(random:RandomNumber(), random:RandomNumber(), random:RandomNumber(), 1))
+                    box:SetPosition(centerX + start + column * boxSize, groundY + boxSize / 2 + level * boxSize, centerZ + start + row * boxSize)
+                    box:EnablePhysics(true)
+                    box:SetPhysicsProperties(stackProperties)
+                    box:Simulate(false)
+                    box:SetName("Stack Box")
+                    Add(box)
+                    boxes:Add(box)
+                    column = column + 1
+                end
+                row = row + 1
+            end
+            level = level + 1
+        end
     end
 
     /*

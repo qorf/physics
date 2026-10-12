@@ -1,0 +1,28 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+The same contact as TestSphereOnFace with the sphere as item A. The
+normal turns around to point from the triangle toward the sphere, and the
+points on A and B swap places.
+
+Unless a test says otherwise, the triangle is the standard one with no
+margin, and the triangle is item A, the way terrain calls it. A stored
+contact's normal then points from the sphere toward the triangle, and
+its point on B is on the sphere's surface.
+*/
+class SphereTriangleIsItemATest is PhysicsTest
+    on create
+        SetName("Sphere and triangle: sphere as item A")
+    end
+
+    action Run
+        LocalCollisionPoints3D points = RunSphere(0.25, 0.4, -0.25, 0.5, 0, true)
+        CheckContact("sphere as item A", points, 0, 1, 0, 0.25, 0, -0.25, -0.1)
+        if points:GetPointCount() = 1
+            CheckVector("sphere as item A: point on A is on the sphere",
+                points:GetCollisionPoint(0):GetWorldPositionOnA(), 0.25, -0.1, -0.25)
+        end
+    end
+end

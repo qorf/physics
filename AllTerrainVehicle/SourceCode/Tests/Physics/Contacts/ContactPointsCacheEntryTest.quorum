@@ -1,0 +1,29 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.CollisionPoint3D
+
+/*
+Tests LocalCollisionPoints3D:GetCacheEntry, which finds the stored point a
+new point should replace. A new point matches the nearest stored point whose
+point on A is within the contact threshold, 0.02, of its own. Otherwise there
+is no match, and -1 is returned.
+*/
+class ContactPointsCacheEntryTest is PhysicsTest
+    on create
+        SetName("Contact points: matching a new point")
+    end
+
+    action Run
+        LocalCollisionPoints3D points
+        points:AddCollisionPoint(MakeContactPoint(0, 0, 0, -0.01))
+        points:AddCollisionPoint(MakeContactPoint(1, 0, 0, -0.01))
+        points:AddCollisionPoint(MakeContactPoint(1.015, 0, 0, -0.01))
+        CheckWhole("three points stored", points:GetPointCount(), 3)
+
+        CheckWhole("a point close to the first matches it", points:GetCacheEntry(MakeContactPoint(0.01, 0, 0, -0.02)), 0)
+        CheckWhole("a point between the others matches nothing", points:GetCacheEntry(MakeContactPoint(0.5, 0, 0, -0.02)), -1)
+        CheckWhole("a point just past the threshold matches nothing", points:GetCacheEntry(MakeContactPoint(0, 0.025, 0, -0.02)), -1)
+        CheckWhole("of two close points, the nearer matches", points:GetCacheEntry(MakeContactPoint(1.012, 0, 0, -0.02)), 2)
+    end
+end

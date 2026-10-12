@@ -1,0 +1,44 @@
+package Physics.Tests
+
+use Libraries.Compute.Math
+use Libraries.Compute.Vector3
+use Libraries.Containers.Array
+use Libraries.Game.Collision.Narrowphase.ContactClipper3D
+
+/*
+Cutting a square by planes that keep part, all, or none of it.
+*/
+class ClipAgainstPlaneTest is PhysicsTest
+    on create
+        SetName("Contact clipper: cutting by a plane")
+    end
+
+    action Run
+        Math math
+        ContactClipper3D clipper
+        Array<Vector3> square = MakeSquare(clipper, 1)
+        Array<Vector3> clipped = clipper:CreatePointArray()
+
+        // Keep x >= 0: half of the square.
+        integer count = clipper:ClipAgainstPlane(square, 4, clipped, MakeVector(1, 0, 0), 0)
+        CheckWhole("clip: half square corners", count, 4)
+        CheckNumber("clip: half square area", AreaInXZ(clipped, count), 2)
+        CheckThat("clip: half square kept side", MinimumX(clipped, count) > -GetTolerance())
+
+        // Keep x >= -5: all of it.
+        count = clipper:ClipAgainstPlane(square, 4, clipped, MakeVector(1, 0, 0), -5)
+        CheckWhole("clip: whole square corners", count, 4)
+        CheckNumber("clip: whole square area", AreaInXZ(clipped, count), 4)
+
+        // Keep x >= 5: none of it.
+        count = clipper:ClipAgainstPlane(square, 4, clipped, MakeVector(1, 0, 0), 5)
+        CheckWhole("clip: nothing kept", count, 0)
+
+        // A diagonal cut through one corner leaves a pentagon.
+        Vector3 diagonal = MakeVector(-1, 0, -1)
+        diagonal:Normalize()
+        count = clipper:ClipAgainstPlane(square, 4, clipped, diagonal, -1 / math:SquareRoot(2))
+        CheckWhole("clip: corner cut corners", count, 5)
+        CheckNumber("clip: corner cut area", AreaInXZ(clipped, count), 3.5)
+    end
+end

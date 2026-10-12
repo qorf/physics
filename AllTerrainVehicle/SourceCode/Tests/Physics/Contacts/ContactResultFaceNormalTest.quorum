@@ -1,0 +1,63 @@
+package Physics.Tests
+
+use Libraries.Interface.Item3D
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.CollisionPointsResult3D
+
+/*
+Tests the face normal correction in CollisionPointsResult3D, which terrain
+uses so that nothing is pushed through the ground from underneath. While a
+face normal is set, a contact whose normal points the wrong way for the face
+is turned around.
+
+When the face's item is item A, the normal from B toward A should point into
+the face, against the face normal, so one that points along the face normal
+is turned around. When the result's items are the other way around from the
+stored collision's, the rule is reversed.
+*/
+class ContactResultFaceNormalTest is PhysicsTest
+    on create
+        SetName("Contact result: face normal correction")
+    end
+
+    action Run
+        Item3D itemA
+        Item3D itemB
+
+        // The result in the same order as the collision.
+        LocalCollisionPoints3D points
+        points:Set(itemA, itemB)
+        CollisionPointsResult3D result
+        result:Initialize(itemA, itemB)
+        result:SetCollisionPoints(points)
+        result:SetFaceNormal(MakeVector(0, 1, 0))
+
+        result:AddCollisionPoint(MakeVector(0, 1, 0), MakeVector(0, 0, 0), -0.01)
+        CheckVector("a normal along the face normal is turned around",
+            points:GetCollisionPoint(0):GetWorldNormalOnB(), 0, -1, 0)
+        result:AddCollisionPoint(MakeVector(0, -1, 0), MakeVector(5, 0, 0), -0.01)
+        CheckVector("a normal against the face normal is kept",
+            points:GetCollisionPoint(1):GetWorldNormalOnB(), 0, -1, 0)
+
+        // Without the face normal, nothing is turned around.
+        result:ClearFaceNormal()
+        result:AddCollisionPoint(MakeVector(0, 1, 0), MakeVector(10, 0, 0), -0.01)
+        CheckVector("after clearing, a normal is kept as it is",
+            points:GetCollisionPoint(2):GetWorldNormalOnB(), 0, 1, 0)
+
+        // The result the other way around from the collision.
+        LocalCollisionPoints3D swappedPoints
+        swappedPoints:Set(itemA, itemB)
+        CollisionPointsResult3D swapped
+        swapped:Initialize(itemB, itemA)
+        swapped:SetCollisionPoints(swappedPoints)
+        swapped:SetFaceNormal(MakeVector(0, 1, 0))
+
+        swapped:AddCollisionPoint(MakeVector(0, -1, 0), MakeVector(0, 0, 0), -0.01)
+        CheckVector("swapped: a normal against the face normal is turned around",
+            swappedPoints:GetCollisionPoint(0):GetWorldNormalOnB(), 0, 1, 0)
+        swapped:AddCollisionPoint(MakeVector(0, 1, 0), MakeVector(5, 0, 0), -0.01)
+        CheckVector("swapped: a normal along the face normal is kept",
+            swappedPoints:GetCollisionPoint(1):GetWorldNormalOnB(), 0, 1, 0)
+    end
+end

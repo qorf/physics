@@ -1,0 +1,57 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Game.Physics.Vehicles.Vehicle
+use Libraries.Game.Physics.Vehicles.Suspension
+
+/*
+Tests that a vehicle settles on its suspension at the right height. The test
+vehicle, from AddVehicle, is dropped onto the ground from just above where
+its wheels touch. Each wheel's spring pushes with its stiffness, times how
+far it is squeezed, times the chassis's mass, as in Bullet. The four springs
+hold the vehicle up when 4 * 20 * squeeze * 800 = 800 * 9.8, so each is
+squeezed by 9.8 / 80 = 0.1225, from its rest length of 0.4 to 0.2775.
+
+The chassis center is then 0.4, the wheel's radius, plus 0.2775, plus the 0.3
+the wheels hang below the center, above the ground: 0.9775.
+
+Once settled, the chassis should fall asleep and stay asleep. A sleeping
+chassis is left alone by the vehicle, as in Bullet. If the vehicle kept
+pushing it with the springs, every push would wake it again.
+
+While awake, a resting chassis reads 9.8 / 60 = 0.163 upward between steps,
+because the vehicle pushes it up after each step and the next step's gravity
+cancels the push. The speed checks below pass because the chassis is asleep,
+which sets its velocity to 0.
+*/
+class VehicleRestTest is PhysicsWorldTest
+    on create
+        SetName("World: a vehicle settles on its suspension")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        AddGround(layer)
+        Vehicle vehicle
+        Item3D chassis = AddVehicle(layer, vehicle, 1.15)
+
+        Advance(layer, 4)
+
+        CheckNear("chassis height", chassis:GetY(), 0.9775, 0.02)
+        CheckAtMost("chassis speed", Speed(chassis), 0.05)
+        CheckThat("the chassis is asleep", not chassis:IsSimulated())
+        CheckNear("speed in kilometers per hour", vehicle:GetSpeedKilometersPerHour(), 0, 0.001)
+        CheckNear("chassis level", GetUp(chassis):GetY(), 1, 0.001)
+        CheckNear("drift along x", chassis:GetX(), 0, 0.02)
+        CheckNear("drift along z", chassis:GetZ(), 0, 0.02)
+
+        integer i = 0
+        repeat while i < vehicle:GetSuspensionSize()
+            Suspension wheel = vehicle:Get(i)
+            CheckThat("wheel " + i + " touches the ground", wheel:GetInContact())
+            CheckNear("wheel " + i + " suspension length", wheel:GetSuspensionLength(), 0.2775, 0.02)
+            i = i + 1
+        end
+    end
+end

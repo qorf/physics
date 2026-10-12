@@ -1,0 +1,46 @@
+package Physics.Tests
+
+use Libraries.Compute.Quaternion
+use Libraries.Game.Collision.PhysicsPosition3D
+use Libraries.Game.Collision.Shapes.Triangle
+use Libraries.Game.Collision.Narrowphase.TriangleGeometry3D
+
+/*
+Loading a Triangle shape through a transform moves its corners into the
+world, and leaves the Triangle itself unchanged.
+*/
+class TriangleGeometryTransformedLoadTest is PhysicsTest
+    on create
+        SetName("Triangle geometry: loading through a transform")
+    end
+
+    action Run
+        Triangle triangle
+        triangle:Set(MakeVector(0, 0, 0), MakeVector(1, 0, 0), MakeVector(0, 0, -1))
+
+        PhysicsPosition3D transform
+        Quaternion turn
+        turn:SetFromAxis(0, 1, 0, 90)
+        transform:SetRotation(turn)
+        transform:GetOrigin():Set(10, 2, 0)
+
+        TriangleGeometry3D geometry
+        geometry:Load(triangle, transform)
+
+        CheckVector("transform: corner 0 moved", geometry:GetCorner(0), 10, 2, 0)
+        CheckNumber("transform: corner 1 is 1 from corner 0", geometry:GetCorner(1):Distance(geometry:GetCorner(0)), 1)
+        CheckNumber("transform: corner 1 stays level", geometry:GetCorner(1):GetY(), 2)
+        CheckVector("transform: turning about up keeps the normal up", geometry:GetNormal(), 0, 1, 0)
+        CheckNumber("transform: plane offset follows the height", geometry:GetPlaneOffset(), 2)
+        CheckVector("transform: the Triangle is unchanged", triangle:GetVertex(1), 1, 0, 0)
+
+        // Tipping the triangle onto its side turns its normal sideways.
+        PhysicsPosition3D tipped
+        Quaternion tip
+        tip:SetFromAxis(0, 0, 1, 90)
+        tipped:SetRotation(tip)
+        geometry:Load(triangle, tipped)
+        CheckNumber("transform: tipped normal is level", geometry:GetNormal():GetY(), 0)
+        CheckNumber("transform: tipped normal is unit length", geometry:GetNormal():Length(), 1)
+    end
+end

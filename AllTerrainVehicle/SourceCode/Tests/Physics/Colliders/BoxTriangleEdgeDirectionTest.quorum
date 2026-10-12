@@ -1,0 +1,34 @@
+package Physics.Tests
+
+use Libraries.Compute.Math
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.Shapes.Triangle
+
+/*
+A box turned 45 degrees about z, so its bottom edge runs along z at
+height -0.25 times the square root of 2, above a triangle standing on
+end whose top edge runs along x at -0.38. The two edges cross, so the
+contact is where they cross, and the normal is straight up.
+
+Unless a test says otherwise, the triangle is a large one lying flat
+at height 0, from MakeLargeTriangle, with the usual margin of 0.04, so
+its thickened surface is at 0.04. The box is 0.5 on each side for
+collisions (see RunBox), with no rotation, and the triangle is item A.
+A box whose center is at 0.28 has its bottom at 0.03, so it sinks 0.01
+into the surface.
+*/
+class BoxTriangleEdgeDirectionTest is PhysicsTest
+    on create
+        SetName("Box and triangle: edge pair direction")
+    end
+
+    action Run
+        Math math
+        Triangle triangle
+        triangle:Set(MakeVector(-1, -0.38, 0), MakeVector(1, -0.38, 0), MakeVector(0, -1, 0))
+        triangle:SetMargin(0.04)
+        LocalCollisionPoints3D points = RunBox(triangle, MakeTransform(0, 0, 0, 0, 0, 1, 45), false)
+        number edgeHeight = -0.25 * math:SquareRoot(2)
+        CheckContact("box edge direction", points, 0, -1, 0, 0, edgeHeight, 0, 0.38 + edgeHeight - 0.04)
+    end
+end

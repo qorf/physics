@@ -1,0 +1,24 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+A sphere under the triangle is pushed down. The collider treats the
+triangle as two sided. Terrain adds its own one sided rule later through
+CollisionPointsResult3D:SetFaceNormal.
+
+Unless a test says otherwise, the triangle is the standard one with no
+margin, and the triangle is item A, the way terrain calls it. A stored
+contact's normal then points from the sphere toward the triangle, and
+its point on B is on the sphere's surface.
+*/
+class SphereTriangleUnderneathTest is PhysicsTest
+    on create
+        SetName("Sphere and triangle: underneath")
+    end
+
+    action Run
+        LocalCollisionPoints3D points = RunSphere(0.25, -0.4, -0.25, 0.5, 0, false)
+        CheckContact("sphere underneath", points, 0, 1, 0, 0.25, 0.1, -0.25, -0.1)
+    end
+end

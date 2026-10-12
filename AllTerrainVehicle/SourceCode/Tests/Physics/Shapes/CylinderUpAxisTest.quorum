@@ -1,0 +1,41 @@
+package Physics.Tests
+
+use Libraries.Game.BoundingBox
+use Libraries.Game.Collision.Shapes.Cylinder
+
+/*
+Tests cylinders whose height runs along x or z, set with SetUpAxis after
+Set. The radius comes from the other axes, and the supporting points and
+bounding box should follow the new axis.
+*/
+class CylinderUpAxisTest is PhysicsTest
+    on create
+        SetName("Cylinder shape: up axis x and z")
+    end
+
+    action Run
+        // Height along x: 1 long, radius 0.3.
+        Cylinder alongX
+        alongX:Set(1, 0.6, 0.6)
+        alongX:SetUpAxis(0)
+        CheckWhole("x: up axis", alongX:GetUpAxis(), 0)
+        CheckNumber("x: radius", alongX:GetRadius(), 0.3)
+        CheckVector("x: supporting point toward +z",
+            alongX:LocalGetSupportingVertexWithoutMargin(MakeVector(0, 0, 1)), 0.46, 0, 0.26)
+
+        BoundingBox bounds
+        alongX:ComputeBoundingBox(bounds, MakeTransform(0, 0, 0, 0, 1, 0, 0))
+        CheckVector("x: bounding box maximum", bounds:GetMaximum(), 0.5, 0.3, 0.3)
+
+        // Height along z.
+        Cylinder alongZ
+        alongZ:Set(0.6, 0.6, 1)
+        alongZ:SetUpAxis(2)
+        CheckNumber("z: radius", alongZ:GetRadius(), 0.3)
+        CheckVector("z: supporting point toward +x",
+            alongZ:LocalGetSupportingVertexWithoutMargin(MakeVector(1, 0, 0)), 0.26, 0, 0.46)
+
+        alongZ:ComputeBoundingBox(bounds, MakeTransform(0, 0, 0, 0, 1, 0, 0))
+        CheckVector("z: bounding box maximum", bounds:GetMaximum(), 0.3, 0.3, 0.5)
+    end
+end

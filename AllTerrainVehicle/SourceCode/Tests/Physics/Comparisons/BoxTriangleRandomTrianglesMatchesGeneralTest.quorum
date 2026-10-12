@@ -1,0 +1,88 @@
+package Physics.Tests
+
+use Libraries.Compute.Math
+use Libraries.Game.Collision.PhysicsPosition3D
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.Shapes.Triangle
+use Libraries.Game.Collision.Shapes.Box
+use Libraries.Compute.Random
+
+/*
+Compares BoxTriangleCollider with the general collision test for boxes
+against small random triangles, which brings in the box face and edge
+pair directions as well as the triangle's normal.
+
+This comparison is looser. Besides the rounded corners, the collider
+grows a triangle by its margin with straight sides, so the grown
+triangle's corners reach farther than the general test's rounded ones,
+by more the sharper the corner. So the collider may find contacts the
+general test does not, which are counted but allowed. What is checked is
+that the collider never misses a contact the general test finds clearly,
+deeper than 0.005, and that when both find one and it is not deep, their
+deepest contacts agree to within 0.035. Triangles with a corner sharper
+than 30 degrees are not used.
+*/
+class BoxTriangleRandomTrianglesMatchesGeneralTest is PhysicsTest
+    on create
+        SetName("Box and triangle: random triangles match the general test")
+    end
+
+    action Run
+        Math math
+        Random random
+        random:SetSeed(78)
+        PhysicsPosition3D triangleTransform
+
+        integer samples = 1000
+        integer used = 0
+        integer compared = 0
+        integer extra = 0
+        integer missed = 0
+        integer differences = 0
+
+        integer i = 0
+        repeat while i < samples
+            Triangle triangle
+            triangle:Set(MakeVector(-0.5 + random:RandomNumber(), -0.1 + 0.2 * random:RandomNumber(), -0.5 + random:RandomNumber()),
+                MakeVector(-0.5 + random:RandomNumber(), -0.1 + 0.2 * random:RandomNumber(), -0.5 + random:RandomNumber()),
+                MakeVector(-0.5 + random:RandomNumber(), -0.1 + 0.2 * random:RandomNumber(), -0.5 + random:RandomNumber()))
+            triangle:SetMargin(0.04)
+
+            Box box = MakeBox(0.2 + 0.4 * random:RandomNumber(), 0.2 + 0.4 * random:RandomNumber(),
+                0.2 + 0.4 * random:RandomNumber())
+            PhysicsPosition3D transform = MakeRandomRotation(random)
+            transform:GetOrigin():Set(-0.3 + 0.6 * random:RandomNumber(), -0.1 + 0.7 * random:RandomNumber(),
+                -0.3 + 0.6 * random:RandomNumber())
+
+            if SmallestAngle(triangle) >= 30
+                used = used + 1
+                LocalCollisionPoints3D fast = RunBoxOn(triangle, triangleTransform, box, transform, false)
+                LocalCollisionPoints3D general = RunGeneralWith(triangle, triangleTransform, box, transform)
+                number fastDeepest = DeepestSeparation(fast)
+                number generalDeepest = DeepestSeparation(general)
+
+                if general:GetPointCount() > 0 and fast:GetPointCount() = 0
+                    if generalDeepest < -0.005
+                        missed = missed + 1
+                        ReportMismatch("box missed", missed, transform:GetOrigin(), fast, general)
+                    end
+                elseif general:GetPointCount() = 0 and fast:GetPointCount() > 0
+                    extra = extra + 1
+                elseif general:GetPointCount() > 0 and generalDeepest > -0.1
+                    compared = compared + 1
+                    if math:AbsoluteValue(fastDeepest - generalDeepest) > 0.035
+                        differences = differences + 1
+                        ReportMismatch("box depth", differences, transform:GetOrigin(), fast, general)
+                    end
+                end
+            end
+            i = i + 1
+        end
+
+        AddNote("Box against random triangles: " + used + " used, " + compared + " compared, " + extra +
+            " found only by the collider, " + missed + " missed, " + differences + " depth differences.")
+        CheckThat("box never misses a clear contact", missed = 0)
+        CheckThat("box depths match on random triangles", differences = 0)
+        CheckThat("box random comparison found contacts to compare", compared > 50)
+    end
+end

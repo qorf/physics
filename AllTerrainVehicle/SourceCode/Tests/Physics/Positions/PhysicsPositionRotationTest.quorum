@@ -1,0 +1,42 @@
+package Physics.Tests
+
+use Libraries.Compute.Quaternion
+use Libraries.Game.Collision.PhysicsPosition3D
+
+/*
+Tests that a rotation set with PhysicsPosition3D:SetRotation comes back from
+GetRotation. A quaternion and its negative describe the same rotation, so
+the two are compared by the size of their dot product, which is 1 for the
+same rotation either way.
+
+The 180 degree rotations matter, because GetRotation works differently when
+the trace of the basis, the sum of its diagonal, is zero or less.
+*/
+class PhysicsPositionRotationTest is PhysicsTest
+    on create
+        SetName("Physics position: rotation round trip")
+    end
+
+    action Run
+        CheckRoundTrip("90 degrees about y", 0, 1, 0, 90)
+        CheckRoundTrip("37 degrees about a tilted axis", 1, 2, 3, 37)
+        CheckRoundTrip("180 degrees about x", 1, 0, 0, 180)
+        CheckRoundTrip("180 degrees about z", 0, 0, 1, 180)
+        CheckRoundTrip("200 degrees about a tilted axis", 1, 1, 0, 200)
+        CheckRoundTrip("no rotation", 0, 1, 0, 0)
+    end
+
+    action CheckRoundTrip(text name, number axisX, number axisY, number axisZ, number degrees)
+        Quaternion expected
+        expected:SetFromAxis(axisX, axisY, axisZ, degrees)
+        PhysicsPosition3D position
+        position:SetRotation(expected)
+        Quaternion found = position:GetRotation()
+        number dot = expected:GetX() * found:GetX() + expected:GetY() * found:GetY() +
+            expected:GetZ() * found:GetZ() + expected:GetW() * found:GetW()
+        if dot < 0
+            dot = -dot
+        end
+        CheckNumber(name, dot, 1)
+    end
+end

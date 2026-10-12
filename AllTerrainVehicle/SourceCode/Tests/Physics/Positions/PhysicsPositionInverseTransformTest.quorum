@@ -1,0 +1,34 @@
+package Physics.Tests
+
+use Libraries.Compute.Vector3
+use Libraries.Game.Collision.PhysicsPosition3D
+
+/*
+Tests PhysicsPosition3D:InverseTransform, which moves a world point into an
+object's own space, undoing Transform.
+*/
+class PhysicsPositionInverseTransformTest is PhysicsTest
+    on create
+        SetName("Physics position: inverse transform")
+    end
+
+    action Run
+        // The point that "turn, then move" sends (1, 0, 0) to comes back.
+        PhysicsPosition3D both = MakeTransform(10, 2, 0, 0, 1, 0, 90)
+        Vector3 local
+        both:InverseTransform(MakeVector(10, 2, -1), local)
+        CheckVector("undoes turn, then move", local, 1, 0, 0)
+
+        // For a general transform, transforming and then inverse transforming
+        // gives back the starting point.
+        PhysicsPosition3D general = MakeTransform(0.5, -2, 3, 1, 2, 3, 37)
+        Vector3 start = MakeVector(1.5, 0.25, -4)
+        Vector3 world = MakeVector(1.5, 0.25, -4)
+        general:Transform(world)
+        general:InverseTransform(world, local)
+        CheckVector("round trip through a general transform", local, 1.5, 0.25, -4)
+
+        // The input is not changed.
+        CheckVector("the world point is unchanged", world, 0.146755, -0.720849, -1.068352)
+    end
+end

@@ -1,0 +1,52 @@
+package Physics.Tests
+
+use Libraries.Compute.Vector3
+use Libraries.Game.Collision.PhysicsPosition3D
+
+/*
+Tests PhysicsPosition3D:Transform, which moves a point from an object's own
+space into the world: it is turned by the basis, then moved by the origin.
+*/
+class PhysicsPositionTransformTest is PhysicsTest
+    on create
+        SetName("Physics position: transform")
+    end
+
+    action Run
+        // A new position is the identity, so a point is unchanged.
+        PhysicsPosition3D identity
+        Vector3 point = MakeVector(1.5, -2, 3)
+        identity:Transform(point)
+        CheckVector("identity leaves the point", point, 1.5, -2, 3)
+
+        // Only a translation.
+        PhysicsPosition3D moved = MakeTransform(10, 2, -1, 0, 1, 0, 0)
+        point:Set(1, 0, 0)
+        moved:Transform(point)
+        CheckVector("translation adds the origin", point, 11, 2, -1)
+
+        // Turning 90 degrees about y takes x to -z.
+        PhysicsPosition3D turned = MakeTransform(0, 0, 0, 0, 1, 0, 90)
+        point:Set(1, 0, 0)
+        turned:Transform(point)
+        CheckVector("turning 90 degrees about y", point, 0, 0, -1)
+
+        // Turning comes before moving.
+        PhysicsPosition3D both = MakeTransform(10, 2, 0, 0, 1, 0, 90)
+        point:Set(1, 0, 0)
+        both:Transform(point)
+        CheckVector("turn, then move", point, 10, 2, -1)
+
+        // A general turn and move, worked out separately.
+        PhysicsPosition3D general = MakeTransform(0.5, -2, 3, 1, 2, 3, 37)
+        point:Set(1.5, 0.25, -4)
+        general:Transform(point)
+        CheckVector("a general transform", point, 0.146755, -0.720849, -1.068352)
+
+        // SetToIdentity clears both the turn and the move.
+        general:SetToIdentity()
+        point:Set(1.5, 0.25, -4)
+        general:Transform(point)
+        CheckVector("SetToIdentity", point, 1.5, 0.25, -4)
+    end
+end

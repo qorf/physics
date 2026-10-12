@@ -1,0 +1,43 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+
+/*
+Tests that a sleeping box wakes up when another box lands on it, and that the
+two then rest one on the other. The first box is left until it sleeps. The
+second is then added with its bottom 1.5 above the first box's top, and lands
+on it after about half a second. Once both settle, the second box's center
+should be at 1.5, one box above the first.
+*/
+class SleepingBoxWakesTest is PhysicsWorldTest
+    on create
+        SetName("World: a sleeping box wakes when hit")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        AddGround(layer)
+        Item3D lower = AddBox(layer, 0, 0.51, 0, 1, 1)
+
+        Advance(layer, 5)
+        CheckThat("the lower box is asleep before it is hit", not lower:IsSimulated())
+
+        Item3D upper = AddBox(layer, 0, 3, 0, 1, 1)
+        boolean woke = false
+        integer steps = StepsIn(1.5)
+        integer i = 0
+        repeat while i < steps
+            Step(layer)
+            if lower:IsSimulated()
+                woke = true
+            end
+            i = i + 1
+        end
+        CheckThat("the lower box woke when hit", woke)
+
+        Advance(layer, 3)
+        CheckNear("the lower box's height", lower:GetY(), 0.5, 0.03)
+        CheckNear("the upper box rests on the lower one", upper:GetY(), 1.5, 0.05)
+    end
+end

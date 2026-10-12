@@ -1,0 +1,63 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.CollisionPoint3D
+use Libraries.Game.Collision.PhysicsPosition3D
+
+/*
+Tests LocalCollisionPoints3D:RefreshCollisionPoints, which runs every step
+with the two items' new positions. It moves each stored point into the world
+again, works out its depth again along its normal, and removes points the
+items have moved apart from, either apart along the normal or sideways, by
+more than the contact threshold, 0.02.
+
+Item A is at (0, 1, 0) and item B at the origin. The stored point is at
+(0, -0.5, 0) on A and (0, 0.51, 0) on B, with the normal (0, 1, 0), so the
+two overlap by 0.01.
+*/
+class ContactPointsRefreshTest is PhysicsTest
+    on create
+        SetName("Contact points: refreshing after the items move")
+    end
+
+    action Run
+        PhysicsPosition3D atB = MakeTransform(0, 0, 0, 0, 1, 0, 0)
+
+        // Nothing has moved: the point stays, one step older.
+        LocalCollisionPoints3D points = MakeOverlap()
+        points:RefreshCollisionPoints(MakeTransform(0, 1, 0, 0, 1, 0, 0), atB)
+        CheckWhole("unmoved: the point stays", points:GetPointCount(), 1)
+        CheckNumber("unmoved: the depth", points:GetCollisionPoint(0):GetDistance(), -0.01)
+        CheckWhole("unmoved: one step older", points:GetCollisionPoint(0):GetLifeTime(), 1)
+        CheckVector("unmoved: the point on A in the world", points:GetCollisionPoint(0):GetWorldPositionOnA(), 0, 0.5, 0)
+
+        // A moved up by 0.05: now 0.04 apart, past the threshold.
+        points = MakeOverlap()
+        points:RefreshCollisionPoints(MakeTransform(0, 1.05, 0, 0, 1, 0, 0), atB)
+        CheckWhole("moved apart: the point is removed", points:GetPointCount(), 0)
+
+        // A moved up by 0.02: now 0.01 apart, within the threshold.
+        points = MakeOverlap()
+        points:RefreshCollisionPoints(MakeTransform(0, 1.02, 0, 0, 1, 0, 0), atB)
+        CheckWhole("moved apart a little: the point stays", points:GetPointCount(), 1)
+        CheckNumber("moved apart a little: the new separation", points:GetCollisionPoint(0):GetDistance(), 0.01)
+
+        // A slid sideways by 0.05: the two points have drifted apart.
+        points = MakeOverlap()
+        points:RefreshCollisionPoints(MakeTransform(0.05, 1, 0, 0, 1, 0, 0), atB)
+        CheckWhole("slid sideways: the point is removed", points:GetPointCount(), 0)
+
+        // A slid sideways by 0.01: still close enough.
+        points = MakeOverlap()
+        points:RefreshCollisionPoints(MakeTransform(0.01, 1, 0, 0, 1, 0, 0), atB)
+        CheckWhole("slid a little: the point stays", points:GetPointCount(), 1)
+    end
+
+    action MakeOverlap returns LocalCollisionPoints3D
+        CollisionPoint3D point
+        point:Initialize(MakeVector(0, -0.5, 0), MakeVector(0, 0.51, 0), MakeVector(0, 1, 0), -0.01)
+        LocalCollisionPoints3D points
+        points:AddCollisionPoint(point)
+        return points
+    end
+end

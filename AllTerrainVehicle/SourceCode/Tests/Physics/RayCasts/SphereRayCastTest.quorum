@@ -1,0 +1,43 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.Shapes.Sphere
+use Libraries.Game.Collision.RayCastResult3D
+
+/*
+Tests Sphere:RayCast, with a sphere of radius 0.5. A ray straight down
+through the center reaches the top at (0, 0.5, 0). A ray 0.3 to the side
+reaches the surface at a height of 0.4, where the normal is (0.6, 0.8, 0).
+*/
+class SphereRayCastTest is PhysicsTest
+    on create
+        SetName("Sphere ray cast")
+    end
+
+    action Run
+        Sphere sphere
+        sphere:SetRadius(0.5)
+        RayCastResult3D result
+
+        result:SetToDefault()
+        sphere:RayCast(MakeVector(0, 5, 0), MakeVector(0, -5, 0), MakeTransform(0, 0, 0, 0, 1, 0, 0), result)
+        CheckNumber("through the center: fraction", result:GetFraction(), 0.45)
+        CheckVector("through the center: point", result:GetHitPointWorldSpace(), 0, 0.5, 0)
+        CheckVector("through the center: normal", result:GetHitNormalWorldSpace(), 0, 1, 0)
+
+        result:SetToDefault()
+        sphere:RayCast(MakeVector(0.3, 5, 0), MakeVector(0.3, -5, 0), MakeTransform(0, 0, 0, 0, 1, 0, 0), result)
+        CheckNumber("off center: fraction", result:GetFraction(), 0.46)
+        CheckVector("off center: point", result:GetHitPointWorldSpace(), 0.3, 0.4, 0)
+        CheckVector("off center: normal", result:GetHitNormalWorldSpace(), 0.6, 0.8, 0)
+
+        result:SetToDefault()
+        CheckThat("passing beside misses", not sphere:RayCast(MakeVector(0.6, 5, 0), MakeVector(0.6, -5, 0), MakeTransform(0, 0, 0, 0, 1, 0, 0), result))
+        CheckThat("starting inside misses", not sphere:RayCast(MakeVector(0, 0, 0), MakeVector(0, 5, 0), MakeTransform(0, 0, 0, 0, 1, 0, 0), result))
+        CheckThat("pointing away misses", not sphere:RayCast(MakeVector(0, 5, 0), MakeVector(0, 10, 0), MakeTransform(0, 0, 0, 0, 1, 0, 0), result))
+
+        // A moved sphere.
+        result:SetToDefault()
+        sphere:RayCast(MakeVector(2, 8, 4), MakeVector(2, -2, 4), MakeTransform(2, 3, 4, 0, 1, 0, 0), result)
+        CheckVector("moved sphere: point", result:GetHitPointWorldSpace(), 2, 3.5, 4)
+    end
+end

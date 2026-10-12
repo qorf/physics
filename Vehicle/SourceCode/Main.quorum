@@ -86,6 +86,7 @@ class Main is Game
                 box:SetPosition(xstart + (j * 0.5), ystart + (i * 0.5), zstart + (-k * 0.5))
                 box:EnablePhysics(true)
                 box:SetPhysicsProperties(stackProperties)
+                    box:Simulate(false)
                 
                 Add(box)
                     

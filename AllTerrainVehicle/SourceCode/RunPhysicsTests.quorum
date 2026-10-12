@@ -1,0 +1,31 @@
+use Libraries.Testing.Tester
+use Libraries.Testing.Test
+use Libraries.Containers.Iterator
+use Libraries.Language.Compile.Test.PhysicsTester
+
+/*
+RunPhysicsTests runs the physics tests in this project and writes which of
+them failed. It does locally what Quorum's CompilerTestSuite does for
+ScienceTester and the other testers, so the tests in Tests/Physics and
+Tests/PhysicsTester.quorum can be copied into Quorum unchanged. To run it,
+make this file the project's main file.
+*/
+class RunPhysicsTests
+    action Main
+        Tester tester
+        PhysicsTester physics
+        physics:SetTester(tester)
+        physics:Test()
+
+        output physics:GetName() + ": " + tester:GetPassingSize() + " of " + tester:GetSize() + " passed."
+
+        Iterator<Test> failures = tester:GetFailedTestsIterator()
+        repeat while failures:HasNext()
+            Test test = failures:Next()
+            output "FAILED: " + test:GetName()
+            if test:GetMessage() not= ""
+                output "    " + test:GetMessage()
+            end
+        end
+    end
+end

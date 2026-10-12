@@ -1,0 +1,60 @@
+package Physics.Tests
+
+use Libraries.Interface.Item3D
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.CollisionPointsResult3D
+use Libraries.Game.Collision.CollisionPoint3D
+
+/*
+Tests CollisionPointsResult3D:AddCollisionPoint, which colliders call to
+report a contact: a normal from B toward A, a point on B, and a depth. It
+keeps contacts within the contact threshold, 0.02, and stores each one's
+point on A and point on B in their items' own space, using where the items
+were when the result was initialized.
+
+Item A is at (0, 1, 0). Item B is at (2, 0, 0), turned a quarter turn about
+y. A contact at (3, 0.5, 0) on B, with the normal (0, 1, 0) and depth -0.1,
+has its point on A at (3, 0.4, 0) in the world, which is (3, -0.6, 0) in
+A's space. Its point on B is (1, 0.5, 0) from B's center, which B's turn
+makes (0, 0.5, 1) in B's space.
+*/
+class ContactResultStoreTest is PhysicsTest
+    on create
+        SetName("Contact result: storing contacts")
+    end
+
+    action Run
+        Item3D itemA
+        itemA:SetCollisionTransform(MakeTransform(0, 1, 0, 0, 1, 0, 0))
+        Item3D itemB
+        itemB:SetCollisionTransform(MakeTransform(2, 0, 0, 0, 1, 0, 90))
+
+        LocalCollisionPoints3D points
+        points:Set(itemA, itemB)
+        CollisionPointsResult3D result
+        result:Initialize(itemA, itemB)
+        result:SetCollisionPoints(points)
+
+        result:AddCollisionPoint(MakeVector(0, 1, 0), MakeVector(3, 0.5, 0), -0.1)
+        CheckWhole("one contact", points:GetPointCount(), 1)
+        if points:GetPointCount() = 1
+            CollisionPoint3D point = points:GetCollisionPoint(0)
+            CheckVector("point on A in the world", point:GetWorldPositionOnA(), 3, 0.4, 0)
+            CheckVector("point on B in the world", point:GetWorldPositionOnB(), 3, 0.5, 0)
+            CheckVector("point on A in A's space", point:GetLocalPointA(), 3, -0.6, 0)
+            CheckVector("point on B in B's space", point:GetLocalPointB(), 0, 0.5, 1)
+            CheckVector("normal", point:GetWorldNormalOnB(), 0, 1, 0)
+            CheckNumber("depth", point:GetDistance(), -0.1)
+        end
+
+        // A gap of exactly the threshold is kept, and a larger one is not.
+        result:AddCollisionPoint(MakeVector(0, 1, 0), MakeVector(10, 0.5, 0), 0.02)
+        CheckWhole("a gap of exactly the threshold is kept", points:GetPointCount(), 2)
+        result:AddCollisionPoint(MakeVector(0, 1, 0), MakeVector(20, 0.5, 0), 0.03)
+        CheckWhole("a larger gap is not", points:GetPointCount(), 2)
+
+        // A contact close to a stored one replaces it instead of adding.
+        result:AddCollisionPoint(MakeVector(0, 1, 0), MakeVector(3.005, 0.5, 0), -0.1)
+        CheckWhole("a nearby contact replaces the stored one", points:GetPointCount(), 2)
+    end
+end

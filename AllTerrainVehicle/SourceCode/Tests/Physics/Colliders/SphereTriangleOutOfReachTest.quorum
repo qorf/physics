@@ -1,0 +1,22 @@
+package Physics.Tests
+
+/*
+Spheres that are well away from the triangle, off to the side and far
+above, give no contact.
+
+Unless a test says otherwise, the triangle is the standard one with no
+margin, and the triangle is item A, the way terrain calls it. A stored
+contact's normal then points from the sphere toward the triangle, and
+its point on B is on the sphere's surface.
+*/
+class SphereTriangleOutOfReachTest is PhysicsTest
+    on create
+        SetName("Sphere and triangle: out of reach")
+    end
+
+    action Run
+        CheckWhole("sphere off to the side", RunSphere(3, 0.1, 0, 0.5, 0.04, false):GetPointCount(), 0)
+        CheckWhole("sphere far above", RunSphere(0.25, 5, -0.25, 0.5, 0.04, false):GetPointCount(), 0)
+        CheckWhole("sphere just past an edge", RunSphere(0.5, 0, 0.6, 0.5, 0, false):GetPointCount(), 0)
+    end
+end

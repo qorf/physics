@@ -1,0 +1,28 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.Shapes.Cylinder
+
+/*
+Tests Cylinder:Copy. A copy should be the same cylinder: the same size and
+the same up axis.
+*/
+class CylinderCopyTest is PhysicsTest
+    on create
+        SetName("Cylinder shape: copy")
+    end
+
+    action Run
+        Cylinder cylinder
+        cylinder:Set(0.6, 1, 0.6)
+        Cylinder copy = cast(Cylinder, cylinder:Copy())
+        CheckVector("the copy has the same size", copy:GetHalfExtentsWithMargin(), 0.3, 0.5, 0.3)
+        CheckNumber("the copy has the same radius", copy:GetRadius(), 0.3)
+
+        Cylinder alongX
+        alongX:Set(1, 0.6, 0.6)
+        alongX:SetUpAxis(0)
+        Cylinder copyX = cast(Cylinder, alongX:Copy())
+        CheckWhole("the copy keeps the up axis", copyX:GetUpAxis(), 0)
+        CheckNumber("the copy keeps the radius", copyX:GetRadius(), 0.3)
+    end
+end

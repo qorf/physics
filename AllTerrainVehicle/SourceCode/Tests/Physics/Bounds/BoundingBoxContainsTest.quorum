@@ -1,0 +1,44 @@
+package Physics.Tests
+
+use Libraries.Game.BoundingBox
+
+/*
+Tests BoundingBox:Contains, for a point and for another box. A point on the
+boundary counts as inside. A box counts as inside only if it is inside in
+every direction.
+
+The box used is wider than it is tall, so that a check comparing the wrong
+directions, such as the width of one box against the height of the other,
+gives the wrong answer.
+*/
+class BoundingBoxContainsTest is PhysicsTest
+    on create
+        SetName("Bounding box: contains")
+    end
+
+    action Run
+        BoundingBox box
+        box:Set(MakeVector(0, 0, 0), MakeVector(10, 1, 10))
+
+        CheckThat("a point inside", box:Contains(MakeVector(5, 0.5, 5)))
+        CheckThat("a point on a corner", box:Contains(MakeVector(10, 1, 10)))
+        CheckThat("a point above", not box:Contains(MakeVector(5, 2, 5)))
+        CheckThat("a point to the side", not box:Contains(MakeVector(-1, 0.5, 5)))
+
+        BoundingBox inside
+        inside:Set(MakeVector(1, 0.25, 1), MakeVector(9, 0.75, 9))
+        CheckThat("a box inside", box:Contains(inside))
+
+        // This box fits in x and z but sticks out of the top.
+        BoundingBox tooTall
+        tooTall:Set(MakeVector(1, 0.5, 1), MakeVector(2, 2, 2))
+        CheckThat("a box sticking out of the top", not box:Contains(tooTall))
+
+        // A tall, thin box around a short, wide one.
+        BoundingBox tall
+        tall:Set(MakeVector(0, 0, 0), MakeVector(1, 10, 1))
+        BoundingBox insideTall
+        insideTall:Set(MakeVector(0.25, 1, 0.25), MakeVector(0.75, 5, 0.75))
+        CheckThat("a box inside a tall box", tall:Contains(insideTall))
+    end
+end

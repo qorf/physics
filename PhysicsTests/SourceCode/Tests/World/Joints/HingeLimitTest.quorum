@@ -1,0 +1,48 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Game.Physics.Joints.HingeJoint3D
+
+/*
+Tests a hinge with limits. The plank from HingeSwingTest is limited to turn
+no more than 0.5 radians either way, so instead of swinging down to hang
+straight below the hinge, about 1.57 radians, it should stop near 0.5 below
+level. The test also checks that GetHingeAngle agrees with the angle the
+plank is at. GetHingeAngle uses a quick estimate of the angle that can be off
+by up to about 0.07 radians, and which way is positive depends on how the
+hinge was set up, so only the size of the angle is compared.
+*/
+class HingeLimitTest is PhysicsWorldTest
+    on create
+        SetName("World: a hinge stops at its limit")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        Item3D anchor = AddFixedBox(layer, 0, 5, 0, 0.2, 0.2, 0.2)
+        Item3D plank = AddMovingBox(layer, 1.2, 5, 0, 2, 0.2, 0.2, 1)
+
+        HingeJoint3D hinge
+        hinge:Initialize(anchor, plank, MakeVector(0, 0, 0), MakeVector(-1.2, 0, 0), MakeVector(0, 0, 1), MakeVector(0, 0, 1))
+        hinge:SetLimit(-0.5, 0.5)
+        layer:Add(hinge)
+
+        number largest = 0
+        integer steps = StepsIn(3)
+        integer i = 0
+        repeat while i < steps
+            Step(layer)
+            number angle = AngleBelowHorizontal(plank, 0, 5)
+            if angle > largest
+                largest = angle
+            end
+            i = i + 1
+        end
+
+        number settled = AngleBelowHorizontal(plank, 0, 5)
+        CheckAtMost("largest angle below level", largest, 0.6)
+        CheckNear("angle after settling", settled, 0.5, 0.1)
+        CheckNear("GetHingeAngle's size", Absolute(hinge:GetHingeAngle()), settled, 0.1)
+    end
+end

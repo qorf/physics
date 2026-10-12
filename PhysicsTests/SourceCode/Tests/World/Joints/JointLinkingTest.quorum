@@ -1,0 +1,55 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Game.Physics.Joints.BallAndSocketJoint3D
+use Libraries.Game.Physics.Joints.JointEdge3D
+use Libraries.Game.Physics.Joints.Joint3D
+
+/*
+Tests the bookkeeping when a joint is added to and removed from a world.
+Adding a joint makes it one of the layer's behaviors and gives each of its
+two items an edge that leads back to it. Adding it a second time does
+nothing. Removing the behaviors that use one of the items removes the joint
+and takes the edges off both items.
+*/
+class JointLinkingTest is PhysicsWorldTest
+    on create
+        SetName("World: adding and removing a joint")
+    end
+
+    action Run
+        Layer3D layer = MakeWorldWithoutGravity()
+        Item3D first = AddBox(layer, 0, 0, 0, 1, 1)
+        Item3D second = AddBox(layer, 3, 0, 0, 1, 1)
+
+        BallAndSocketJoint3D joint
+        joint:Initialize(first, second, MakeVector(1.5, 0, 0), MakeVector(-1.5, 0, 0))
+        CheckWhole("items in the joint", joint:GetItemsSize(), 2)
+        CheckThat("the joint's first item", joint:GetItem(0) = first)
+        CheckThat("the joint's second item", joint:GetItem(1) = second)
+
+        layer:Add(joint)
+        CheckWhole("behaviors after adding the joint", layer:GetPhysicsBehaviorsSize(), 1)
+        CheckThat("the joint knows its layer", joint:GetLayer() = layer)
+        layer:Add(joint)
+        CheckWhole("behaviors after adding the joint twice", layer:GetPhysicsBehaviorsSize(), 1)
+
+        JointEdge3D firstEdge = first:GetJointList()
+        CheckThat("the first item has a joint edge", firstEdge not= undefined)
+        if firstEdge not= undefined
+            CheckThat("the first item's edge leads to the joint", firstEdge:GetJoint():Equals(joint))
+        end
+        JointEdge3D secondEdge = second:GetJointList()
+        CheckThat("the second item has a joint edge", secondEdge not= undefined)
+        if secondEdge not= undefined
+            CheckThat("the second item's edge leads to the joint", secondEdge:GetJoint():Equals(joint))
+        end
+
+        layer:RemoveBehaviorsUsing(first)
+        CheckWhole("behaviors after removing", layer:GetPhysicsBehaviorsSize(), 0)
+        CheckThat("the joint no longer has a layer", joint:GetLayer() = undefined)
+        CheckThat("the first item's edge is gone", first:GetJointList() = undefined)
+        CheckThat("the second item's edge is gone", second:GetJointList() = undefined)
+    end
+end

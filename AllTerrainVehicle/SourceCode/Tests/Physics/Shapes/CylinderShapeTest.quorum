@@ -1,0 +1,55 @@
+package Physics.Tests
+
+use Libraries.Compute.Vector3
+use Libraries.Game.BoundingBox
+use Libraries.Game.Collision.Shapes.Cylinder
+
+/*
+Tests the Cylinder shape, standing along y, which is the default. Unlike
+Box, Cylinder:Set(width, height, depth) keeps the margin inside the size it
+is given, so a cylinder set to 0.6 by 1 by 0.6 has radius 0.3 and height 1
+with its margin, and 0.26 and 0.92 without it.
+*/
+class CylinderShapeTest is PhysicsTest
+    on create
+        SetName("Cylinder shape")
+    end
+
+    action Run
+        Cylinder cylinder
+        cylinder:Set(0.6, 1, 0.6)
+        CheckWhole("up axis", cylinder:GetUpAxis(), 1)
+        CheckNumber("radius", cylinder:GetRadius(), 0.3)
+        CheckVector("half extents with the margin", cylinder:GetHalfExtentsWithMargin(), 0.3, 0.5, 0.3)
+        CheckVector("half extents without the margin", cylinder:GetHalfExtentsWithoutMargin(), 0.26, 0.46, 0.26)
+
+        // The supporting point is on the rim of the cap facing the
+        // direction. Straight along the axis, it is on the rim along x.
+        CheckVector("supporting point sideways",
+            cylinder:LocalGetSupportingVertexWithoutMargin(MakeVector(1, 0, 0)), 0.26, 0.46, 0)
+        CheckVector("supporting point straight down",
+            cylinder:LocalGetSupportingVertexWithoutMargin(MakeVector(0, -1, 0)), 0.26, -0.46, 0)
+        CheckVector("supporting point at an angle",
+            cylinder:LocalGetSupportingVertexWithoutMargin(MakeVector(3, 1, 4)), 0.156, 0.46, 0.208)
+        CheckVector("supporting point with the margin",
+            cylinder:LocalGetSupportingVertex(MakeVector(1, 0, 0)), 0.3, 0.46, 0)
+
+        BoundingBox bounds
+        cylinder:ComputeBoundingBox(bounds, MakeTransform(0, 0, 0, 0, 1, 0, 0))
+        CheckVector("bounding box minimum", bounds:GetMinimum(), -0.3, -0.5, -0.3)
+        CheckVector("bounding box maximum", bounds:GetMaximum(), 0.3, 0.5, 0.3)
+
+        // Lying along x after a quarter turn about z.
+        cylinder:ComputeBoundingBox(bounds, MakeTransform(0, 0, 0, 0, 0, 1, 90))
+        CheckVector("turned bounding box maximum", bounds:GetMaximum(), 0.5, 0.3, 0.3)
+
+        // Inertia of a solid cylinder, as Bullet has calculated it since
+        // version 2.77: about its axis, the mass times the radius squared over
+        // 2; about the other two, the mass times (3 times the radius squared
+        // plus the height squared) over 12. For mass 12, radius 0.3 and
+        // height 1, that is 0.54 about y and 1.27 about x and z.
+        Vector3 inertia
+        cylinder:CalculateLocalInertia(12, inertia)
+        CheckVector("inertia", inertia, 1.27, 0.54, 1.27)
+    end
+end

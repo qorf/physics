@@ -1,0 +1,25 @@
+package Physics.Tests
+
+use Libraries.Compute.Math
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+Tests BoxBoxCollider when an edge of one box crosses an edge of the other.
+Box A is turned 45 degrees about z, so its lowest edge runs along z. Box B is
+turned 45 degrees about x, so its highest edge runs along x, at a height of
+the square root of 1/2. A sits 0.02 into B. The one contact is where the two
+edges cross, on B's edge.
+*/
+class BoxBoxEdgeTest is PhysicsTest
+    on create
+        SetName("Box and box: edge across edge")
+    end
+
+    action Run
+        Math math
+        number corner = 0.5 * math:SquareRoot(2)
+        LocalCollisionPoints3D points = RunBoxBox(MakeCollisionBox(1), MakeTransform(0, 2 * corner - 0.02, 0, 0, 0, 1, 45),
+            MakeCollisionBox(1), MakeTransform(0, 0, 0, 1, 0, 0, 45))
+        CheckContact("edge across edge", points, 0, 1, 0, 0, corner, 0, -0.02)
+    end
+end

@@ -1,0 +1,62 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Game.Physics.Joints.HingeJoint3D
+
+/*
+Tests that a hinge only lets an item turn about its axis. A plank 2 long
+sticks out level from a fixed anchor, hinged about the z axis, 1.2 from the
+plank's center. Gravity swings it down in the xy plane. The hinge should keep
+the plank's center 1.2 from the hinge, keep it from moving along z or turning
+about any other axis, and let it swing down until its center is 1.2 below
+the hinge.
+*/
+class HingeSwingTest is PhysicsWorldTest
+    on create
+        SetName("World: a hinged plank swings only about the hinge")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        Item3D anchor = AddFixedBox(layer, 0, 5, 0, 0.2, 0.2, 0.2)
+        Item3D plank = AddMovingBox(layer, 1.2, 5, 0, 2, 0.2, 0.2, 1)
+
+        HingeJoint3D hinge
+        hinge:Initialize(anchor, plank, MakeVector(0, 0, 0), MakeVector(-1.2, 0, 0), MakeVector(0, 0, 1), MakeVector(0, 0, 1))
+        layer:Add(hinge)
+
+        number lowest = plank:GetY()
+        number stretch = 0
+        number sideways = 0
+        number wobble = 0
+        integer steps = StepsIn(1.5)
+        integer i = 0
+        repeat while i < steps
+            Step(layer)
+            if plank:GetY() < lowest
+                lowest = plank:GetY()
+            end
+            number gap = Absolute(Distance(anchor, plank) - 1.2)
+            if gap > stretch
+                stretch = gap
+            end
+            if Absolute(plank:GetZ()) > sideways
+                sideways = Absolute(plank:GetZ())
+            end
+            number spinX = plank:GetAngularVelocity():GetX()
+            number spinY = plank:GetAngularVelocity():GetY()
+            number offAxis = SquareRoot(spinX * spinX + spinY * spinY)
+            if offAxis > wobble
+                wobble = offAxis
+            end
+            i = i + 1
+        end
+
+        CheckNear("lowest point of the swing", lowest, 3.8, 0.1)
+        CheckAtMost("most the hinge stretched", stretch, 0.05)
+        CheckAtMost("most the plank moved along z", sideways, 0.01)
+        CheckAtMost("fastest turn about x or y", wobble, 0.05)
+        CheckNear("the plank's up stays out of z", GetUp(plank):GetZ(), 0, 0.01)
+    end
+end

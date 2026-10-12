@@ -1,0 +1,722 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.Narrowphase.ConvexConvexCollider
+use Libraries.Game.Collision.Narrowphase.SphereSphereCollider
+use Libraries.Game.Collision.Narrowphase.BoxBoxCollider
+use Libraries.Compute.Math
+use Libraries.Compute.Quaternion
+use Libraries.Compute.Random
+use Libraries.Compute.Vector3
+use Libraries.Containers.Array
+use Libraries.Game.Collision.CollisionPoint3D
+use Libraries.Game.Collision.CollisionPointsResult3D
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.Narrowphase.BoxTriangleCollider
+use Libraries.Game.Collision.Narrowphase.ContactClipper3D
+use Libraries.Game.Collision.Narrowphase.ConvexConvexPairSolver
+use Libraries.Game.Collision.Narrowphase.CylinderTriangleCollider
+use Libraries.Game.Collision.Narrowphase.SphereTriangleCollider
+use Libraries.Game.Collision.Narrowphase.TriangleGeometry3D
+use Libraries.Game.Collision.PhysicsPosition3D
+use Libraries.Game.Collision.Shapes.Box
+use Libraries.Game.Collision.Shapes.CollisionShape3D
+use Libraries.Game.Collision.Shapes.Cylinder
+use Libraries.Game.Collision.Shapes.Sphere
+use Libraries.Game.Collision.Shapes.Triangle
+use Libraries.Interface.Item3D
+use Libraries.Testing.Test
+
+/*
+PhysicsTest is the parent of the physics tests. It is a Test, so a Tester can
+run any of them, and it adds what the physics tests share: checks that
+describe what failed, and helpers that build shapes, run the colliders, and
+compare their results with the general collision test.
+
+A test calls the checks below instead of Test's Check actions directly. Each
+one still calls Check, so the Tester sees the result, and each failure is
+also described in the test's message, which shows what was expected and what
+was found.
+
+Most tests use the same triangle, a right triangle lying flat at height 0:
+corner 0 at (0, 0, 0), corner 1 at (1, 0, 0) and corner 2 at (0, 0, -1). Its
+normal points up, (0, 1, 0). Edge 0 lies along the x axis, edge 2 along the
+z axis, and edge 1 is the long side from (1, 0, 0) to (0, 0, -1).
+*/
+class PhysicsTest is Test
+    // How far apart two numbers may be and still count as equal.
+    constant number TOLERANCE = 0.0001
+    Math helperMath
+
+    // Notes about the test, such as which checks failed. They become the
+    // test's message.
+    text notes = ""
+
+    // The general collision test, used as the reference for the collider tests.
+    ConvexConvexPairSolver generalSolver
+
+    // The box and cylinder colliders, reused by the tests. The cylinder's is
+    // kept so a test can ask whether it handed a case to the general test.
+    BoxTriangleCollider boxCollider
+    CylinderTriangleCollider cylinderCollider
+
+    /*
+    This action returns how far apart two numbers may be and still count as
+    equal in these tests.
+    */
+    action GetTolerance returns number
+        return TOLERANCE
+    end
+
+    /*
+    This action returns true if the last cylinder collision run by
+    RunCylinder was handed to the general collision test.
+    */
+    action CylinderUsedGeneralTest returns boolean
+        return cylinderCollider:UsedGeneralTest()
+    end
+
+    /*
+    This action adds a line to the test's message.
+    */
+    action AddNote(text note)
+        if notes = ""
+            notes = note
+        else
+            notes = notes + "; " + note
+        end
+        SetMessage(notes)
+    end
+
+    /*
+    This action checks that a condition is true.
+    */
+    action CheckThat(text name, boolean condition)
+        if not Check(condition, true)
+            AddNote("failed: " + name)
+        end
+    end
+
+    /*
+    This action checks that a number is within TOLERANCE of what was expected.
+    */
+    action CheckNumber(text name, number actual, number expected)
+        if not Check(actual, expected, TOLERANCE)
+            AddNote("failed: " + name + " (expected " + expected + ", got " + actual + ")")
+        end
+    end
+
+    /*
+    This action checks that an integer is exactly what was expected.
+    */
+    action CheckWhole(text name, integer actual, integer expected)
+        if not Check(actual = expected, true)
+            AddNote("failed: " + name + " (expected " + expected + ", got " + actual + ")")
+        end
+    end
+
+    /*
+    This action checks that each component of a vector is within TOLERANCE of
+    what was expected.
+    */
+    action CheckVector(text name, Vector3 actual, number x, number y, number z)
+        boolean near = helperMath:AbsoluteValue(actual:GetX() - x) <= TOLERANCE and
+            helperMath:AbsoluteValue(actual:GetY() - y) <= TOLERANCE and
+            helperMath:AbsoluteValue(actual:GetZ() - z) <= TOLERANCE
+        if not Check(near, true)
+            AddNote("failed: " + name + " (expected (" + x + ", " + y + ", " + z + "), got (" +
+                actual:GetX() + ", " + actual:GetY() + ", " + actual:GetZ() + "))")
+        end
+    end
+
+    /*
+    Writes the details of a sphere where SphereTriangleCollider and the
+    general test disagree. Only the first five are written.
+    */
+    action ReportSphereMismatch(integer mismatchCount, number x, number y, number z, number radius,
+            LocalCollisionPoints3D fast, LocalCollisionPoints3D general)
+        if mismatchCount > 5
+            return now
+        end
+        AddNote("  Mismatch at center (" + x + ", " + y + ", " + z + "), radius " + radius)
+        AddNote("    new:     " + DescribeContact(fast))
+        AddNote("    general: " + DescribeContact(general))
+    end
+
+    action DescribeContact(LocalCollisionPoints3D points) returns text
+        if points:GetPointCount() = 0
+            return "no contact"
+        end
+        CollisionPoint3D point = points:GetCollisionPoint(0)
+        Vector3 normal = point:GetWorldNormalOnB()
+        Vector3 position = point:GetWorldPositionOnB()
+        return "depth " + point:GetDistance() + ", normal (" + normal:GetX() + ", " + normal:GetY() + ", " +
+            normal:GetZ() + "), point (" + position:GetX() + ", " + position:GetY() + ", " + position:GetZ() + ")"
+    end
+
+    /*
+    Runs SphereTriangleCollider on the standard triangle, with the given
+    margin, against a sphere with the given center and radius, and returns
+    the stored contacts.
+    */
+    action RunSphere(number x, number y, number z, number radius, number margin, boolean sphereIsItemA) returns LocalCollisionPoints3D
+        PhysicsPosition3D identity
+        return RunSphereOn(MakeStandardTriangle(margin), identity, x, y, z, radius, sphereIsItemA)
+    end
+
+    /*
+    Runs SphereTriangleCollider on the given triangle against a sphere with
+    the given center and radius, and returns the stored contacts.
+    */
+    action RunSphereOn(Triangle triangle, PhysicsPosition3D triangleTransform, number x, number y, number z,
+            number radius, boolean sphereIsItemA) returns LocalCollisionPoints3D
+        Item3D triangleItem
+        Item3D sphereItem
+        LocalCollisionPoints3D points
+        CollisionPointsResult3D result
+        if sphereIsItemA
+            points:Set(sphereItem, triangleItem)
+            result:Initialize(sphereItem, triangleItem)
+        else
+            points:Set(triangleItem, sphereItem)
+            result:Initialize(triangleItem, sphereItem)
+        end
+
+        Sphere sphere
+        sphere:SetRadius(radius)
+        PhysicsPosition3D sphereTransform
+        sphereTransform:GetOrigin():Set(x, y, z)
+
+        SphereTriangleCollider collider
+        collider:Collide(points, triangle, triangleTransform, sphere, sphereTransform, result, sphereIsItemA)
+        return points
+    end
+
+    /*
+    Runs the general collision test on the standard triangle, as item A,
+    against a sphere, the way terrain does today, and returns the stored
+    contacts.
+    */
+    action RunGeneral(number x, number y, number z, number radius, number margin) returns LocalCollisionPoints3D
+        Item3D triangleItem
+        Item3D sphereItem
+        LocalCollisionPoints3D points
+        points:Set(triangleItem, sphereItem)
+        CollisionPointsResult3D result
+        result:Initialize(triangleItem, sphereItem)
+        result:SetCollisionPoints(points)
+
+        Triangle triangle = MakeStandardTriangle(margin)
+        PhysicsPosition3D triangleTransform
+        Sphere sphere
+        sphere:SetRadius(radius)
+        PhysicsPosition3D sphereTransform
+        sphereTransform:GetOrigin():Set(x, y, z)
+
+        generalSolver:SetMinkowskiA(triangle)
+        generalSolver:SetMinkowskiB(sphere)
+        number reach = triangle:GetMargin() + sphere:GetMargin() + points:GetCollisionBreakingThreshold()
+        generalSolver:GetClosestPoints(triangleTransform, sphereTransform, reach * reach, result, false)
+        return points
+    end
+
+    /*
+    Checks that there is exactly one contact, with the given normal from B
+    toward A, point on B, and depth.
+    */
+    action CheckContact(text name, LocalCollisionPoints3D points, number normalX, number normalY, number normalZ,
+            number pointX, number pointY, number pointZ, number depth)
+        CheckWhole(name + ": one contact", points:GetPointCount(), 1)
+        if points:GetPointCount() = 1
+            CollisionPoint3D point = points:GetCollisionPoint(0)
+            CheckVector(name + ": normal", point:GetWorldNormalOnB(), normalX, normalY, normalZ)
+            CheckVector(name + ": point on B", point:GetWorldPositionOnB(), pointX, pointY, pointZ)
+            CheckNumber(name + ": depth", point:GetDistance(), depth)
+        end
+    end
+
+    /*
+    A large triangle lying flat at height 0, around the origin, with its
+    normal pointing up and the given margin.
+    */
+    action MakeLargeTriangle(number margin) returns Triangle
+        Triangle triangle
+        triangle:Set(MakeVector(-5, 0, 5), MakeVector(5, 0, 5), MakeVector(0, 0, -5))
+        triangle:SetMargin(margin)
+        return triangle
+    end
+
+    action MakeBox(number width, number height, number depth) returns Box
+        Box box
+        box:Set(width, height, depth)
+        return box
+    end
+
+    /*
+    The standard test cylinder: radius 0.3 and height 1, standing along y.
+    */
+    action MakeCylinder returns Cylinder
+        Cylinder cylinder
+        cylinder:Set(0.6, 1, 0.6)
+        return cylinder
+    end
+
+    /*
+    A transform at the given position, turned by the given number of degrees
+    about the given axis. An angle of 0 gives no rotation.
+    */
+    action MakeTransform(number x, number y, number z, number axisX, number axisY, number axisZ, number degrees) returns PhysicsPosition3D
+        PhysicsPosition3D transform
+        if degrees not= 0
+            Quaternion turn
+            turn:SetFromAxis(axisX, axisY, axisZ, degrees)
+            transform:SetRotation(turn)
+        end
+        transform:GetOrigin():Set(x, y, z)
+        return transform
+    end
+
+    /*
+    A transform at the origin with a random rotation.
+    */
+    action MakeRandomRotation(Random random) returns PhysicsPosition3D
+        number axisX = random:RandomNumber() - 0.5
+        number axisY = random:RandomNumber() - 0.5
+        number axisZ = random:RandomNumber() - 0.5
+        if helperMath:AbsoluteValue(axisX) + helperMath:AbsoluteValue(axisY) + helperMath:AbsoluteValue(axisZ) < 0.01
+            axisY = 1
+        end
+        return MakeTransform(0, 0, 0, axisX, axisY, axisZ, 360 * random:RandomNumber())
+    end
+
+    /*
+    How far a box with the given rotation reaches below its center: its half
+    sizes times how much each of its axes points up or down.
+    */
+    action BoxReachDown(Box box, PhysicsPosition3D transform) returns number
+        Vector3 half
+        number margin = box:GetMargin()
+        half:Set(box:GetHalfExtentsWithoutMargin()):Add(margin, margin, margin)
+        Vector3 axis
+        number reach = half:GetX() * helperMath:AbsoluteValue(axis:Set(1, 0, 0):Multiply(transform:GetBasis()):GetY())
+        reach = reach + half:GetY() * helperMath:AbsoluteValue(axis:Set(0, 1, 0):Multiply(transform:GetBasis()):GetY())
+        reach = reach + half:GetZ() * helperMath:AbsoluteValue(axis:Set(0, 0, 1):Multiply(transform:GetBasis()):GetY())
+        return reach
+    end
+
+    /*
+    How far a cylinder standing along y, with the given rotation, reaches
+    below its center.
+    */
+    action CylinderReachDown(Cylinder cylinder, PhysicsPosition3D transform) returns number
+        Vector3 half
+        number margin = cylinder:GetMargin()
+        half:Set(cylinder:GetHalfExtentsWithoutMargin()):Add(margin, margin, margin)
+        Vector3 axis
+        number upward = axis:Set(0, 1, 0):Multiply(transform:GetBasis()):GetY()
+        number across = 1 - upward * upward
+        if across < 0
+            across = 0
+        end
+        return half:GetY() * helperMath:AbsoluteValue(upward) + half:GetX() * helperMath:SquareRoot(across)
+    end
+
+    /*
+    Runs BoxTriangleCollider with the given triangle, which has no transform
+    of its own, against a box that is 0.5 on each side for collisions.
+
+    Box:Set keeps the box's margin inside the size it is given, as Bullet
+    does, so a box set to 0.5 collides as a box 0.5 across. The general
+    collision test and BoxBoxCollider see it the same way.
+    */
+    action RunBox(Triangle triangle, PhysicsPosition3D transform, boolean boxIsItemA) returns LocalCollisionPoints3D
+        PhysicsPosition3D identity
+        return RunBoxOn(triangle, identity, MakeBox(0.5, 0.5, 0.5), transform, boxIsItemA)
+    end
+
+    action RunBoxOn(Triangle triangle, PhysicsPosition3D triangleTransform, Box box, PhysicsPosition3D transform,
+            boolean boxIsItemA) returns LocalCollisionPoints3D
+        Item3D triangleItem
+        Item3D boxItem
+        LocalCollisionPoints3D points
+        CollisionPointsResult3D result
+        if boxIsItemA
+            points:Set(boxItem, triangleItem)
+            result:Initialize(boxItem, triangleItem)
+        else
+            points:Set(triangleItem, boxItem)
+            result:Initialize(triangleItem, boxItem)
+        end
+        boxCollider:Collide(points, triangle, triangleTransform, box, transform, result, boxIsItemA)
+        return points
+    end
+
+    /*
+    Runs CylinderTriangleCollider with the given triangle, which has no
+    transform of its own. Afterward, cylinderCollider:UsedGeneralTest says
+    whether it handed the case to the general test.
+    */
+    action RunCylinder(Triangle triangle, Cylinder cylinder, PhysicsPosition3D transform,
+            boolean cylinderIsItemA) returns LocalCollisionPoints3D
+        Item3D triangleItem
+        Item3D cylinderItem
+        LocalCollisionPoints3D points
+        CollisionPointsResult3D result
+        if cylinderIsItemA
+            points:Set(cylinderItem, triangleItem)
+            result:Initialize(cylinderItem, triangleItem)
+        else
+            points:Set(triangleItem, cylinderItem)
+            result:Initialize(triangleItem, cylinderItem)
+        end
+        PhysicsPosition3D identity
+        cylinderCollider:Collide(points, triangle, identity, cylinder, transform, result, cylinderIsItemA)
+        return points
+    end
+
+    /*
+    Runs the general collision test with the triangle as item A, the way
+    terrain does today.
+    */
+    action RunGeneralWith(Triangle triangle, PhysicsPosition3D triangleTransform, CollisionShape3D shape,
+            PhysicsPosition3D transform) returns LocalCollisionPoints3D
+        Item3D triangleItem
+        Item3D shapeItem
+        LocalCollisionPoints3D points
+        points:Set(triangleItem, shapeItem)
+        CollisionPointsResult3D result
+        result:Initialize(triangleItem, shapeItem)
+        result:SetCollisionPoints(points)
+
+        generalSolver:SetMinkowskiA(triangle)
+        generalSolver:SetMinkowskiB(shape)
+        number reach = triangle:GetMargin() + shape:GetMargin() + points:GetCollisionBreakingThreshold()
+        generalSolver:GetClosestPoints(triangleTransform, transform, reach * reach, result, false)
+        return points
+    end
+
+    /*
+    Compares the deepest contacts of a collider and the general test. It
+    returns 0 if both found contacts whose deepest separations agree to
+    within the tolerance, 1 if neither found one, 2 if only one found one
+    but its separation is within the skip window of the threshold, and 3
+    for any other disagreement.
+    */
+    action CompareDeepest(LocalCollisionPoints3D fast, LocalCollisionPoints3D general, number tolerance,
+            number skipWindow) returns integer
+        boolean fastTouches = fast:GetPointCount() > 0
+        boolean generalTouches = general:GetPointCount() > 0
+        if not fastTouches and not generalTouches
+            return 1
+        end
+        if fastTouches and generalTouches
+            if helperMath:AbsoluteValue(DeepestSeparation(fast) - DeepestSeparation(general)) <= tolerance
+                return 0
+            end
+            return 3
+        end
+
+        number separation = DeepestSeparation(fast)
+        if generalTouches
+            separation = DeepestSeparation(general)
+        end
+        if helperMath:AbsoluteValue(separation - fast:GetCollisionBreakingThreshold()) <= skipWindow
+            return 2
+        end
+        return 3
+    end
+
+    /*
+    The smallest separation among the stored contacts, or a very large
+    number if there are none.
+    */
+    action DeepestSeparation(LocalCollisionPoints3D points) returns number
+        number deepest = 1.0e100
+        integer i = 0
+        repeat while i < points:GetPointCount()
+            number separation = points:GetCollisionPoint(i):GetDistance()
+            if separation < deepest
+                deepest = separation
+            end
+            i = i + 1
+        end
+        return deepest
+    end
+
+    /*
+    Writes the details of a disagreement with the general test. Only the
+    first five of each kind are written.
+    */
+    action ReportMismatch(text kind, integer mismatchCount, Vector3 center, LocalCollisionPoints3D fast,
+            LocalCollisionPoints3D general)
+        if mismatchCount > 5
+            return now
+        end
+        AddNote("  " + kind + " mismatch at (" + center:GetX() + ", " + center:GetY() + ", " + center:GetZ() + ")")
+        AddNote("    collider: " + fast:GetPointCount() + " contacts, deepest " + DeepestSeparation(fast) + ", first " + DescribeContact(fast))
+        AddNote("    general:  " + general:GetPointCount() + " contacts, deepest " + DeepestSeparation(general) + ", first " + DescribeContact(general))
+    end
+
+    /*
+    The average of a total over a count, as text, or "none" for a count of 0.
+    */
+    action AverageText(integer total, integer count) returns text
+        if count = 0
+            return "none"
+        end
+        return "" + helperMath:Round(total / cast(number, count), 2)
+    end
+
+    /*
+    The number of stored contacts whose point on B is within the tolerance
+    of the given point.
+    */
+    action CountContactsNear(LocalCollisionPoints3D points, number x, number y, number z) returns integer
+        Vector3 target = MakeVector(x, y, z)
+        integer count = 0
+        integer i = 0
+        repeat while i < points:GetPointCount()
+            if points:GetCollisionPoint(i):GetWorldPositionOnB():Distance(target) <= 0.001
+                count = count + 1
+            end
+            i = i + 1
+        end
+        return count
+    end
+
+    /*
+    Checks that every stored contact has the given normal and depth.
+    */
+    action CheckAllContacts(text name, LocalCollisionPoints3D points, number normalX, number normalY, number normalZ,
+            number depth)
+        integer i = 0
+        repeat while i < points:GetPointCount()
+            CollisionPoint3D point = points:GetCollisionPoint(i)
+            CheckVector(name + ": normal of contact " + i, point:GetWorldNormalOnB(), normalX, normalY, normalZ)
+            CheckNumber(name + ": depth of contact " + i, point:GetDistance(), depth)
+            i = i + 1
+        end
+    end
+
+    /*
+    Returns true if every stored contact's point on B is the given distance
+    from the given axis, 0 for x, 1 for y or 2 for z.
+    */
+    action AllContactsAtRadius(LocalCollisionPoints3D points, number radius, integer axisIndex) returns boolean
+        integer i = 0
+        repeat while i < points:GetPointCount()
+            Vector3 position = points:GetCollisionPoint(i):GetWorldPositionOnB()
+            number a = position:GetX()
+            number b = position:GetZ()
+            if axisIndex = 0
+                a = position:GetY()
+            elseif axisIndex = 2
+                b = position:GetY()
+            end
+            if helperMath:AbsoluteValue(helperMath:SquareRoot(a * a + b * b) - radius) > 0.001
+                return false
+            end
+            i = i + 1
+        end
+        return points:GetPointCount() > 0
+    end
+
+    /*
+    Returns true if every stored contact's point on B is at the given height.
+    */
+    action AllContactsAtHeight(LocalCollisionPoints3D points, number height) returns boolean
+        integer i = 0
+        repeat while i < points:GetPointCount()
+            if helperMath:AbsoluteValue(points:GetCollisionPoint(i):GetWorldPositionOnB():GetY() - height) > 0.001
+                return false
+            end
+            i = i + 1
+        end
+        return points:GetPointCount() > 0
+    end
+
+    /*
+    The sharpest corner of a triangle, in degrees.
+    */
+    action SmallestAngle(Triangle triangle) returns number
+        number smallest = 180
+        integer i = 0
+        repeat while i < 3
+            Vector3 corner = triangle:GetVertex(i)
+            Vector3 toNext = MakeVector(0, 0, 0)
+            toNext:Set(triangle:GetVertex((i + 1) mod 3)):Subtract(corner)
+            Vector3 toPrevious = MakeVector(0, 0, 0)
+            toPrevious:Set(triangle:GetVertex((i + 2) mod 3)):Subtract(corner)
+            number lengths = toNext:Length() * toPrevious:Length()
+            if lengths <= 0
+                return 0
+            end
+            number cosine = toNext:DotProduct(toPrevious) / lengths
+            if cosine > 1
+                cosine = 1
+            elseif cosine < -1
+                cosine = -1
+            end
+            number angle = helperMath:InverseCosine(cosine) * 180 / helperMath:pi
+            if angle < smallest
+                smallest = angle
+            end
+            i = i + 1
+        end
+        return smallest
+    end
+
+    /*
+    The standard triangle as a Triangle shape, with the given margin.
+    */
+    action MakeStandardTriangle(number margin) returns Triangle
+        Triangle triangle
+        triangle:Set(MakeVector(0, 0, 0), MakeVector(1, 0, 0), MakeVector(0, 0, -1))
+        triangle:SetMargin(margin)
+        return triangle
+    end
+
+    action MakeStandardGeometry returns TriangleGeometry3D
+        TriangleGeometry3D geometry
+        geometry:Load(MakeVector(0, 0, 0), MakeVector(1, 0, 0), MakeVector(0, 0, -1))
+        return geometry
+    end
+
+    /*
+    A square at height 0 from -half to half in x and z, with its corners in
+    order around it.
+    */
+    action MakeSquare(ContactClipper3D clipper, number half) returns Array<Vector3>
+        Array<Vector3> square = clipper:CreatePointArray()
+        square:Get(0):Set(-half, 0, -half)
+        square:Get(1):Set(half, 0, -half)
+        square:Get(2):Set(half, 0, half)
+        square:Get(3):Set(-half, 0, half)
+        return square
+    end
+
+    /*
+    The area of a polygon seen from above, using the x and z of its corners.
+    */
+    action AreaInXZ(Array<Vector3> points, integer count) returns number
+        if count < 3
+            return 0
+        end
+        number twiceArea = 0
+        integer i = 0
+        repeat while i < count
+            Vector3 current = points:Get(i)
+            Vector3 next = points:Get((i + 1) mod count)
+            twiceArea = twiceArea + current:GetX() * next:GetZ() - next:GetX() * current:GetZ()
+            i = i + 1
+        end
+        return helperMath:AbsoluteValue(twiceArea) / 2
+    end
+
+    action MinimumX(Array<Vector3> points, integer count) returns number
+        number smallest = points:Get(0):GetX()
+        integer i = 1
+        repeat while i < count
+            if points:Get(i):GetX() < smallest
+                smallest = points:Get(i):GetX()
+            end
+            i = i + 1
+        end
+        return smallest
+    end
+
+    action MakeVector(number x, number y, number z) returns Vector3
+        Vector3 result
+        result:Set(x, y, z)
+        return result
+    end
+
+    /*
+    This action makes a contact point whose point on A and point on B are
+    both at (x, y, z) in their items' own space, with the normal (0, 1, 0)
+    and the given depth. The contact point tests use it to fill a
+    LocalCollisionPoints3D directly.
+    */
+    action MakeContactPoint(number x, number y, number z, number depth) returns CollisionPoint3D
+        CollisionPoint3D point
+        point:Initialize(MakeVector(x, y, z), MakeVector(x, y, z), MakeVector(0, 1, 0), depth)
+        return point
+    end
+
+    /*
+    This action makes a box that collides at the given full size on every
+    side. Box:Set keeps the box's margin inside the size it is given, so the
+    box is set to exactly the size wanted.
+    */
+    action MakeCollisionBox(number size) returns Box
+        return MakeBox(size, size, size)
+    end
+
+    /*
+    This action makes an item placed at the given transform, for the
+    narrowphase tests, which need items for their collision results.
+    */
+    action MakeItemAt(PhysicsPosition3D transform) returns Item3D
+        Item3D item
+        item:SetCollisionTransform(transform)
+        return item
+    end
+
+    /*
+    This action runs BoxBoxCollider on two boxes, with box A as item A, and
+    returns the stored contacts.
+    */
+    action RunBoxBox(Box boxA, PhysicsPosition3D transformA, Box boxB, PhysicsPosition3D transformB) returns LocalCollisionPoints3D
+        Item3D itemA = MakeItemAt(transformA)
+        Item3D itemB = MakeItemAt(transformB)
+        LocalCollisionPoints3D points
+        points:Set(itemA, itemB)
+        CollisionPointsResult3D result
+        result:Initialize(itemA, itemB)
+        BoxBoxCollider collider
+        collider:CollideBoxes(points, boxA, transformA, boxB, transformB, result)
+        return points
+    end
+
+    /*
+    This action runs SphereSphereCollider on two spheres, with sphere A as
+    item A, and returns the stored contacts.
+    */
+    action RunSphereSphere(Sphere sphereA, PhysicsPosition3D transformA, Sphere sphereB, PhysicsPosition3D transformB) returns LocalCollisionPoints3D
+        Item3D itemA = MakeItemAt(transformA)
+        Item3D itemB = MakeItemAt(transformB)
+        LocalCollisionPoints3D points
+        points:Set(itemA, itemB)
+        CollisionPointsResult3D result
+        result:Initialize(itemA, itemB)
+        SphereSphereCollider collider
+        collider:CollideSpheres(points, sphereA, transformA, sphereB, transformB, result)
+        return points
+    end
+
+    /*
+    This action runs the general collision test, ConvexConvexCollider, on two
+    shapes, with shape A as item A, and returns the stored contacts.
+    */
+    action RunConvexConvex(CollisionShape3D shapeA, PhysicsPosition3D transformA, CollisionShape3D shapeB,
+            PhysicsPosition3D transformB) returns LocalCollisionPoints3D
+        Item3D itemA = MakeItemAt(transformA)
+        Item3D itemB = MakeItemAt(transformB)
+        LocalCollisionPoints3D points
+        points:Set(itemA, itemB)
+        CollisionPointsResult3D result
+        result:Initialize(itemA, itemB)
+        ConvexConvexCollider collider
+        collider:CollideConvexConvex(points, shapeA, transformA, shapeB, transformB, result)
+        return points
+    end
+
+    /*
+    This action checks that a number is within the given tolerance of what
+    was expected, for results that are only approximate.
+    */
+    action CheckNumberWithin(text name, number actual, number expected, number tolerance)
+        if not Check(actual, expected, tolerance)
+            AddNote("failed: " + name + " (expected " + expected + " within " + tolerance + ", got " + actual + ")")
+        end
+    end
+end

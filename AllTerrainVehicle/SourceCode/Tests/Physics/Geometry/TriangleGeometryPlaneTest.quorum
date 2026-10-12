@@ -1,0 +1,34 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.Narrowphase.TriangleGeometry3D
+
+/*
+The normal, plane offset and plane distances of the standard triangle.
+*/
+class TriangleGeometryPlaneTest is PhysicsTest
+    on create
+        SetName("Triangle geometry: plane")
+    end
+
+    action Run
+        TriangleGeometry3D geometry = MakeStandardGeometry()
+
+        CheckThat("plane: not degenerate", not geometry:IsDegenerate())
+        CheckVector("plane: normal points up", geometry:GetNormal(), 0, 1, 0)
+        CheckNumber("plane: offset is 0", geometry:GetPlaneOffset(), 0)
+
+        CheckNumber("plane: distance above", geometry:PlaneDistance(MakeVector(0.2, 2, -0.2)), 2)
+        CheckNumber("plane: distance below", geometry:PlaneDistance(MakeVector(5, -0.5, 5)), -0.5)
+
+        // A raised copy of the triangle has its plane raised with it.
+        TriangleGeometry3D raised
+        raised:Load(MakeVector(0, 3, 0), MakeVector(1, 3, 0), MakeVector(0, 3, -1))
+        CheckNumber("plane: raised offset", raised:GetPlaneOffset(), 3)
+        CheckNumber("plane: raised distance", raised:PlaneDistance(MakeVector(0, 4, 0)), 1)
+
+        // Reversing the winding reverses the normal.
+        TriangleGeometry3D reversed
+        reversed:Load(MakeVector(0, 0, 0), MakeVector(0, 0, -1), MakeVector(1, 0, 0))
+        CheckVector("plane: reversed winding points down", reversed:GetNormal(), 0, -1, 0)
+    end
+end

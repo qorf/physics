@@ -1,0 +1,21 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.Narrowphase.TriangleGeometry3D
+
+/*
+The stretch of an axis that the triangle covers.
+*/
+class TriangleGeometryProjectionTest is PhysicsTest
+    on create
+        SetName("Triangle geometry: projection onto an axis")
+    end
+
+    action Run
+        TriangleGeometry3D geometry = MakeStandardGeometry()
+        CheckNumber("extents: minimum along x", geometry:GetProjectionMinimum(MakeVector(1, 0, 0)), 0)
+        CheckNumber("extents: maximum along x", geometry:GetProjectionMaximum(MakeVector(1, 0, 0)), 1)
+        CheckNumber("extents: minimum along z", geometry:GetProjectionMinimum(MakeVector(0, 0, 1)), -1)
+        CheckNumber("extents: maximum along z", geometry:GetProjectionMaximum(MakeVector(0, 0, 1)), 0)
+        CheckNumber("extents: flat along the normal", geometry:GetProjectionMaximum(MakeVector(0, 1, 0)), 0)
+    end
+end

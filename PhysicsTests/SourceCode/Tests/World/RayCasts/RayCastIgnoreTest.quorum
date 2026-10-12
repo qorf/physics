@@ -1,0 +1,29 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Game.Collision.RayCastResult3D
+
+/*
+Tests a ray cast that skips an item. The same ray as in RayCastNearestTest,
+told to skip the box, should pass through it and hit the ground.
+*/
+class RayCastIgnoreTest is PhysicsWorldTest
+    on create
+        SetName("World: a ray cast skips the item it is told to ignore")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        Item3D ground = AddGround(layer)
+        Item3D box = AddBox(layer, 0, 0.5, 0, 1, 1)
+        Step(layer)
+
+        RayCastResult3D result
+        boolean hit = layer:RayCastPhysics(MakeVector(0, 5, 0), MakeVector(0, -5, 0), box, result)
+
+        CheckThat("the ray hit", hit)
+        CheckThat("the ray hit the ground", result:GetHitBody() = ground)
+        CheckNear("hit point height", result:GetHitPointWorldSpace():GetY(), 0, 0.05)
+    end
+end

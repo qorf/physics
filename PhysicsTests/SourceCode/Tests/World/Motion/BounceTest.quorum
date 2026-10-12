@@ -1,0 +1,46 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+
+/*
+Tests that a ball with a restitution of 0.8 bounces back up to the right
+height. Restitution is the share of the speed a ball keeps when it bounces,
+and two items use the larger of their two restitutions. A ball keeping 0.8 of
+its speed rises 0.8 * 0.8 = 0.64 of the height it fell. This ball falls 2,
+from a bottom at 2 down to the ground, so it should rise back to 1.28, which
+puts its center, 0.5 above its bottom, at 1.78.
+
+Steps of 1/60 of a second do not catch the exact moment of the bounce, so the
+peak may be a little off.
+*/
+class BounceTest is PhysicsWorldTest
+    on create
+        SetName("World: a ball bounces back up by its restitution")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        AddGround(layer)
+        Item3D ball = AddSphere(layer, 0, 2.5, 0, 0.5, 1)
+        ball:SetRestitution(0.8)
+
+        boolean bounced = false
+        number peak = 0
+        integer steps = StepsIn(1.5)
+        integer i = 0
+        repeat while i < steps
+            Step(layer)
+            if ball:GetLinearVelocity():GetY() > 0
+                bounced = true
+            end
+            if bounced and ball:GetY() > peak
+                peak = ball:GetY()
+            end
+            i = i + 1
+        end
+
+        CheckThat("the ball bounced", bounced)
+        CheckNear("highest point after the bounce", peak, 1.78, 0.15)
+    end
+end

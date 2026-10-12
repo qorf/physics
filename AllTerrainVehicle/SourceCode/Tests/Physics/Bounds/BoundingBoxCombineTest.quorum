@@ -1,0 +1,36 @@
+package Physics.Tests
+
+use Libraries.Game.BoundingBox
+
+/*
+Tests BoundingBox:Combine, which makes a box that holds two others. The
+dynamic bounding volume tree uses it to build the boxes around groups of
+items. The combined box's center and size should match its new corners, the
+same as after Set.
+*/
+class BoundingBoxCombineTest is PhysicsTest
+    on create
+        SetName("Bounding box: combine")
+    end
+
+    action Run
+        BoundingBox first
+        first:Set(MakeVector(0, 0, 0), MakeVector(1, 1, 1))
+        BoundingBox second
+        second:Set(MakeVector(3, -1, 0.5), MakeVector(4, 0.5, 2))
+
+        BoundingBox combined
+        combined:Combine(first, second)
+        CheckVector("minimum", combined:GetMinimum(), 0, -1, 0)
+        CheckVector("maximum", combined:GetMaximum(), 4, 1, 2)
+        CheckVector("center", combined:GetCenter(), 2, 0, 1)
+        CheckNumber("width", combined:GetWidth(), 4)
+        CheckNumber("height", combined:GetHeight(), 2)
+        CheckNumber("depth", combined:GetDepth(), 2)
+
+        // Intersects uses the center and size, so it must agree too.
+        BoundingBox between
+        between:Set(MakeVector(2, 0, 0.5), MakeVector(2.5, 0.5, 1))
+        CheckThat("the combined box intersects a box between the two", combined:Intersects(between))
+    end
+end

@@ -1,0 +1,59 @@
+package Physics.Tests
+
+use Libraries.Compute.Vector3
+use Libraries.Compute.Matrix3
+
+/*
+Tests Matrix3:Transform and Vector3:MultiplyByTranspose, which the physics
+code uses to turn vectors into the world and back. Transform multiplies the
+matrix by the vector, the same as Vector3:Multiply(Matrix3).
+MultiplyByTranspose multiplies by the matrix's transpose, which for a
+rotation undoes it. The math library's own tests do not cover these.
+
+The matrix used has no symmetry, so mixing up rows and columns would give
+a different answer:
+
+    | 1  2  3 |
+    | 4  5  6 |
+    | 7  8 10 |
+*/
+class Matrix3TransformTest is PhysicsTest
+    on create
+        SetName("Matrix3: transform and multiply by transpose")
+    end
+
+    action Run
+        Matrix3 matrix
+        matrix:Set(1, 2, 3, 4, 5, 6, 7, 8, 10)
+
+        // Each row dotted with (1, -1, 2).
+        Vector3 vector = MakeVector(1, -1, 2)
+        matrix:Transform(vector)
+        CheckVector("Transform multiplies by the matrix", vector, 5, 11, 19)
+
+        // The same as Vector3:Multiply.
+        vector:Set(1, -1, 2)
+        vector:Multiply(matrix)
+        CheckVector("Vector3:Multiply agrees", vector, 5, 11, 19)
+
+        // Each column dotted with (1, -1, 2).
+        vector:Set(1, -1, 2)
+        vector:MultiplyByTranspose(matrix)
+        CheckVector("MultiplyByTranspose multiplies by the transpose", vector, 11, 13, 17)
+
+        // The same as transposing a copy and multiplying.
+        Matrix3 transposed
+        transposed:Set(matrix)
+        transposed:Transpose()
+        vector:Set(1, -1, 2)
+        vector:Multiply(transposed)
+        CheckVector("agrees with transposing a copy", vector, 11, 13, 17)
+
+        // For a rotation, multiplying by the transpose undoes the rotation.
+        Matrix3 rotation = MakeTransform(0, 0, 0, 1, 2, 3, 37):GetBasis()
+        vector:Set(1.5, 0.25, -4)
+        rotation:Transform(vector)
+        vector:MultiplyByTranspose(rotation)
+        CheckVector("the transpose undoes a rotation", vector, 1.5, 0.25, -4)
+    end
+end
