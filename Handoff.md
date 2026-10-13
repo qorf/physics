@@ -1,14 +1,16 @@
 # Handoff: physics, graphics and rendering work
 
-Written 2026-10-13 so the work can be picked up in a new session. Read this
-first, then the files it points to.
+Written 2026-10-13 so the work can be picked up in a new session, and
+updated the same day after the RenderTree3D work. Read this first, then the
+files it points to. The next task is in `RenderTreeIntegration.md`, next to
+this file.
 
 ## Working rules
 
 - **Do not write to the Quorum standard library** unless the user explicitly
   says so for that specific change.
   - The library is
-    `/Users/stefik/Repositories/quorum-language/Quorum/Library/Standard/Libraries`.
+    `/Users/stefika/Repositories/quorum-language/Quorum/Library/Standard/Libraries`.
   - "Show me", "plan" and "describe" mean no code changes.
   - "Go ahead and make this change" is permission for that change only.
   - The test projects can be changed freely: AllTerrainVehicle, PhysicsTests,
@@ -34,17 +36,36 @@ first, then the files it points to.
   - Constants must be literal values.
   - `BoundingBox:IsValid` rejects flat boxes.
   - `List` is a linked list, so each `Add` creates a node.
-  - `Array:Empty(false)` clears an array but keeps its storage.
+  - `Array:Empty(false)` clears an array but keeps its storage. `Empty()`
+    with no argument creates a new backing array, and `SetSize` to a smaller
+    size creates a new array too.
+  - `Integer32BitArray:SetSize` throws its contents away.
+  - Reading a constant, even inside its own class, compiles to an action
+    call. In loops that run often, copy it into a field or local first.
+  - A subclass can't declare a field with the same name as a parent's field
+    (for example `math` in `Item3D`, `color` in `Light`).
+- **Rules for graphics and rendering code:**
+  - **Do not put anything about physics into the render tree.** It must not
+    look at physics state such as `IsSimulated`. The test project's
+    `RenderTreeCheck` uses physics to choose what to report as moved, but
+    that stays in the test code.
+  - Avoid `Array<number>` and other autoboxing arrays. Use `Number32BitArray`
+    (or the 64-bit or integer versions).
+  - Avoid `List` in code that runs every frame. Use `Array` with
+    `Empty(false)`.
+  - No public fields. Use private fields with getters and setters, so access
+    can be limited or profiled later.
+  - The render tree works with `Item3D`, not `ModelBlueprint` or `Model`.
 
 ## Repositories and state
 
 | What | Where | State |
 |---|---|---|
-| Quorum language | `/Users/stefik/Repositories/quorum-language` | Branch `vulkan-rotations`. Latest commit `cf04997e5` ("Model loader change"). Clean apart from untracked `Quorum/resources/`. |
-| Example games | `/Users/stefik/Repositories/example-games` | Latest commit `5005e2a` ("Small fix"). Includes the GroundFlightTactics fixes. |
-| Test and example projects | `/Users/stefik/Repositories/physics/` | AllTerrainVehicle, PhysicsTests, BoxDestroy, HingeJoint3D, SliderJoint3D, BallAndSocketJoint3D, BallAndChain3D |
-| Bullet source, for reference | `/Users/stefik/Repositories/bullet3` | |
-| MoltenVK source | `/Users/stefik/Repositories/MoltenVK` | |
+| Quorum language | `/Users/stefika/Repositories/quorum-language` | Branch `FrustrumCull`, made from `vulkan-rotations` (`cf04997e5`, "Model loader change"). Latest commit `fdb481b8a` ("Added a GetRange action to PointLight"), which moved the point light range into the library (see below). |
+| Example games | `/Users/stefika/Repositories/example-games` | Latest commit `5005e2a` ("Small fix"). Includes the GroundFlightTactics fixes. |
+| Test and example projects | `/Users/stefika/Repositories/physics/` | AllTerrainVehicle, PhysicsTests, BoxDestroy, HingeJoint3D, SliderJoint3D, BallAndSocketJoint3D, BallAndChain3D. Latest commit `e847925` ("Adjusted the tree. Next comes integrating it."). |
+| Bullet source, for reference | `/Users/stefika/Repositories/bullet3` | |
+| MoltenVK source | `/Users/stefika/Repositories/MoltenVK` | |
 
 To see all the work on the branch:
 
@@ -52,10 +73,15 @@ To see all the work on the branch:
 git diff vulkan-3D...vulkan-rotations
 ```
 
-`Changes.MD` in this folder holds that diff, followed by a list of things to
-check by hand.
-
 ## Documents in the projects
+
+- `RenderTreeIntegration.md`, next to this file: the plan for adding the
+  render tree to `Layer3D`, with what the OpenGL and Vulkan painters do today.
+  **This is the next task.**
+
+The documents below were listed in the first version of this handoff, but
+were not in the AllTerrainVehicle folder on 2026-10-13. They were probably
+never committed. Ask the user before relying on them.
 
 - `AllTerrainVehicle/VulkanRotationBug.md` and `VulkanRotationFix.md`: the
   rotation bug and its fix. `Item3D` mirrored rotations between physics and
@@ -125,7 +151,8 @@ both APIs after the Java plugins are rebuilt.
 
 ## Open items
 
-1. **Culling:** `Bob.md` sections 1 and 3.
+1. **Face culling** (triangles facing away, not the render tree): `Bob.md`
+   sections 1 and 3.
    - OpenGL needs a `SetFrontFace` action, set to clockwise while drawing 3D.
    - Remove `if cullFace = 0 or true`.
    - Vulkan has culling turned off (`CULL_MODE_NONE`).
@@ -147,6 +174,14 @@ both APIs after the Java plugins are rebuilt.
      counter.
    - `ModelBlueprintVulkan.ExtendBoundingBox` uses `elseif` between the
      minimum and maximum checks.
+   - `Item3D.transformDirty` is never set back to false, so a rotated item
+     rebuilds its matrix on every `GetTransform()`.
+   - `EnvironmentVulkan` uses `light:GetPosition()` (relative to the parent)
+     for point light shadows, where it should probably use the global
+     position. A light attached to another item would cast shadows from the
+     wrong place.
+   - More bugs in `Layer3D`, `Item3D` and `VulkanPainter3DBatch` are listed in
+     step 0 of `RenderTreeIntegration.md`.
    - `Frustum.BoundsInFrustum` is commented out, and `Frustum`'s planes may
      face outward now.
    - `CustomizableJoint3D`'s rotation limit treats equal lower and upper
@@ -159,54 +194,68 @@ both APIs after the Java plugins are rebuilt.
      Motor setters and a linear motor would be needed first.
    - The row-based constraint solver, the bigger refactor.
 
-## Current task: RenderTree3D
+## RenderTree3D: where it stands
 
 The goal is to replace `Layer3D`'s draw-everything loop (`Layer3D.Draw`, line
 1236) with view culling, and to support Vulkan shadows and later terrain
 streaming and level of detail.
 
-**Decided so far:**
+**Decided:**
 - A dynamic bounding volume tree, not an octree or quadtree.
 - Separate from the physics tree and not generalized. The algorithm is copied
   from `DynamicBoundingVolumeTree3D`.
-- In two halves: static (no margin) and dynamic (0.25 margin).
+- In two halves: static (no margin) and dynamic (0.25 margin). A static item
+  that moves goes to the dynamic half. A dynamic item still for 120 frames
+  goes back to the static half, checked every 30 frames in `EndFrame`.
 - Terrain chunks will later go in the static half, with bounds that cover
   every level of detail.
+- Not split into transparent and opaque trees. The painters already sort
+  transparent items out, transparency can change at any time, and a split
+  would not give the back-to-front order anyway.
 
-**Code:** five classes in `AllTerrainVehicle/SourceCode/Rendering/`, package
-`Rendering`. They are not compiled yet after the latest changes, and nothing
-uses them.
+**Code:** in `AllTerrainVehicle/SourceCode/Rendering/`, package `Rendering`.
+It compiles and runs in AllTerrainVehicle alongside the normal drawing. Nothing
+in the library uses it yet.
 
 | Class | What it does |
 |---|---|
-| `RenderTree3D` | The public interface. `Add(item)` assumes static. `Add(item, isStatic)`, `Add(item, localBounds[, isStatic])`, `Remove` (also clears a point light's cache), `Has`, `Moved`, `SetLocalBounds`, `EndFrame`, `CollectVisible(camera or matrix, List)`, `CollectDirectionalShadowCasters(light, cascade, List)`, `CollectPointShadowCasters(light, List)` (static casters cached by the static version), `CollectInBox`, `CollectInSphere`, `IsShowing`, `IsShowingWithParents`, `GetSize`, `GetStaticSize`, `GetDynamicSize`, `GetStaticVersion`. |
-| `RenderBoundingVolumeTree3D` | One half: insert by the least increase in perimeter, remove, move with a margin, Box2D rotations, and searches by volume, box and sphere. |
-| `RenderTreeNode3D` | A node, with public fields for speed. The parent field is `parentNode`. |
-| `CullingVolume3D` | Five planes read from any view-projection matrix (no near plane), with a test that returns outside, intersecting or inside. |
+| `RenderTree3D` | The public interface. `Add(item[, isStatic])`, `Add(item, localBounds[, isStatic])`, `Remove`, `Has`, `GetLeaf`, `Moved(item)`, `Moved(leaf)`, `SetLocalBounds`, `EndFrame`, `CollectVisible(camera or matrix, Array)`, `CollectDirectionalShadowCasters(light, cascade, Array)`, `CollectPointShadowCasters(light, Array)` (static casters cached by the static version), `CollectInBox`, `CollectInSphere`, `IsShowing`, `IsShowingWithParents`, `IsStatic`, `GetSize`, `GetStaticSize`, `GetDynamicSize`, `GetStaticHeight`, `GetDynamicHeight`, `GetStaticVersion`. |
+| `RenderBoundingVolumeTree3D` | One half: insert by the least increase in perimeter (`DescendCost`), remove, move with a margin, Box2D rotations, and searches by volume, box and sphere. The branch pool and search stacks are `Array`s emptied with `Empty(false)`. |
+| `RenderTreeNode3D` | A node, with private fields and getters and setters. `GetBounds` returns the node's own box; `GetBoundsCopy` returns a copy. |
+| `CullingVolume3D` | Five planes read from any view-projection matrix (no near plane), stored in a `Number32BitArray`, with a test that returns outside, intersecting or inside. |
 | `ShadowCasterCache3D` | One point light's cached static casters. |
+| `RenderTreeCheck` | Test code only. Runs the tree beside the game, checks its answers against a hand test of every item, and prints a snapshot every 200 frames of how many items would be drawn from the current view. |
 
 **Choices made at the user's request:**
-- Item types are `Item3D`, not `Model`.
+- Items are `Item3D`. Bounds for `Add(item)` are a box of the item's width,
+  height and depth, centered on it. A model gets those from its blueprint
+  when it loads. For anything off-center, such as terrain, pass bounds.
 - There is no always-drawn list in the tree. Items without bounds make `Add`
   return false, and the owner draws them itself.
-- Results are `List`s, and queries don't filter hidden items. The caller
-  uses `IsShowing` or `IsShowingWithParents`.
-- `IsDepthZeroToOne` was removed by dropping the near plane.
+- Results are `Array`s the caller empties with `Empty(false)`. Queries don't
+  filter hidden items; the caller uses `IsShowing` or `IsShowingWithParents`.
+- The point light range is `PointLight:GetRange()` in the library, used by
+  both `EnvironmentVulkan` and the tree.
+- `Moved(leaf)` avoids a hash table lookup. The owner gets each item's leaf
+  once with `GetLeaf` and keeps it.
 
-**Open questions:**
-- **List or Array.** No indexing is needed on return. But `List` allocates a
-  node on every `Add`, while a reused `Array` with `Empty(false)` does not.
-  I recommended `Array` for the results and the internal stacks; this is
-  waiting on a measurement.
-- **The user said they will review the classes, then re-evaluate.** Next
-  steps after that:
-  1. Compile, and fix errors the user pastes.
-  2. Unit tests against a brute-force check, in the PhysicsTests style.
-  3. Connect it to `Layer3D` in a test project: call `Moved` for changed
-     items, then `CollectVisible`, then `painter:Render`, then `EndFrame`.
-  4. Per-pass lists for Vulkan's shared instance buffer, in `VulkanPainter3D`
-     around line 1322.
-  5. Benchmark with BoxDestroy and AllTerrainVehicle.
+**In AllTerrainVehicle** (`Main.quorum`): settings `useRenderTree`,
+`renderCheckInterval`, `renderTreeMovesAll`, `addPointLight` and
+`renderSnapshotInterval`. Items go through `AddToBoth` and `RemoveFromBoth`.
+The terrain is added with its own bounds, from its corner.
+
+**Profiling** (two YourKit snapshots in `AllTerrainVehicle/snapshots/`):
+- The tree's work a real game would do went from about 2.2% to about 1.3% of
+  the game loop, after `Moved(leaf)` and reading constants once. Physics is
+  about 86%.
+- What is left is mostly `GetTransform` (cost moved from drawing, not added),
+  normal reinserts, and copying shadow casters, since the sun's cascades hold
+  nearly every item.
+- Neither run was in benchmark mode, so there are no frame times yet. Use
+  `benchmark = true` and `renderCheckInterval = 0` for timing.
+
+**Next:** the integration plan in `RenderTreeIntegration.md`. It ends with
+five decisions for the user.
 
 ## Profiling workflow
 
