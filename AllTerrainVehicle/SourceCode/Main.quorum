@@ -4,6 +4,7 @@ use Libraries.Game.Graphics.Model
 use Libraries.Game.Graphics.Color
 use Libraries.Game.Graphics.Camera
 use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Graphics.PointLight
 use Libraries.Game.Graphics.PixelMap
 use Libraries.Game.Graphics.Format
 use Libraries.Game.Graphics.Worlds.Terrain
@@ -21,6 +22,8 @@ use Libraries.Game.Physics.Vehicles.Vehicle
 use Libraries.Game.Physics.Vehicles.Suspension
 use Libraries.Interface.Behaviors.Games.VehicleMovementBehavior
 use Libraries.Game.Graphics.FramesPerSecondLabel
+use Libraries.Game.BoundingBox
+use Rendering.RenderTreeCheck
 
 /*
     A raycast vehicle driving over rolling hills. The hills are a Terrain built
@@ -150,6 +153,28 @@ class Main is Game
     number angularSleepSpeed = 1
     FramesPerSecondLabel fpsLabel
 
+    // Render tree check. While useRenderTree is true, every drawn item is
+    // added to a RenderTree3D as well as to the game. Each frame the tree is
+    // asked what the camera and the sun's shadows can see, and every
+    // renderCheckInterval frames its answers are checked by testing every
+    // item by hand. Drawing does not change. Every renderSnapshotInterval
+    // frames, the console shows how many items are in the tree and how many
+    // would be drawn from where the camera is then. A summary of the whole
+    // run is written at the end of a benchmark. See RenderTreeCheck.
+    // While renderTreeMovesAll is true, the tree is told every item moved,
+    // every frame. Otherwise it is only told about items whose physics is
+    // awake, and the wheels.
+    // While addPointLight is true, a point light hangs over the middle of
+    // the map, so the tree is also asked what is within its reach.
+    boolean useRenderTree = true
+    integer renderCheckInterval = 10
+    boolean renderTreeMovesAll = false
+    boolean addPointLight = false
+    integer renderSnapshotInterval = 200
+    RenderTreeCheck renderCheck
+    DirectionalLight sunlight
+    PointLight lamp = undefined
+
     action Main
         // Terrain currently builds its mesh with the Vulkan renderer only.
         
@@ -167,7 +192,12 @@ class Main is Game
             random:SetSeed(benchmarkSeed)
         end
 
-        DirectionalLight sunlight
+        if renderTreeMovesAll
+            renderCheck:SetMovedChoice(renderCheck:MOVED_ALL)
+        end
+        renderCheck:SetCheckInterval(renderCheckInterval)
+        renderCheck:SetSnapshotInterval(renderSnapshotInterval)
+
         sunlight:SetIntensity(2.5)
         sunlight:SetColor(colors:LightGray())
         sunlight:SetDirection(-1, -4, 2)
@@ -184,6 +214,15 @@ class Main is Game
         ResetVehicle()
         PlaceCamera()
         Add(fpsLabel)
+
+        if addPointLight
+            PointLight light
+            light:SetColor(colors:White())
+            light:SetIntensity(0.5)
+            light:SetPosition(0, GetGroundHeightAt(0, 0) + 6, 0)
+            Add(light)
+            lamp = light
+        end
 
         if benchmark
             // Nobody drives during a benchmark, so every run is the same.
@@ -229,6 +268,36 @@ class Main is Game
             end
         end
         PlaceCamera()
+
+        if useRenderTree
+            renderCheck:Update(GetCamera3D(), sunlight, lamp)
+        end
+    end
+
+    /*
+    This action adds an item to the game and, while useRenderTree is true,
+    to the render tree as well.
+
+    Attribute: Parameter item The item to add.
+    Attribute: Parameter isStatic True if the item is not expected to move.
+    Attribute: Parameter alwaysMoves True if the item moves without physics,
+    so the tree is told it moved every frame.
+    */
+    action AddToBoth(Item3D item, boolean isStatic, boolean alwaysMoves)
+        Add(item)
+        if useRenderTree
+            renderCheck:Add(item, isStatic, alwaysMoves)
+        end
+    end
+
+    /*
+    This action removes an item from the game and from the render tree.
+    */
+    action RemoveFromBoth(Item3D item)
+        Remove(item)
+        if useRenderTree
+            renderCheck:Remove(item)
+        end
     end
 
     /*
@@ -267,6 +336,9 @@ class Main is Game
                 + math:Round(1000 * measuredSeconds / measuredCount, 2) + " ms per frame ("
                 + math:Round(measuredCount / measuredSeconds, 1) + " frames per second)"
             output "  Slowest measured frame: " + math:Round(slowestFrameSeconds * 1000, 1) + " ms"
+        end
+        if useRenderTree
+            renderCheck:Report()
         end
     end
 
@@ -342,7 +414,7 @@ class Main is Game
         Model ball = undefined
         if drops:GetSize() < maximumDrops
             ball = MakeBall()
-            Add(ball)
+            AddToBoth(ball, false, false)
         else
             ball = drops:RemoveFromFront()
         end
@@ -402,7 +474,7 @@ class Main is Game
             Model ball = drops:Get(i)
             if ball:GetX() < lowX or ball:GetX() > highX or ball:GetZ() < lowZ or ball:GetZ() > highZ or ball:GetY() < lowY
                 drops:RemoveAt(i)
-                Remove(ball)
+                RemoveFromBoth(ball)
             end
             i = i - 1
         end
@@ -430,6 +502,16 @@ class Main is Game
         terrain:SetY(baseY)
         terrain:SetZ(baseZ)
         Add(terrain)
+
+        // The terrain's mesh starts at its corner, not its center, so the
+        // render tree is given its bounds: one unit per height sample across,
+        // and as tall as its highest point. Its scale is in its transform.
+        if useRenderTree
+            BoundingBox bounds
+            bounds:Set(MakeVector(0, 0, 0), MakeVector(terrain:GetPixelWidth() - 1, terrain:GetHeight(),
+                terrain:GetPixelHeight() - 1))
+            renderCheck:Add(terrain, bounds, true, false)
+        end
     end
 
     /*
@@ -578,7 +660,7 @@ class Main is Game
                     box:SetPhysicsProperties(stackProperties)
                     box:Simulate(false)
                     box:SetName("Stack Box")
-                    Add(box)
+                    AddToBoth(box, true, false)
                     boxes:Add(box)
                     column = column + 1
                 end
@@ -639,7 +721,7 @@ class Main is Game
         chassis:SetLinearDamping(0.05)
         chassis:SetAngularDamping(0.8)
         chassis:SetName("Vehicle Chassis")
-        Add(chassis)
+        AddToBoth(chassis, false, false)
     end
 
     action BuildWheels(Color colors)
@@ -660,7 +742,8 @@ class Main is Game
         wheel:Add(spoke)
         wheel:Rotate(0, 0, 1, 90)
         wheel:SetName("Raycast Wheel")
-        Add(wheel)
+        // The vehicle moves the wheels itself, without physics.
+        AddToBoth(wheel, false, true)
     end
 
     action BuildVehicle

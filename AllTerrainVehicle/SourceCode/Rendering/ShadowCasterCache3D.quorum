@@ -1,6 +1,6 @@
 package Rendering
 
-use Libraries.Containers.List
+use Libraries.Containers.Array
 use Libraries.Interface.Item3D
 
 /*
@@ -11,7 +11,7 @@ counts those changes as its static version, and the cache keeps the version
 it was built from.
 */
 class ShadowCasterCache3D
-    public List<Item3D> statics
+    public Array<Item3D> statics
     number x = 0
     number y = 0
     number z = 0

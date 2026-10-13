@@ -1,7 +1,7 @@
 package Rendering
 
 use Libraries.Game.BoundingBox
-use Libraries.Containers.List
+use Libraries.Containers.Array
 use Libraries.Interface.Item3D
 use Libraries.Compute.Vector3
 use Libraries.Compute.Math
@@ -37,12 +37,15 @@ class RenderBoundingVolumeTree3D
     integer leafCount = 0
 
     // Branch nodes that have been removed, kept for reuse so the tree does
-    // not create objects while items move.
-    List<RenderTreeNode3D> freeNodes
+    // not create objects while items move. An Array, not a List, because a
+    // List creates a node object for every Add.
+    Array<RenderTreeNode3D> freeNodes
 
-    // Reused by the searches, as stacks of nodes still to visit.
-    List<RenderTreeNode3D> stack
-    List<RenderTreeNode3D> subtreeStack
+    // Reused by the searches, as stacks of nodes still to visit. They are
+    // emptied with Empty(false), which keeps their storage, so searching
+    // creates no objects once the stacks have grown to fit the tree.
+    Array<RenderTreeNode3D> stack
+    Array<RenderTreeNode3D> subtreeStack
 
     BoundingBox combined
     Vector3 minimum
@@ -72,7 +75,7 @@ class RenderBoundingVolumeTree3D
         if root = undefined
             return -1
         end
-        return root:height
+        return root:GetHeight()
     end
 
     /*
@@ -101,7 +104,7 @@ class RenderBoundingVolumeTree3D
     Attribute: Returns True if the leaf was moved in the tree.
     */
     action Move(RenderTreeNode3D leaf, BoundingBox itemBounds) returns boolean
-        if Contains(leaf:bounds, itemBounds)
+        if Contains(leaf:GetBounds(), itemBounds)
             return false
         end
         RemoveLeaf(leaf)
@@ -115,23 +118,28 @@ class RenderBoundingVolumeTree3D
     inside the volume. A branch entirely inside the volume adds all of its
     items without testing them, and a branch entirely outside is skipped.
     */
-    action Collect(CullingVolume3D volume, List<Item3D> results)
+    action Collect(CullingVolume3D volume, Array<Item3D> results)
         if root = undefined
             return now
         end
-        stack:Empty()
+
+        // Read once here, since reading a constant is an action call.
+        integer inside = volume:INSIDE
+        integer intersecting = volume:INTERSECTING
+
+        stack:Empty(false)
         stack:Add(root)
         repeat while not stack:IsEmpty()
             RenderTreeNode3D node = stack:RemoveFromEnd()
-            integer result = volume:Test(node:bounds)
-            if result = volume:INSIDE
+            integer result = volume:Test(node:GetBounds())
+            if result = inside
                 AddAll(node, results)
-            elseif result = volume:INTERSECTING
+            elseif result = intersecting
                 if node:IsLeaf()
-                    results:Add(node:item)
+                    results:Add(node:GetItem())
                 else
-                    stack:Add(node:left)
-                    stack:Add(node:right)
+                    stack:Add(node:GetLeft())
+                    stack:Add(node:GetRight())
                 end
             end
         end
@@ -141,20 +149,20 @@ class RenderBoundingVolumeTree3D
     This action adds to the results every item whose box overlaps the given
     box.
     */
-    action Collect(BoundingBox box, List<Item3D> results)
+    action Collect(BoundingBox box, Array<Item3D> results)
         if root = undefined
             return now
         end
-        stack:Empty()
+        stack:Empty(false)
         stack:Add(root)
         repeat while not stack:IsEmpty()
             RenderTreeNode3D node = stack:RemoveFromEnd()
-            if node:bounds:TestOverlap(box)
+            if node:GetBounds():TestOverlap(box)
                 if node:IsLeaf()
-                    results:Add(node:item)
+                    results:Add(node:GetItem())
                 else
-                    stack:Add(node:left)
-                    stack:Add(node:right)
+                    stack:Add(node:GetLeft())
+                    stack:Add(node:GetRight())
                 end
             end
         end
@@ -164,21 +172,21 @@ class RenderBoundingVolumeTree3D
     This action adds to the results every item whose box overlaps the sphere
     with the given center and radius, as a point light's reach.
     */
-    action Collect(number x, number y, number z, number radius, List<Item3D> results)
+    action Collect(number x, number y, number z, number radius, Array<Item3D> results)
         if root = undefined
             return now
         end
         number radiusSquared = radius * radius
-        stack:Empty()
+        stack:Empty(false)
         stack:Add(root)
         repeat while not stack:IsEmpty()
             RenderTreeNode3D node = stack:RemoveFromEnd()
-            if DistanceSquared(node:bounds, x, y, z) <= radiusSquared
+            if DistanceSquared(node:GetBounds(), x, y, z) <= radiusSquared
                 if node:IsLeaf()
-                    results:Add(node:item)
+                    results:Add(node:GetItem())
                 else
-                    stack:Add(node:left)
-                    stack:Add(node:right)
+                    stack:Add(node:GetLeft())
+                    stack:Add(node:GetRight())
                 end
             end
         end
@@ -188,16 +196,16 @@ class RenderBoundingVolumeTree3D
     This action adds every item below the given node to the results, without
     testing them.
     */
-    private action AddAll(RenderTreeNode3D start, List<Item3D> results)
-        subtreeStack:Empty()
+    private action AddAll(RenderTreeNode3D start, Array<Item3D> results)
+        subtreeStack:Empty(false)
         subtreeStack:Add(start)
         repeat while not subtreeStack:IsEmpty()
             RenderTreeNode3D node = subtreeStack:RemoveFromEnd()
             if node:IsLeaf()
-                results:Add(node:item)
+                results:Add(node:GetItem())
             else
-                subtreeStack:Add(node:left)
-                subtreeStack:Add(node:right)
+                subtreeStack:Add(node:GetLeft())
+                subtreeStack:Add(node:GetRight())
             end
         end
     end
@@ -250,7 +258,7 @@ class RenderBoundingVolumeTree3D
             itemBounds:GetMinimum():GetZ() - margin)
         maximum:Set(itemBounds:GetMaximum():GetX() + margin, itemBounds:GetMaximum():GetY() + margin,
             itemBounds:GetMaximum():GetZ() + margin)
-        leaf:bounds:Set(minimum, maximum)
+        leaf:GetBounds():Set(minimum, maximum)
     end
 
     /*
@@ -276,22 +284,22 @@ class RenderBoundingVolumeTree3D
     above would grow, measured by perimeter, as in the physics tree.
     */
     private action InsertLeaf(RenderTreeNode3D leaf)
-        leaf:parentNode = undefined
-        leaf:left = undefined
-        leaf:right = undefined
-        leaf:height = 0
+        leaf:SetParentNode(undefined)
+        leaf:SetLeft(undefined)
+        leaf:SetRight(undefined)
+        leaf:SetHeight(0)
 
         if root = undefined
             root = leaf
             return now
         end
 
-        BoundingBox leafBounds = leaf:bounds
+        BoundingBox leafBounds = leaf:GetBounds()
         RenderTreeNode3D sibling = root
         boolean found = false
         repeat while not sibling:IsLeaf() and not found
-            number perimeter = sibling:bounds:GetPerimeter()
-            combined:Combine(sibling:bounds, leafBounds)
+            number perimeter = sibling:GetBounds():GetPerimeter()
+            combined:Combine(sibling:GetBounds(), leafBounds)
             number combinedPerimeter = combined:GetPerimeter()
 
             // The cost of making the leaf a sibling of this branch.
@@ -299,29 +307,29 @@ class RenderBoundingVolumeTree3D
             // The cost every box above pays, wherever the leaf goes.
             number inheritedCost = 2 * (combinedPerimeter - perimeter)
 
-            number leftCost = DescendCost(sibling:left, leafBounds, inheritedCost)
-            number rightCost = DescendCost(sibling:right, leafBounds, inheritedCost)
+            number leftCost = DescendCost(sibling:GetLeft(), leafBounds, inheritedCost)
+            number rightCost = DescendCost(sibling:GetRight(), leafBounds, inheritedCost)
 
             if cost < leftCost and cost < rightCost
                 found = true
             elseif leftCost < rightCost
-                sibling = sibling:left
+                sibling = sibling:GetLeft()
             else
-                sibling = sibling:right
+                sibling = sibling:GetRight()
             end
         end
 
         // Put a new branch where the sibling was, holding the sibling and
         // the leaf.
-        RenderTreeNode3D oldParent = sibling:parentNode
+        RenderTreeNode3D oldParent = sibling:GetParentNode()
         RenderTreeNode3D branch = NewBranch()
-        branch:parentNode = oldParent
-        branch:bounds:Combine(leafBounds, sibling:bounds)
-        branch:height = sibling:height + 1
-        branch:left = sibling
-        branch:right = leaf
-        sibling:parentNode = branch
-        leaf:parentNode = branch
+        branch:SetParentNode(oldParent)
+        branch:GetBounds():Combine(leafBounds, sibling:GetBounds())
+        branch:SetHeight(sibling:GetHeight() + 1)
+        branch:SetLeft(sibling)
+        branch:SetRight(leaf)
+        sibling:SetParentNode(branch)
+        leaf:SetParentNode(branch)
         ReplaceChild(oldParent, sibling, branch)
 
         Refit(branch)
@@ -331,11 +339,11 @@ class RenderBoundingVolumeTree3D
     This action returns the cost of going down into a child when inserting.
     */
     private action DescendCost(RenderTreeNode3D child, BoundingBox leafBounds, number inheritedCost) returns number
-        combined:Combine(leafBounds, child:bounds)
+        combined:Combine(leafBounds, child:GetBounds())
         if child:IsLeaf()
             return combined:GetPerimeter() + inheritedCost
         end
-        return (combined:GetPerimeter() - child:bounds:GetPerimeter()) + inheritedCost
+        return (combined:GetPerimeter() - child:GetBounds():GetPerimeter()) + inheritedCost
     end
 
     /*
@@ -345,21 +353,21 @@ class RenderBoundingVolumeTree3D
     private action RemoveLeaf(RenderTreeNode3D leaf)
         if leaf = root
             root = undefined
-            leaf:parentNode = undefined
+            leaf:SetParentNode(undefined)
             return now
         end
 
-        RenderTreeNode3D branch = leaf:parentNode
-        RenderTreeNode3D grandparent = branch:parentNode
-        RenderTreeNode3D sibling = branch:left
+        RenderTreeNode3D branch = leaf:GetParentNode()
+        RenderTreeNode3D grandparent = branch:GetParentNode()
+        RenderTreeNode3D sibling = branch:GetLeft()
         if sibling = leaf
-            sibling = branch:right
+            sibling = branch:GetRight()
         end
 
-        sibling:parentNode = grandparent
+        sibling:SetParentNode(grandparent)
         ReplaceChild(grandparent, branch, sibling)
         FreeBranch(branch)
-        leaf:parentNode = undefined
+        leaf:SetParentNode(undefined)
 
         if grandparent not= undefined
             Refit(grandparent)
@@ -374,9 +382,9 @@ class RenderBoundingVolumeTree3D
         RenderTreeNode3D node = start
         repeat while node not= undefined
             node = Balance(node)
-            node:height = 1 + Larger(node:left:height, node:right:height)
-            node:bounds:Combine(node:left:bounds, node:right:bounds)
-            node = node:parentNode
+            node:SetHeight(1 + Larger(node:GetLeft():GetHeight(), node:GetRight():GetHeight()))
+            node:GetBounds():Combine(node:GetLeft():GetBounds(), node:GetRight():GetBounds())
+            node = node:GetParentNode()
         end
     end
 
@@ -387,10 +395,10 @@ class RenderBoundingVolumeTree3D
     private action ReplaceChild(RenderTreeNode3D owner, RenderTreeNode3D oldChild, RenderTreeNode3D newChild)
         if owner = undefined
             root = newChild
-        elseif owner:left = oldChild
-            owner:left = newChild
+        elseif owner:GetLeft() = oldChild
+            owner:SetLeft(newChild)
         else
-            owner:right = newChild
+            owner:SetRight(newChild)
         end
     end
 
@@ -408,68 +416,68 @@ class RenderBoundingVolumeTree3D
     rotation from Box2D, as in the physics tree.
     */
     private action Balance(RenderTreeNode3D a) returns RenderTreeNode3D
-        if a:IsLeaf() or a:height < 2
+        if a:IsLeaf() or a:GetHeight() < 2
             return a
         end
 
-        RenderTreeNode3D b = a:left
-        RenderTreeNode3D c = a:right
-        integer balance = c:height - b:height
+        RenderTreeNode3D b = a:GetLeft()
+        RenderTreeNode3D c = a:GetRight()
+        integer balance = c:GetHeight() - b:GetHeight()
 
         // The right child, c, is too tall: rotate it up.
         if balance > 1
-            RenderTreeNode3D f = c:left
-            RenderTreeNode3D g = c:right
-            c:left = a
-            c:parentNode = a:parentNode
-            a:parentNode = c
-            ReplaceChild(c:parentNode, a, c)
+            RenderTreeNode3D f = c:GetLeft()
+            RenderTreeNode3D g = c:GetRight()
+            c:SetLeft(a)
+            c:SetParentNode(a:GetParentNode())
+            a:SetParentNode(c)
+            ReplaceChild(c:GetParentNode(), a, c)
 
-            if f:height > g:height
-                c:right = f
-                a:right = g
-                g:parentNode = a
-                a:bounds:Combine(b:bounds, g:bounds)
-                c:bounds:Combine(a:bounds, f:bounds)
-                a:height = 1 + Larger(b:height, g:height)
-                c:height = 1 + Larger(a:height, f:height)
+            if f:GetHeight() > g:GetHeight()
+                c:SetRight(f)
+                a:SetRight(g)
+                g:SetParentNode(a)
+                a:GetBounds():Combine(b:GetBounds(), g:GetBounds())
+                c:GetBounds():Combine(a:GetBounds(), f:GetBounds())
+                a:SetHeight(1 + Larger(b:GetHeight(), g:GetHeight()))
+                c:SetHeight(1 + Larger(a:GetHeight(), f:GetHeight()))
             else
-                c:right = g
-                a:right = f
-                f:parentNode = a
-                a:bounds:Combine(b:bounds, f:bounds)
-                c:bounds:Combine(a:bounds, g:bounds)
-                a:height = 1 + Larger(b:height, f:height)
-                c:height = 1 + Larger(a:height, g:height)
+                c:SetRight(g)
+                a:SetRight(f)
+                f:SetParentNode(a)
+                a:GetBounds():Combine(b:GetBounds(), f:GetBounds())
+                c:GetBounds():Combine(a:GetBounds(), g:GetBounds())
+                a:SetHeight(1 + Larger(b:GetHeight(), f:GetHeight()))
+                c:SetHeight(1 + Larger(a:GetHeight(), g:GetHeight()))
             end
             return c
         end
 
         // The left child, b, is too tall: rotate it up.
         if balance < -1
-            RenderTreeNode3D d = b:left
-            RenderTreeNode3D e = b:right
-            b:left = a
-            b:parentNode = a:parentNode
-            a:parentNode = b
-            ReplaceChild(b:parentNode, a, b)
+            RenderTreeNode3D d = b:GetLeft()
+            RenderTreeNode3D e = b:GetRight()
+            b:SetLeft(a)
+            b:SetParentNode(a:GetParentNode())
+            a:SetParentNode(b)
+            ReplaceChild(b:GetParentNode(), a, b)
 
-            if d:height > e:height
-                b:right = d
-                a:left = e
-                e:parentNode = a
-                a:bounds:Combine(c:bounds, e:bounds)
-                b:bounds:Combine(a:bounds, d:bounds)
-                a:height = 1 + Larger(c:height, e:height)
-                b:height = 1 + Larger(a:height, d:height)
+            if d:GetHeight() > e:GetHeight()
+                b:SetRight(d)
+                a:SetLeft(e)
+                e:SetParentNode(a)
+                a:GetBounds():Combine(c:GetBounds(), e:GetBounds())
+                b:GetBounds():Combine(a:GetBounds(), d:GetBounds())
+                a:SetHeight(1 + Larger(c:GetHeight(), e:GetHeight()))
+                b:SetHeight(1 + Larger(a:GetHeight(), d:GetHeight()))
             else
-                b:right = e
-                a:left = d
-                d:parentNode = a
-                a:bounds:Combine(c:bounds, d:bounds)
-                b:bounds:Combine(a:bounds, e:bounds)
-                a:height = 1 + Larger(c:height, d:height)
-                b:height = 1 + Larger(a:height, e:height)
+                b:SetRight(e)
+                a:SetLeft(d)
+                d:SetParentNode(a)
+                a:GetBounds():Combine(c:GetBounds(), d:GetBounds())
+                b:GetBounds():Combine(a:GetBounds(), e:GetBounds())
+                a:SetHeight(1 + Larger(c:GetHeight(), d:GetHeight()))
+                b:SetHeight(1 + Larger(a:GetHeight(), e:GetHeight()))
             end
             return b
         end

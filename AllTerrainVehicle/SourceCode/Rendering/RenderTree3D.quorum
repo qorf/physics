@@ -1,17 +1,13 @@
 package Rendering
 
-use Libraries.Containers.List
+use Libraries.Containers.Array
 use Libraries.Containers.HashTable
-use Libraries.Containers.Iterator
 use Libraries.Interface.Item3D
 use Libraries.Game.BoundingBox
-use Libraries.Game.Graphics.Model
 use Libraries.Game.Graphics.Camera
-use Libraries.Game.Graphics.Color
 use Libraries.Game.Graphics.PointLight
 use Libraries.Game.Graphics.DirectionalLight
 use Libraries.Game.Graphics.CascadeShadowData
-use Libraries.Game.Graphics.Models.ModelBlueprint
 use Libraries.Compute.Matrix4
 use Libraries.Compute.Vector3
 use Libraries.Compute.Math
@@ -27,8 +23,9 @@ questions:
 - Which items are within a point light's reach? (CollectPointShadowCasters)
 - Which items overlap a box or a sphere? (CollectInBox, CollectInSphere)
 
-Each answer is added to a List the caller passes in. The caller empties the
-list when it starts a new frame or pass. The answers include hidden items;
+Each answer is added to an Array the caller passes in. The caller empties the
+array when it starts a new frame or pass, with Empty(false) so the array
+keeps its storage and no new one is made. The answers include hidden items;
 the caller can leave them out with IsShowing or IsShowingWithParents.
 
 The tree is in two halves, each a RenderBoundingVolumeTree3D:
@@ -62,11 +59,6 @@ class RenderTree3D
     // How often, in frames, still dynamic items are checked.
     constant integer CHECK_INTERVAL = 30
 
-    // The light level below which a point light is treated as having no
-    // effect. This must match EnvironmentVulkan, which uses the same value
-    // to decide how far a point light's shadows reach.
-    constant number MINIMUM_ILLUMINATION_THRESHOLD = 0.0003
-
     RenderBoundingVolumeTree3D staticTree
     RenderBoundingVolumeTree3D dynamicTree
 
@@ -74,11 +66,7 @@ class RenderTree3D
     HashTable<Item3D, RenderTreeNode3D> leaves
 
     // The leaves in the dynamic half, checked by EndFrame.
-    List<RenderTreeNode3D> dynamicLeaves
-
-    // The bounds of each model blueprint, measured once. Many models share
-    // a blueprint, and measuring means reading every vertex.
-    HashTable<ModelBlueprint, BoundingBox> blueprintBounds
+    Array<RenderTreeNode3D> dynamicLeaves
 
     HashTable<PointLight, ShadowCasterCache3D> pointLightCasters
 
@@ -109,9 +97,10 @@ class RenderTree3D
     end
 
     /*
-    This action adds an item, using bounds the tree finds for it. For a
-    model, those are its blueprint's bounds. For any other item, they are a
-    box of the item's width, height and depth, centered on the item.
+    This action adds an item, using bounds the tree finds for it: a box of
+    the item's width, height and depth, centered on the item. For an item
+    whose shape is not centered on it, such as a model whose origin is at
+    its feet, use the Add action that takes bounds instead.
 
     Attribute: Parameter item The item to add.
     Attribute: Parameter isStatic True if the item is not expected to move.
@@ -155,13 +144,13 @@ class RenderTree3D
         end
 
         RenderTreeNode3D leaf
-        leaf:item = item
+        leaf:SetItem(item)
         leaf:SetLocalBounds(localBounds)
-        leaf:lastMovedFrame = frame
+        leaf:SetLastMovedFrame(frame)
         CalculateWorldBounds(leaf, worldBounds)
 
         if isStatic
-            leaf:isStatic = true
+            leaf:SetStatic(true)
             staticTree:Insert(leaf, worldBounds)
             staticVersion = staticVersion + 1
         else
@@ -188,7 +177,7 @@ class RenderTree3D
             return false
         end
 
-        if leaf:isStatic
+        if leaf:IsStatic()
             staticTree:Remove(leaf)
             staticVersion = staticVersion + 1
         else
@@ -207,31 +196,62 @@ class RenderTree3D
     end
 
     /*
+    This action returns the leaf that holds an item, or undefined if the
+    item is not in the tree. Finding it means a lookup in a hash table, so
+    an owner that tells the tree about moves every frame should get each
+    item's leaf once, after adding the item, keep it, and pass it to
+    Moved(leaf) instead of the item. The leaf must not be used after the
+    item is removed, and its setters must not be called from outside the
+    tree.
+
+    Attribute: Parameter item The item to find.
+    Attribute: Returns The item's leaf, or undefined if it is not in the tree.
+    */
+    action GetLeaf(Item3D item) returns RenderTreeNode3D
+        return leaves:GetValue(item)
+    end
+
+    /*
     This action tells the tree an item's position, rotation or scale has
     changed. A static item that has really moved goes to the dynamic half.
+    It looks up the item's leaf each time. Moved(leaf) does not.
     */
     action Moved(Item3D item)
         RenderTreeNode3D leaf = leaves:GetValue(item)
         if leaf = undefined
             return now
         end
+        Moved(leaf)
+    end
+
+    /*
+    This action does the same as Moved(item), for the leaf GetLeaf returned
+    for that item, without looking it up. A leaf whose item has been
+    removed is ignored.
+
+    Attribute: Parameter leaf The leaf GetLeaf returned for the item.
+    */
+    action Moved(RenderTreeNode3D leaf)
+        if leaf:GetItem() = undefined
+            return now
+        end
 
         CalculateWorldBounds(leaf, worldBounds)
-        if leaf:isStatic
+        if leaf:IsStatic()
             // A static leaf's box fits its item exactly, so if the bounds
             // are unchanged the item has not really moved.
-            if HasSameBounds(leaf:bounds, worldBounds)
+            if HasSameBounds(leaf:GetBounds(), worldBounds)
                 return now
             end
             staticTree:Remove(leaf)
             staticVersion = staticVersion + 1
-            leaf:isStatic = false
+            leaf:SetStatic(false)
             dynamicTree:Insert(leaf, worldBounds)
             dynamicLeaves:Add(leaf)
         else
             dynamicTree:Move(leaf, worldBounds)
         end
-        leaf:lastMovedFrame = frame
+        leaf:SetLastMovedFrame(frame)
     end
 
     /*
@@ -244,7 +264,7 @@ class RenderTree3D
             return now
         end
         leaf:SetLocalBounds(localBounds)
-        Moved(item)
+        Moved(leaf)
     end
 
     /*
@@ -258,27 +278,34 @@ class RenderTree3D
             return now
         end
 
-        List<RenderTreeNode3D> stillMoving
-        Iterator<RenderTreeNode3D> iterator = dynamicLeaves:GetIterator()
-        repeat while iterator:HasNext()
-            RenderTreeNode3D leaf = iterator:Next()
-            if frame - leaf:lastMovedFrame >= FRAMES_UNTIL_STATIC
+        // Leaves that are still moving are copied toward the front of the
+        // array, in their order, and the leftover places at the end are
+        // removed. This changes the array in place, without making a new one.
+        integer kept = 0
+        integer index = 0
+        repeat while index < dynamicLeaves:GetSize()
+            RenderTreeNode3D leaf = dynamicLeaves:Get(index)
+            if frame - leaf:GetLastMovedFrame() >= FRAMES_UNTIL_STATIC
                 dynamicTree:Remove(leaf)
                 CalculateWorldBounds(leaf, worldBounds)
-                leaf:isStatic = true
+                leaf:SetStatic(true)
                 staticTree:Insert(leaf, worldBounds)
                 staticVersion = staticVersion + 1
             else
-                stillMoving:Add(leaf)
+                dynamicLeaves:Set(kept, leaf)
+                kept = kept + 1
             end
+            index = index + 1
         end
-        dynamicLeaves = stillMoving
+        repeat while dynamicLeaves:GetSize() > kept
+            dynamicLeaves:RemoveFromEnd()
+        end
     end
 
     /*
     This action adds the items the camera can see to the results.
     */
-    action CollectVisible(Camera camera, List<Item3D> results)
+    action CollectVisible(Camera camera, Array<Item3D> results)
         CollectVisible(camera:GetCombinedMatrix(), results)
     end
 
@@ -286,7 +313,7 @@ class RenderTree3D
     This action adds the items inside the view of the given view-projection
     matrix to the results.
     */
-    action CollectVisible(Matrix4 viewProjection, List<Item3D> results)
+    action CollectVisible(Matrix4 viewProjection, Array<Item3D> results)
         volume:Set(viewProjection)
         staticTree:Collect(volume, results)
         dynamicTree:Collect(volume, results)
@@ -306,7 +333,7 @@ class RenderTree3D
     Attribute: Parameter cascade Which cascade, counting from 0.
     Attribute: Parameter results The list to add the items to.
     */
-    action CollectDirectionalShadowCasters(DirectionalLight light, integer cascade, List<Item3D> results)
+    action CollectDirectionalShadowCasters(DirectionalLight light, integer cascade, Array<Item3D> results)
         CascadeShadowData data = light:GetShadowData(cascade)
         if data = undefined
             return now
@@ -322,11 +349,11 @@ class RenderTree3D
     Static items are found once and remembered, until the light moves, its
     reach changes, or the static items change.
     */
-    action CollectPointShadowCasters(PointLight light, List<Item3D> results)
+    action CollectPointShadowCasters(PointLight light, Array<Item3D> results)
         number x = light:GetGlobalX()
         number y = light:GetGlobalY()
         number z = light:GetGlobalZ()
-        number range = GetPointLightRange(light)
+        number range = light:GetRange()
 
         ShadowCasterCache3D cache = pointLightCasters:GetValue(light)
         if cache = undefined
@@ -336,14 +363,20 @@ class RenderTree3D
         end
 
         if not cache:Matches(x, y, z, range, staticVersion)
-            cache:statics:Empty()
+            // Removing from the end, rather than Empty(false), clears each
+            // place, so the cache does not keep removed items alive. It
+            // keeps the array's storage, so no new array is made.
+            repeat while not cache:statics:IsEmpty()
+                cache:statics:RemoveFromEnd()
+            end
             staticTree:Collect(x, y, z, range, cache:statics)
             cache:Set(x, y, z, range, staticVersion)
         end
 
-        Iterator<Item3D> iterator = cache:statics:GetIterator()
-        repeat while iterator:HasNext()
-            results:Add(iterator:Next())
+        integer index = 0
+        repeat while index < cache:statics:GetSize()
+            results:Add(cache:statics:Get(index))
+            index = index + 1
         end
         dynamicTree:Collect(x, y, z, range, results)
     end
@@ -351,7 +384,7 @@ class RenderTree3D
     /*
     This action adds the items overlapping a box to the results.
     */
-    action CollectInBox(BoundingBox box, List<Item3D> results)
+    action CollectInBox(BoundingBox box, Array<Item3D> results)
         staticTree:Collect(box, results)
         dynamicTree:Collect(box, results)
     end
@@ -359,27 +392,9 @@ class RenderTree3D
     /*
     This action adds the items overlapping a sphere to the results.
     */
-    action CollectInSphere(number x, number y, number z, number radius, List<Item3D> results)
+    action CollectInSphere(number x, number y, number z, number radius, Array<Item3D> results)
         staticTree:Collect(x, y, z, radius, results)
         dynamicTree:Collect(x, y, z, radius, results)
-    end
-
-    /*
-    This action returns how far a point light reaches, with the same formula
-    EnvironmentVulkan uses for point light shadows: the distance at which
-    the light's brightest color, at its intensity, falls below
-    MINIMUM_ILLUMINATION_THRESHOLD.
-    */
-    action GetPointLightRange(PointLight light) returns number
-        Color color = light:GetColor()
-        number brightest = color:GetRed()
-        if color:GetGreen() > brightest
-            brightest = color:GetGreen()
-        end
-        if color:GetBlue() > brightest
-            brightest = color:GetBlue()
-        end
-        return math:SquareRoot(brightest * light:GetIntensity() / MINIMUM_ILLUMINATION_THRESHOLD)
     end
 
     /*
@@ -430,6 +445,35 @@ class RenderTree3D
     end
 
     /*
+    This action returns true if the item is in the static half, and false
+    if it is in the dynamic half or not in the tree.
+    */
+    action IsStatic(Item3D item) returns boolean
+        RenderTreeNode3D leaf = leaves:GetValue(item)
+        if leaf = undefined
+            return false
+        end
+        return leaf:IsStatic()
+    end
+
+    /*
+    This action returns how many levels the static half has below its root,
+    or -1 when it is empty. A well balanced tree of n items has about the
+    base 2 logarithm of n levels.
+    */
+    action GetStaticHeight returns integer
+        return staticTree:GetHeight()
+    end
+
+    /*
+    This action returns how many levels the dynamic half has below its root,
+    or -1 when it is empty.
+    */
+    action GetDynamicHeight returns integer
+        return dynamicTree:GetHeight()
+    end
+
+    /*
     This action returns a number that goes up by one every time the static
     half changes: when an item is added to it or removed from it, when a
     static item moves and goes to the dynamic half, or when a still item
@@ -451,42 +495,20 @@ class RenderTree3D
     This action returns an item's bounds in its own coordinates, or undefined
     if it has none the tree can find.
 
-    For a model, they are its blueprint's bounds, measured once per
-    blueprint. The library's blueprints have bugs here: the OpenGL blueprint
-    measures only its first node, and the Vulkan blueprint can miss the
-    largest value on an axis. So bounds whose minimum is above their maximum
-    on any axis are treated as missing. Flat bounds, such as a plane's, are
-    allowed, though BoundingBox:IsValid would reject them.
-
-    For any other item, they are a box of its width, height and depth,
-    centered on the item. An item with no size has no bounds.
+    They are a box of the item's width, height and depth, centered on the
+    item. A model gets its width, height and depth from its blueprint when
+    it is loaded, so this works for models too. An item with no size has no
+    bounds. A negative size, which a blueprint with a bug in its measuring
+    could give, is also treated as no bounds. Flat bounds, such as a plane's,
+    are allowed, though BoundingBox:IsValid would reject them.
     */
     private action GetBounds(Item3D item) returns BoundingBox
-        if item is Model
-            Model model = cast(Model, item)
-            ModelBlueprint schematic = model:GetModelBlueprint()
-            if schematic = undefined
-                return undefined
-            end
-
-            if blueprintBounds:HasKey(schematic)
-                return blueprintBounds:GetValue(schematic)
-            end
-
-            BoundingBox bounds
-            model:CalculateBoundingBox(bounds)
-            if bounds:GetMinimum():GetX() > bounds:GetMaximum():GetX() or
-                    bounds:GetMinimum():GetY() > bounds:GetMaximum():GetY() or
-                    bounds:GetMinimum():GetZ() > bounds:GetMaximum():GetZ()
-                return undefined
-            end
-            blueprintBounds:Add(schematic, bounds)
-            return bounds
-        end
-
         number halfWidth = item:GetWidth() / 2
         number halfHeight = item:GetHeight() / 2
         number halfDepth = item:GetDepth() / 2
+        if halfWidth < 0 or halfHeight < 0 or halfDepth < 0
+            return undefined
+        end
         if halfWidth = 0 and halfHeight = 0 and halfDepth = 0
             return undefined
         end
@@ -509,13 +531,13 @@ class RenderTree3D
     corners. The transform includes the item's scale and its parent's offset.
     */
     private action CalculateWorldBounds(RenderTreeNode3D leaf, BoundingBox out)
-        Matrix4 transform = leaf:item:GetTransform()
-        number cx = leaf:localCenterX
-        number cy = leaf:localCenterY
-        number cz = leaf:localCenterZ
-        number hx = leaf:localHalfX
-        number hy = leaf:localHalfY
-        number hz = leaf:localHalfZ
+        Matrix4 transform = leaf:GetItem():GetTransform()
+        number cx = leaf:GetLocalCenterX()
+        number cy = leaf:GetLocalCenterY()
+        number cz = leaf:GetLocalCenterZ()
+        number hx = leaf:GetLocalHalfX()
+        number hy = leaf:GetLocalHalfY()
+        number hz = leaf:GetLocalHalfZ()
 
         number worldX = transform:row0column0 * cx + transform:row0column1 * cy + transform:row0column2 * cz + transform:row0column3
         number worldY = transform:row1column0 * cx + transform:row1column1 * cy + transform:row1column2 * cz + transform:row1column3

@@ -8,40 +8,176 @@ RenderTreeNode3D is one node of a RenderBoundingVolumeTree3D. A node is either
 a leaf, which holds one drawable item and the box around it, or a branch,
 which holds two children and the box around both.
 
-The fields are public so that the tree's inner loops, which visit many nodes
-every frame, read them directly instead of through actions. Only the tree
-classes in this package should change them.
+Only the tree classes in this package should change a node.
+
+A node's box can be read two ways. GetBounds returns the node's own box,
+not a copy, so changing it changes the node. The tree uses it to update
+boxes in place without making new objects. GetBoundsCopy returns a new box
+with the same corners, which can be changed freely, but makes a new object
+on every call.
 */
 class RenderTreeNode3D
     // The box this node covers. For a leaf in the dynamic half of the tree it
     // is a little bigger than the item, so small moves do not change the tree.
-    public BoundingBox bounds
+    BoundingBox bounds
 
-    public RenderTreeNode3D parentNode = undefined
-    public RenderTreeNode3D left = undefined
-    public RenderTreeNode3D right = undefined
+    RenderTreeNode3D parentNode = undefined
+    RenderTreeNode3D left = undefined
+    RenderTreeNode3D right = undefined
 
     // How many levels are below this node. A leaf is 0.
-    public integer height = 0
+    integer height = 0
 
     // The item a leaf holds. Branches hold no item.
-    public Item3D item = undefined
+    Item3D item = undefined
 
     // Whether the leaf is in the static half of the tree.
-    public boolean isStatic = false
+    boolean isStatic = false
 
     // The frame the leaf last moved on, used to move still items back to
     // the static half.
-    public integer lastMovedFrame = 0
+    integer lastMovedFrame = 0
 
     // The item's bounds in its own coordinates, as a center and half sizes.
     // They are turned into world bounds each time the item moves.
-    public number localCenterX = 0
-    public number localCenterY = 0
-    public number localCenterZ = 0
-    public number localHalfX = 0
-    public number localHalfY = 0
-    public number localHalfZ = 0
+    number localCenterX = 0
+    number localCenterY = 0
+    number localCenterZ = 0
+    number localHalfX = 0
+    number localHalfY = 0
+    number localHalfZ = 0
+
+    /*
+    This action returns the box this node covers. The box itself is
+    returned, not a copy, so changing it changes the node. The tree uses
+    this to update boxes in place without making new objects. To look at
+    the box without any risk of changing the node, use GetBoundsCopy.
+
+    Attribute: Returns The node's own box, not a copy.
+    */
+    action GetBounds returns BoundingBox
+        return bounds
+    end
+
+    /*
+    This action returns a new box with the same corners as the box this
+    node covers. Changing the copy does not change the node. Each call makes
+    a new object, so code that runs every frame should use GetBounds
+    instead, and only read from it.
+
+    Attribute: Returns A copy of the node's box.
+    */
+    action GetBoundsCopy returns BoundingBox
+        return bounds:Copy()
+    end
+
+    /*
+    This action returns the branch above this node, or undefined if this
+    node is the root.
+    */
+    action GetParentNode returns RenderTreeNode3D
+        return parentNode
+    end
+
+    action SetParentNode(RenderTreeNode3D node)
+        parentNode = node
+    end
+
+    /*
+    This action returns the first child of a branch, or undefined for a
+    leaf.
+    */
+    action GetLeft returns RenderTreeNode3D
+        return left
+    end
+
+    action SetLeft(RenderTreeNode3D node)
+        left = node
+    end
+
+    /*
+    This action returns the second child of a branch, or undefined for a
+    leaf.
+    */
+    action GetRight returns RenderTreeNode3D
+        return right
+    end
+
+    action SetRight(RenderTreeNode3D node)
+        right = node
+    end
+
+    /*
+    This action returns how many levels are below this node. A leaf is 0.
+    */
+    action GetHeight returns integer
+        return height
+    end
+
+    action SetHeight(integer value)
+        height = value
+    end
+
+    /*
+    This action returns the item a leaf holds, or undefined for a branch.
+    */
+    action GetItem returns Item3D
+        return item
+    end
+
+    action SetItem(Item3D value)
+        item = value
+    end
+
+    /*
+    This action returns true if the leaf is in the static half of the tree.
+    */
+    action IsStatic returns boolean
+        return isStatic
+    end
+
+    action SetStatic(boolean value)
+        isStatic = value
+    end
+
+    /*
+    This action returns the frame the leaf last moved on.
+    */
+    action GetLastMovedFrame returns integer
+        return lastMovedFrame
+    end
+
+    action SetLastMovedFrame(integer frame)
+        lastMovedFrame = frame
+    end
+
+    /*
+    These actions return the item's bounds in its own coordinates, as a
+    center and half sizes. They are set together with SetLocalBounds.
+    */
+    action GetLocalCenterX returns number
+        return localCenterX
+    end
+
+    action GetLocalCenterY returns number
+        return localCenterY
+    end
+
+    action GetLocalCenterZ returns number
+        return localCenterZ
+    end
+
+    action GetLocalHalfX returns number
+        return localHalfX
+    end
+
+    action GetLocalHalfY returns number
+        return localHalfY
+    end
+
+    action GetLocalHalfZ returns number
+        return localHalfZ
+    end
 
     /*
     This action returns true if this node is a leaf, which holds an item.

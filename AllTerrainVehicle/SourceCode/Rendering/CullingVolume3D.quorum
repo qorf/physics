@@ -2,7 +2,7 @@ package Rendering
 
 use Libraries.Compute.Matrix4
 use Libraries.Compute.Math
-use Libraries.Containers.Array
+use Libraries.Containers.Number32BitArray
 use Libraries.Game.BoundingBox
 
 /*
@@ -36,9 +36,18 @@ class CullingVolume3D
     public constant integer INSIDE = 2
 
     // Four numbers for each plane, a, b, c and d. A point (x, y, z) is on the
-    // inner side when a * x + b * y + c * z + d >= 0.
-    Array<number> planes
+    // inner side when a * x + b * y + c * z + d >= 0. A Number32BitArray holds
+    // plain numbers, where an Array<number> would wrap each one in an object.
+    // 32 bits is the precision the graphics card works in anyway.
+    Number32BitArray planes
     integer planeCount = 0
+
+    // The same values as OUTSIDE, INTERSECTING and INSIDE, kept in fields.
+    // Reading a constant is an action call, which Test would otherwise make
+    // for every box it tests.
+    integer outside = OUTSIDE
+    integer intersecting = INTERSECTING
+    integer inside = INSIDE
     Math math
 
     on create
@@ -133,7 +142,7 @@ class CullingVolume3D
             end
 
             if a * farX + b * farY + c * farZ + d < 0
-                return OUTSIDE
+                return outside
             end
             if a * nearX + b * nearY + c * nearZ + d < 0
                 crosses = true
@@ -142,9 +151,9 @@ class CullingVolume3D
         end
 
         if crosses
-            return INTERSECTING
+            return intersecting
         end
-        return INSIDE
+        return inside
     end
 
     /*
