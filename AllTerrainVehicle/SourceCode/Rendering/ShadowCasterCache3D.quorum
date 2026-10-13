@@ -1,0 +1,39 @@
+package Rendering
+
+use Libraries.Containers.List
+use Libraries.Interface.Item3D
+
+/*
+ShadowCasterCache3D remembers which static items are within a point light's
+reach. Static items do not move, so the list stays correct until the light
+moves, its reach changes, or a static item is added or removed. RenderTree3D
+counts those changes as its static version, and the cache keeps the version
+it was built from.
+*/
+class ShadowCasterCache3D
+    public List<Item3D> statics
+    number x = 0
+    number y = 0
+    number z = 0
+    number range = 0
+    integer staticVersion = -1
+
+    /*
+    This action returns true if the cache was built for a light at this
+    position and reach, from this version of the static items.
+    */
+    action Matches(number x, number y, number z, number range, integer staticVersion) returns boolean
+        return me:staticVersion = staticVersion and me:x = x and me:y = y and me:z = z and me:range = range
+    end
+
+    /*
+    This action records what the cache was built for.
+    */
+    action Set(number x, number y, number z, number range, integer staticVersion)
+        me:x = x
+        me:y = y
+        me:z = z
+        me:range = range
+        me:staticVersion = staticVersion
+    end
+end

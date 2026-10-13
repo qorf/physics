@@ -1,0 +1,79 @@
+package Rendering
+
+use Libraries.Game.BoundingBox
+use Libraries.Interface.Item3D
+
+/*
+RenderTreeNode3D is one node of a RenderBoundingVolumeTree3D. A node is either
+a leaf, which holds one drawable item and the box around it, or a branch,
+which holds two children and the box around both.
+
+The fields are public so that the tree's inner loops, which visit many nodes
+every frame, read them directly instead of through actions. Only the tree
+classes in this package should change them.
+*/
+class RenderTreeNode3D
+    // The box this node covers. For a leaf in the dynamic half of the tree it
+    // is a little bigger than the item, so small moves do not change the tree.
+    public BoundingBox bounds
+
+    public RenderTreeNode3D parentNode = undefined
+    public RenderTreeNode3D left = undefined
+    public RenderTreeNode3D right = undefined
+
+    // How many levels are below this node. A leaf is 0.
+    public integer height = 0
+
+    // The item a leaf holds. Branches hold no item.
+    public Item3D item = undefined
+
+    // Whether the leaf is in the static half of the tree.
+    public boolean isStatic = false
+
+    // The frame the leaf last moved on, used to move still items back to
+    // the static half.
+    public integer lastMovedFrame = 0
+
+    // The item's bounds in its own coordinates, as a center and half sizes.
+    // They are turned into world bounds each time the item moves.
+    public number localCenterX = 0
+    public number localCenterY = 0
+    public number localCenterZ = 0
+    public number localHalfX = 0
+    public number localHalfY = 0
+    public number localHalfZ = 0
+
+    /*
+    This action returns true if this node is a leaf, which holds an item.
+    */
+    action IsLeaf returns boolean
+        return left = undefined
+    end
+
+    /*
+    This action clears the node so it can be reused for another item or
+    branch.
+    */
+    action Reset
+        parentNode = undefined
+        left = undefined
+        right = undefined
+        height = 0
+        item = undefined
+        isStatic = false
+        lastMovedFrame = 0
+        bounds:Invalidate()
+    end
+
+    /*
+    This action sets the item's bounds in its own coordinates.
+    */
+    action SetLocalBounds(BoundingBox local)
+        localCenterX = local:GetCenterX()
+        localCenterY = local:GetCenterY()
+        localCenterZ = local:GetCenterZ()
+        localHalfX = local:GetWidth() / 2
+        localHalfY = local:GetHeight() / 2
+        localHalfZ = local:GetDepth() / 2
+    end
+end
