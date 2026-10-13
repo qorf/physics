@@ -24,6 +24,8 @@ use Libraries.Interface.Behaviors.Games.VehicleMovementBehavior
 use Libraries.Game.Graphics.FramesPerSecondLabel
 use Libraries.Game.BoundingBox
 use Rendering.RenderTreeCheck
+use Rendering.QuadTree3D
+use Rendering.Octree
 
 /*
     A raycast vehicle driving over rolling hills. The hills are a Terrain built
@@ -171,6 +173,11 @@ class Main is Game
     boolean renderTreeMovesAll = false
     boolean addPointLight = false
     integer renderSnapshotInterval = 200
+
+    // Which kind of render tree to test: 0 for DynamicVolumeRenderTree, 1 for
+    // QuadTree3D, 2 for Octree. The quadtree and octree cover the terrain, with
+    // room above it for the rain and around it for things that roll off.
+    integer renderTreeKind = 0
     RenderTreeCheck renderCheck
     DirectionalLight sunlight
     PointLight lamp = undefined
@@ -197,6 +204,15 @@ class Main is Game
         end
         renderCheck:SetCheckInterval(renderCheckInterval)
         renderCheck:SetSnapshotInterval(renderSnapshotInterval)
+        if renderTreeKind = 1
+            QuadTree3D quadtree
+            quadtree:SetRegion(-80, -40, -80, 80, 40, 80)
+            renderCheck:SetTree(quadtree)
+        elseif renderTreeKind = 2
+            Octree octree
+            octree:SetRegion(-80, -40, -80, 80, 40, 80)
+            renderCheck:SetTree(octree)
+        end
 
         sunlight:SetIntensity(2.5)
         sunlight:SetColor(colors:LightGray())

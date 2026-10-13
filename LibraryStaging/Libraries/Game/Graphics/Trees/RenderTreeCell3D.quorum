@@ -1,0 +1,202 @@
+package Libraries.Game.Graphics.Trees
+
+use Libraries.Game.BoundingBox
+use Libraries.Containers.Array
+use Libraries.Compute.Vector3
+
+/*
+RenderTreeCell3D is one cell of a RenderCellTree3D, the part used by QuadTree3D
+and Octree. A cell is a square (in a quadtree) or a cube (in an octree) of
+the world. It holds the leaves of the items that fit in it but not in one of
+its smaller children, and it can be split into 4 or 8 children, each half
+its size.
+
+The cell is "loose": the box used to test it against a view is twice its
+size, centered on the same point. An item is placed by its center, so an
+item up to the size of a cell always fits inside that cell's loose box,
+even when it crosses the cell's edge. In a quadtree, the loose box runs the
+full height of the tree's region.
+
+The cell counts the leaves in it and in all of its children, so a search
+can skip a cell with nothing in it.
+*/
+class RenderTreeCell3D
+    RenderTreeCell3D parentCell = undefined
+
+    // The children, when the cell has been split. Empty otherwise.
+    Array<RenderTreeCell3D> children
+
+    // The leaves of the items placed in this cell, not in its children.
+    Array<RenderTreeNode3D> leaves
+
+    // How many leaves are in this cell and all of its children.
+    integer count = 0
+
+    // How many levels this cell is below the top cell, which is 0.
+    integer depth = 0
+
+    // The center of the cell and the length of its sides.
+    number centerX = 0
+    number centerY = 0
+    number centerZ = 0
+    number size = 0
+
+    // The loose box, twice the cell's size, used to test the cell.
+    BoundingBox bounds
+
+    Vector3 minimum
+    Vector3 maximum
+
+    /*
+    This action sets where the cell is. The loose box is twice the size of
+    the cell. Its height is the given bottom and top, so a quadtree can make
+    every cell as tall as its region.
+
+    Attribute: Parameter x The x coordinate of the cell's center.
+    Attribute: Parameter y The y coordinate of the cell's center.
+    Attribute: Parameter z The z coordinate of the cell's center.
+    Attribute: Parameter sideLength The length of the cell's sides.
+    Attribute: Parameter bottom The lowest y of the loose box.
+    Attribute: Parameter top The highest y of the loose box.
+    */
+    action SetPlace(number x, number y, number z, number sideLength, number bottom, number top)
+        centerX = x
+        centerY = y
+        centerZ = z
+        size = sideLength
+        minimum:Set(x - sideLength, bottom, z - sideLength)
+        maximum:Set(x + sideLength, top, z + sideLength)
+        bounds:Set(minimum, maximum)
+    end
+
+    /*
+    This action returns the cell's loose box, which is twice its size. The
+    box itself is returned, not a copy.
+    */
+    action GetBounds returns BoundingBox
+        return bounds
+    end
+
+    action GetCenterX returns number
+        return centerX
+    end
+
+    action GetCenterY returns number
+        return centerY
+    end
+
+    action GetCenterZ returns number
+        return centerZ
+    end
+
+    /*
+    This action returns the length of the cell's sides. The loose box is
+    twice this.
+    */
+    action GetSize returns number
+        return size
+    end
+
+    action GetDepth returns integer
+        return depth
+    end
+
+    action SetDepth(integer value)
+        depth = value
+    end
+
+    action GetParentCell returns RenderTreeCell3D
+        return parentCell
+    end
+
+    action SetParentCell(RenderTreeCell3D value)
+        parentCell = value
+    end
+
+    /*
+    This action returns true if the cell has been split into children.
+    */
+    action HasChildren returns boolean
+        return not children:IsEmpty()
+    end
+
+    action GetChildCount returns integer
+        return children:GetSize()
+    end
+
+    action GetChild(integer index) returns RenderTreeCell3D
+        return children:Get(index)
+    end
+
+    action AddChild(RenderTreeCell3D child)
+        children:Add(child)
+    end
+
+    /*
+    This action returns how many leaves are in this cell and all of its
+    children.
+    */
+    action GetCount returns integer
+        return count
+    end
+
+    /*
+    This action changes the count of leaves in this cell and every cell
+    above it.
+
+    Attribute: Parameter change How much to add, such as 1 or -1.
+    */
+    action AddToCount(integer change)
+        RenderTreeCell3D current = me
+        repeat while current not= undefined
+            current:SetCount(current:GetCount() + change)
+            current = current:GetParentCell()
+        end
+    end
+
+    /*
+    This action sets the count of leaves in this cell and its children,
+    without changing the cells above. AddToCount uses it.
+    */
+    action SetCount(integer value)
+        count = value
+    end
+
+    /*
+    This action returns how many leaves are in this cell itself, not in its
+    children.
+    */
+    action GetLeafCount returns integer
+        return leaves:GetSize()
+    end
+
+    action GetLeaf(integer index) returns RenderTreeNode3D
+        return leaves:Get(index)
+    end
+
+    /*
+    This action puts a leaf in this cell and records the cell and the
+    leaf's place on the leaf. The counts are not changed; see AddToCount.
+    */
+    action AddLeaf(RenderTreeNode3D leaf)
+        leaf:SetCell(me)
+        leaf:SetCellIndex(leaves:GetSize())
+        leaves:Add(leaf)
+    end
+
+    /*
+    This action takes a leaf out of this cell. The last leaf in the list
+    takes its place, so nothing is shifted, and that leaf's place is
+    updated. The counts are not changed; see AddToCount.
+    */
+    action RemoveLeaf(RenderTreeNode3D leaf)
+        integer index = leaf:GetCellIndex()
+        RenderTreeNode3D last = leaves:RemoveFromEnd()
+        if last not= leaf
+            leaves:Set(index, last)
+            last:SetCellIndex(index)
+        end
+        leaf:SetCell(undefined)
+        leaf:SetCellIndex(-1)
+    end
+end

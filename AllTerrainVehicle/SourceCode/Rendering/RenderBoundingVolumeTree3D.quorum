@@ -3,8 +3,6 @@ package Rendering
 use Libraries.Game.BoundingBox
 use Libraries.Containers.Array
 use Libraries.Interface.Item3D
-use Libraries.Compute.Vector3
-use Libraries.Compute.Math
 
 /*
 RenderBoundingVolumeTree3D is a dynamic bounding volume tree for drawing: a
@@ -21,18 +19,17 @@ copy rather than a shared one, so that drawing can change without any risk to
 physics. A fix to the shared algorithm in either class should be checked in
 the other.
 
-RenderTree3D uses two of these: a static half with no margin, and a dynamic
-half whose leaves are made a little bigger than their items, so small moves
-need no change to the tree.
+DynamicVolumeRenderTree uses two of these, as the parts of a
+StaticDynamicRenderTree3D: a static half with no margin, and a dynamic half
+whose leaves are made a little bigger than their items, so small moves need
+no change to the tree.
 
-The leaves belong to RenderTree3D, which moves them between the two halves.
-This class creates and reuses only the branch nodes.
+The leaves belong to the render tree, which moves them between the two
+halves. This class creates and reuses only the branch nodes. The margin,
+SetLeafBounds, Contains and DistanceSquared come from RenderTreePart3D.
 */
-class RenderBoundingVolumeTree3D
+class RenderBoundingVolumeTree3D is RenderTreePart3D
     RenderTreeNode3D root = undefined
-
-    // How much bigger than its item a leaf's box is made, on every side.
-    number margin = 0
 
     integer leafCount = 0
 
@@ -48,17 +45,6 @@ class RenderBoundingVolumeTree3D
     Array<RenderTreeNode3D> subtreeStack
 
     BoundingBox combined
-    Vector3 minimum
-    Vector3 maximum
-    Math math
-
-    action SetMargin(number margin)
-        me:margin = margin
-    end
-
-    action GetMargin returns number
-        return margin
-    end
 
     /*
     This action returns how many items, or leaves, the tree holds.
@@ -94,6 +80,16 @@ class RenderBoundingVolumeTree3D
     action Remove(RenderTreeNode3D leaf)
         RemoveLeaf(leaf)
         leafCount = leafCount - 1
+    end
+
+    /*
+    This action removes every leaf. The branch nodes are dropped rather than
+    kept for reuse, since emptying is rare.
+    */
+    action Empty
+        root = undefined
+        leafCount = 0
+        freeNodes:Empty()
     end
 
     /*
@@ -208,57 +204,6 @@ class RenderBoundingVolumeTree3D
                 subtreeStack:Add(node:GetRight())
             end
         end
-    end
-
-    /*
-    This action returns the squared distance from a point to the nearest
-    point of a box, which is 0 when the point is inside it.
-    */
-    private action DistanceSquared(BoundingBox box, number x, number y, number z) returns number
-        number dx = 0
-        number dy = 0
-        number dz = 0
-        if x < box:GetMinimum():GetX()
-            dx = box:GetMinimum():GetX() - x
-        elseif x > box:GetMaximum():GetX()
-            dx = x - box:GetMaximum():GetX()
-        end
-        if y < box:GetMinimum():GetY()
-            dy = box:GetMinimum():GetY() - y
-        elseif y > box:GetMaximum():GetY()
-            dy = y - box:GetMaximum():GetY()
-        end
-        if z < box:GetMinimum():GetZ()
-            dz = box:GetMinimum():GetZ() - z
-        elseif z > box:GetMaximum():GetZ()
-            dz = z - box:GetMaximum():GetZ()
-        end
-        return dx * dx + dy * dy + dz * dz
-    end
-
-    /*
-    This action returns true if the outer box holds all of the inner box.
-    Equal edges count as inside, so a flat item, such as a plane, fits a
-    box of the same size.
-    */
-    private action Contains(BoundingBox outer, BoundingBox inner) returns boolean
-        return outer:GetMinimum():GetX() <= inner:GetMinimum():GetX() and
-            outer:GetMinimum():GetY() <= inner:GetMinimum():GetY() and
-            outer:GetMinimum():GetZ() <= inner:GetMinimum():GetZ() and
-            inner:GetMaximum():GetX() <= outer:GetMaximum():GetX() and
-            inner:GetMaximum():GetY() <= outer:GetMaximum():GetY() and
-            inner:GetMaximum():GetZ() <= outer:GetMaximum():GetZ()
-    end
-
-    /*
-    This action sets a leaf's box to its item's bounds plus the margin.
-    */
-    private action SetLeafBounds(RenderTreeNode3D leaf, BoundingBox itemBounds)
-        minimum:Set(itemBounds:GetMinimum():GetX() - margin, itemBounds:GetMinimum():GetY() - margin,
-            itemBounds:GetMinimum():GetZ() - margin)
-        maximum:Set(itemBounds:GetMaximum():GetX() + margin, itemBounds:GetMaximum():GetY() + margin,
-            itemBounds:GetMaximum():GetZ() + margin)
-        leaf:GetBounds():Set(minimum, maximum)
     end
 
     /*

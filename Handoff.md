@@ -196,6 +196,12 @@ both APIs after the Java plugins are rebuilt.
 
 ## RenderTree3D: where it stands
 
+**Update, later on 2026-10-13:** `RenderTree3D` is now a blank base class
+with three kinds that can be swapped: `DynamicVolumeRenderTree` (the tree
+described below), `QuadTree3D` and `Octree`. The class table below describes
+the tree before that split. `RenderTreeIntegration.md` has the current
+classes, where things stand, and the next steps.
+
 The goal is to replace `Layer3D`'s draw-everything loop (`Layer3D.Draw`, line
 1236) with view culling, and to support Vulkan shadows and later terrain
 streaming and level of detail.

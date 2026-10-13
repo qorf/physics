@@ -4,9 +4,17 @@ use Libraries.Game.BoundingBox
 use Libraries.Interface.Item3D
 
 /*
-RenderTreeNode3D is one node of a RenderBoundingVolumeTree3D. A node is either
-a leaf, which holds one drawable item and the box around it, or a branch,
-which holds two children and the box around both.
+RenderTreeNode3D is the record a render tree keeps for each item: the item,
+its bounds, and which half of the tree it is in. It is called a leaf.
+
+In a RenderBoundingVolumeTree3D, nodes are also the tree itself. A node is
+either a leaf, which holds one drawable item and the box around it, or a
+branch, which holds two children and the box around both. The parent, left,
+right and height fields are used only there.
+
+In a RenderCellTree3D, used by QuadTree3D and Octree, a leaf instead records
+the cell it is in and its place in that cell's list, so it can be removed
+without searching.
 
 Only the tree classes in this package should change a node.
 
@@ -37,6 +45,17 @@ class RenderTreeNode3D
     // The frame the leaf last moved on, used to move still items back to
     // the static half.
     integer lastMovedFrame = 0
+
+    // The last frame the owner handed this leaf's item to be drawn, kept by
+    // the owner, such as Layer3D, so an item found by more than one search
+    // in a frame is only drawn once.
+    integer lastDrawnFrame = -1
+
+    // The cell of a RenderCellTree3D the leaf is in, and its place in the
+    // cell's list of leaves. A leaf in the cell tree's list of leaves outside
+    // its region has no cell, but still has a place in that list.
+    RenderTreeCell3D cell = undefined
+    integer cellIndex = -1
 
     // The item's bounds in its own coordinates, as a center and half sizes.
     // They are turned into world bounds each time the item moves.
@@ -152,6 +171,44 @@ class RenderTreeNode3D
     end
 
     /*
+    This action returns the last frame the leaf's item was handed to be
+    drawn, or -1 if it never has been. The tree does not use this. It is
+    kept for the tree's owner.
+    */
+    action GetLastDrawnFrame returns integer
+        return lastDrawnFrame
+    end
+
+    action SetLastDrawnFrame(integer frame)
+        lastDrawnFrame = frame
+    end
+
+    /*
+    This action returns the RenderCellTree3D cell the leaf is in, or
+    undefined if it is in none.
+    */
+    action GetCell returns RenderTreeCell3D
+        return cell
+    end
+
+    action SetCell(RenderTreeCell3D value)
+        cell = value
+    end
+
+    /*
+    This action returns the leaf's place in its cell's list of leaves, or in
+    the cell tree's list of leaves outside its region, or -1 if it is in
+    neither.
+    */
+    action GetCellIndex returns integer
+        return cellIndex
+    end
+
+    action SetCellIndex(integer index)
+        cellIndex = index
+    end
+
+    /*
     These actions return the item's bounds in its own coordinates, as a
     center and half sizes. They are set together with SetLocalBounds.
     */
@@ -198,6 +255,9 @@ class RenderTreeNode3D
         item = undefined
         isStatic = false
         lastMovedFrame = 0
+        lastDrawnFrame = -1
+        cell = undefined
+        cellIndex = -1
         bounds:Invalidate()
     end
 

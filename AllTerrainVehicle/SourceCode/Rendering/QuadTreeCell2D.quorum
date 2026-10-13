@@ -1,0 +1,190 @@
+package Rendering
+
+use Libraries.Containers.Array
+
+/*
+QuadTreeCell2D is one square of a QuadTree2D. It holds the leaves of the
+items that fit in it but not in one of its smaller children, and it can be
+split into 4 children, each half its size. It is the 2D partner of
+RenderTreeCell3D, and works the same way.
+
+The cell is "loose": the rectangle used to test it is twice its size,
+centered on the same point. An item is placed by its center, so an item up
+to the size of a cell always fits inside that cell's loose rectangle, even
+when it crosses the cell's edge.
+
+The cell counts the leaves in it and in all of its children, so a search
+can skip a cell with nothing in it.
+*/
+class QuadTreeCell2D
+    QuadTreeCell2D parentCell = undefined
+
+    // The children, when the cell has been split. Empty otherwise.
+    Array<QuadTreeCell2D> children
+
+    // The leaves of the items placed in this cell, not in its children.
+    Array<QuadTreeLeaf2D> leaves
+
+    // How many leaves are in this cell and all of its children.
+    integer count = 0
+
+    // How many levels this cell is below the top cell, which is 0.
+    integer depth = 0
+
+    // The center of the cell and the length of its sides.
+    number centerX = 0
+    number centerY = 0
+    number size = 0
+
+    /*
+    This action sets where the cell is.
+
+    Attribute: Parameter x The x coordinate of the cell's center.
+    Attribute: Parameter y The y coordinate of the cell's center.
+    Attribute: Parameter sideLength The length of the cell's sides.
+    */
+    action SetPlace(number x, number y, number sideLength)
+        centerX = x
+        centerY = y
+        size = sideLength
+    end
+
+    action GetCenterX returns number
+        return centerX
+    end
+
+    action GetCenterY returns number
+        return centerY
+    end
+
+    /*
+    This action returns the length of the cell's sides. The loose rectangle
+    is twice this.
+    */
+    action GetSize returns number
+        return size
+    end
+
+    /*
+    These actions return the corners of the cell's loose rectangle, which
+    is twice the cell's size.
+    */
+    action GetLooseMinimumX returns number
+        return centerX - size
+    end
+
+    action GetLooseMinimumY returns number
+        return centerY - size
+    end
+
+    action GetLooseMaximumX returns number
+        return centerX + size
+    end
+
+    action GetLooseMaximumY returns number
+        return centerY + size
+    end
+
+    action GetDepth returns integer
+        return depth
+    end
+
+    action SetDepth(integer value)
+        depth = value
+    end
+
+    action GetParentCell returns QuadTreeCell2D
+        return parentCell
+    end
+
+    action SetParentCell(QuadTreeCell2D value)
+        parentCell = value
+    end
+
+    /*
+    This action returns true if the cell has been split into children.
+    */
+    action HasChildren returns boolean
+        return not children:IsEmpty()
+    end
+
+    action GetChildCount returns integer
+        return children:GetSize()
+    end
+
+    action GetChild(integer index) returns QuadTreeCell2D
+        return children:Get(index)
+    end
+
+    action AddChild(QuadTreeCell2D child)
+        children:Add(child)
+    end
+
+    /*
+    This action returns how many leaves are in this cell and all of its
+    children.
+    */
+    action GetCount returns integer
+        return count
+    end
+
+    /*
+    This action sets the count of leaves in this cell and its children,
+    without changing the cells above. AddToCount uses it.
+    */
+    action SetCount(integer value)
+        count = value
+    end
+
+    /*
+    This action changes the count of leaves in this cell and every cell
+    above it.
+
+    Attribute: Parameter change How much to add, such as 1 or -1.
+    */
+    action AddToCount(integer change)
+        QuadTreeCell2D current = me
+        repeat while current not= undefined
+            current:SetCount(current:GetCount() + change)
+            current = current:GetParentCell()
+        end
+    end
+
+    /*
+    This action returns how many leaves are in this cell itself, not in its
+    children.
+    */
+    action GetLeafCount returns integer
+        return leaves:GetSize()
+    end
+
+    action GetLeaf(integer index) returns QuadTreeLeaf2D
+        return leaves:Get(index)
+    end
+
+    /*
+    This action puts a leaf in this cell and records the cell and the
+    leaf's place on the leaf. The counts are not changed; see AddToCount.
+    */
+    action AddLeaf(QuadTreeLeaf2D leaf)
+        leaf:SetCell(me)
+        leaf:SetCellIndex(leaves:GetSize())
+        leaves:Add(leaf)
+    end
+
+    /*
+    This action takes a leaf out of this cell. The last leaf in the list
+    takes its place, so nothing is shifted, and that leaf's place is
+    updated. The counts are not changed; see AddToCount.
+    */
+    action RemoveLeaf(QuadTreeLeaf2D leaf)
+        integer index = leaf:GetCellIndex()
+        QuadTreeLeaf2D last = leaves:RemoveFromEnd()
+        if last not= leaf
+            leaves:Set(index, last)
+            last:SetCellIndex(index)
+        end
+        leaf:SetCell(undefined)
+        leaf:SetCellIndex(-1)
+    end
+end

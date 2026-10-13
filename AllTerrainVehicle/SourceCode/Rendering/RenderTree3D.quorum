@@ -1,13 +1,11 @@
 package Rendering
 
 use Libraries.Containers.Array
-use Libraries.Containers.HashTable
 use Libraries.Interface.Item3D
 use Libraries.Game.BoundingBox
 use Libraries.Game.Graphics.Camera
 use Libraries.Game.Graphics.PointLight
 use Libraries.Game.Graphics.DirectionalLight
-use Libraries.Game.Graphics.CascadeShadowData
 use Libraries.Compute.Matrix4
 use Libraries.Compute.Vector3
 use Libraries.Compute.Math
@@ -23,70 +21,44 @@ questions:
 - Which items are within a point light's reach? (CollectPointShadowCasters)
 - Which items overlap a box or a sphere? (CollectInBox, CollectInSphere)
 
+This class only describes what a render tree does. Its actions are blank.
+Use one of the kinds of render tree, which can be swapped for one another
+because they all have these actions:
+
+- DynamicVolumeRenderTree, a tree of boxes that fit around the items, like
+  the one physics uses. A good choice for most scenes, and for scenes whose
+  items are spread unevenly or move a lot.
+- QuadTree3D, which divides the ground into squares. A good choice for a
+  scene that is mostly flat and spread out, such as terrain and the things
+  on it.
+- Octree, which divides space into cubes. A good choice for a scene spread
+  out in every direction, such as space or a tall city.
+
 Each answer is added to an Array the caller passes in. The caller empties the
 array when it starts a new frame or pass, with Empty(false) so the array
 keeps its storage and no new one is made. The answers include hidden items;
 the caller can leave them out with IsShowing or IsShowingWithParents.
 
-The tree is in two halves, each a RenderBoundingVolumeTree3D:
-
-- The static half holds items that do not move, such as scenery and terrain
-  chunks. Its boxes fit their items exactly.
-- The dynamic half holds items that move. Its boxes are a little bigger than
-  their items, so small moves do not change the tree.
-
-A static item that moves is moved to the dynamic half. A dynamic item that
-has not moved for a while is moved back to the static half by EndFrame.
-
-The tree does not watch items for changes. Whoever owns it, such as Layer3D,
-calls Moved for each item whose position, rotation or scale has changed,
-once per frame before drawing, and EndFrame after drawing.
+A render tree does not watch items for changes. Whoever owns it, such as
+Layer3D, calls Moved for each item whose position, rotation or scale has
+changed, once per frame before drawing, and EndFrame after drawing.
 
 Only items with bounds can be added. An item whose bounds cannot be found,
 such as one that draws itself, is not added, and Add returns false. Its owner
 draws it every frame, without asking the tree.
+
+The few actions here that are not blank are the same for every kind of
+tree: the Add and CollectVisible actions that fill in a missing value and
+pass the request on, IsShowing and IsShowingWithParents, and the private
+helpers that find an item's bounds.
 */
 class RenderTree3D
-    // How much bigger than its item a dynamic leaf's box is, on every side.
-    // A bigger margin means fewer changes to the tree as items move, but
-    // more items drawn just outside the view.
-    constant number DYNAMIC_MARGIN = 0.25
-
-    // How many frames a dynamic item must stay still before it is moved to
-    // the static half.
-    constant integer FRAMES_UNTIL_STATIC = 120
-
-    // How often, in frames, still dynamic items are checked.
-    constant integer CHECK_INTERVAL = 30
-
-    RenderBoundingVolumeTree3D staticTree
-    RenderBoundingVolumeTree3D dynamicTree
-
-    // The leaf for each item in the tree.
-    HashTable<Item3D, RenderTreeNode3D> leaves
-
-    // The leaves in the dynamic half, checked by EndFrame.
-    Array<RenderTreeNode3D> dynamicLeaves
-
-    HashTable<PointLight, ShadowCasterCache3D> pointLightCasters
-
-    integer frame = 0
-    integer staticVersion = 0
-
-    CullingVolume3D volume
-    BoundingBox worldBounds
     Vector3 minimum
     Vector3 maximum
     Math math
 
-    on create
-        staticTree:SetMargin(0)
-        dynamicTree:SetMargin(DYNAMIC_MARGIN)
-    end
-
     /*
-    This action adds an item that is not expected to move. If the item does
-    move later, Moved puts it in the dynamic half.
+    This action adds an item that is not expected to move.
 
     Attribute: Parameter item The item to add.
     Attribute: Returns True if the item was added. False if it was already in
@@ -121,6 +93,11 @@ class RenderTree3D
     /*
     This action adds an item that is not expected to move, with the given
     bounds in its own coordinates.
+
+    Attribute: Parameter item The item to add.
+    Attribute: Parameter localBounds The item's bounds in its own coordinates.
+    Attribute: Returns True if the item was added, false if it was already in
+    the tree.
     */
     action Add(Item3D item, BoundingBox localBounds) returns boolean
         return Add(item, localBounds, true)
@@ -139,60 +116,34 @@ class RenderTree3D
     the tree.
     */
     action Add(Item3D item, BoundingBox localBounds, boolean isStatic) returns boolean
-        if item = undefined or Has(item)
-            return false
-        end
-
-        RenderTreeNode3D leaf
-        leaf:SetItem(item)
-        leaf:SetLocalBounds(localBounds)
-        leaf:SetLastMovedFrame(frame)
-        CalculateWorldBounds(leaf, worldBounds)
-
-        if isStatic
-            leaf:SetStatic(true)
-            staticTree:Insert(leaf, worldBounds)
-            staticVersion = staticVersion + 1
-        else
-            dynamicTree:Insert(leaf, worldBounds)
-            dynamicLeaves:Add(leaf)
-        end
-        leaves:Add(item, leaf)
-        return true
+        return false
     end
 
     /*
-    This action removes an item. If the item is a point light, the static
-    shadow casters remembered for it are also forgotten.
+    This action removes an item. If the item is a point light, anything the
+    tree remembered for it is also forgotten.
 
+    Attribute: Parameter item The item to remove.
     Attribute: Returns True if the item was in the tree.
     */
     action Remove(Item3D item) returns boolean
-        if item is PointLight
-            pointLightCasters:RemoveKey(cast(PointLight, item))
-        end
+        return false
+    end
 
-        RenderTreeNode3D leaf = leaves:RemoveKey(item)
-        if leaf = undefined
-            return false
-        end
-
-        if leaf:IsStatic()
-            staticTree:Remove(leaf)
-            staticVersion = staticVersion + 1
-        else
-            dynamicTree:Remove(leaf)
-            dynamicLeaves:Remove(leaf)
-        end
-        leaf:Reset()
-        return true
+    /*
+    This action removes every item.
+    */
+    action Empty
     end
 
     /*
     This action returns true if the item is in the tree.
+
+    Attribute: Parameter item The item to look for.
+    Attribute: Returns True if the item is in the tree.
     */
     action Has(Item3D item) returns boolean
-        return leaves:HasKey(item)
+        return false
     end
 
     /*
@@ -208,20 +159,16 @@ class RenderTree3D
     Attribute: Returns The item's leaf, or undefined if it is not in the tree.
     */
     action GetLeaf(Item3D item) returns RenderTreeNode3D
-        return leaves:GetValue(item)
+        return undefined
     end
 
     /*
     This action tells the tree an item's position, rotation or scale has
-    changed. A static item that has really moved goes to the dynamic half.
-    It looks up the item's leaf each time. Moved(leaf) does not.
+    changed. It looks up the item's leaf each time. Moved(leaf) does not.
+
+    Attribute: Parameter item The item that moved.
     */
     action Moved(Item3D item)
-        RenderTreeNode3D leaf = leaves:GetValue(item)
-        if leaf = undefined
-            return now
-        end
-        Moved(leaf)
     end
 
     /*
@@ -232,78 +179,30 @@ class RenderTree3D
     Attribute: Parameter leaf The leaf GetLeaf returned for the item.
     */
     action Moved(RenderTreeNode3D leaf)
-        if leaf:GetItem() = undefined
-            return now
-        end
-
-        CalculateWorldBounds(leaf, worldBounds)
-        if leaf:IsStatic()
-            // A static leaf's box fits its item exactly, so if the bounds
-            // are unchanged the item has not really moved.
-            if HasSameBounds(leaf:GetBounds(), worldBounds)
-                return now
-            end
-            staticTree:Remove(leaf)
-            staticVersion = staticVersion + 1
-            leaf:SetStatic(false)
-            dynamicTree:Insert(leaf, worldBounds)
-            dynamicLeaves:Add(leaf)
-        else
-            dynamicTree:Move(leaf, worldBounds)
-        end
-        leaf:SetLastMovedFrame(frame)
     end
 
     /*
     This action changes an item's bounds in its own coordinates, for example
     when its mesh or its level of detail changes.
+
+    Attribute: Parameter item The item whose bounds changed.
+    Attribute: Parameter localBounds The item's new bounds in its own
+    coordinates.
     */
     action SetLocalBounds(Item3D item, BoundingBox localBounds)
-        RenderTreeNode3D leaf = leaves:GetValue(item)
-        if leaf = undefined
-            return now
-        end
-        leaf:SetLocalBounds(localBounds)
-        Moved(leaf)
     end
 
     /*
-    This action ends a frame. Every CHECK_INTERVAL frames, dynamic items
-    that have not moved for FRAMES_UNTIL_STATIC frames are moved to the
-    static half.
+    This action ends a frame. Call it once per frame, after drawing.
     */
     action EndFrame
-        frame = frame + 1
-        if frame mod CHECK_INTERVAL not= 0
-            return now
-        end
-
-        // Leaves that are still moving are copied toward the front of the
-        // array, in their order, and the leftover places at the end are
-        // removed. This changes the array in place, without making a new one.
-        integer kept = 0
-        integer index = 0
-        repeat while index < dynamicLeaves:GetSize()
-            RenderTreeNode3D leaf = dynamicLeaves:Get(index)
-            if frame - leaf:GetLastMovedFrame() >= FRAMES_UNTIL_STATIC
-                dynamicTree:Remove(leaf)
-                CalculateWorldBounds(leaf, worldBounds)
-                leaf:SetStatic(true)
-                staticTree:Insert(leaf, worldBounds)
-                staticVersion = staticVersion + 1
-            else
-                dynamicLeaves:Set(kept, leaf)
-                kept = kept + 1
-            end
-            index = index + 1
-        end
-        repeat while dynamicLeaves:GetSize() > kept
-            dynamicLeaves:RemoveFromEnd()
-        end
     end
 
     /*
     This action adds the items the camera can see to the results.
+
+    Attribute: Parameter camera The camera.
+    Attribute: Parameter results The array to add the items to.
     */
     action CollectVisible(Camera camera, Array<Item3D> results)
         CollectVisible(camera:GetCombinedMatrix(), results)
@@ -312,11 +211,11 @@ class RenderTree3D
     /*
     This action adds the items inside the view of the given view-projection
     matrix to the results.
+
+    Attribute: Parameter viewProjection The view-projection matrix.
+    Attribute: Parameter results The array to add the items to.
     */
     action CollectVisible(Matrix4 viewProjection, Array<Item3D> results)
-        volume:Set(viewProjection)
-        staticTree:Collect(volume, results)
-        dynamicTree:Collect(volume, results)
     end
 
     /*
@@ -331,76 +230,49 @@ class RenderTree3D
 
     Attribute: Parameter light The directional light.
     Attribute: Parameter cascade Which cascade, counting from 0.
-    Attribute: Parameter results The list to add the items to.
+    Attribute: Parameter results The array to add the items to.
     */
     action CollectDirectionalShadowCasters(DirectionalLight light, integer cascade, Array<Item3D> results)
-        CascadeShadowData data = light:GetShadowData(cascade)
-        if data = undefined
-            return now
-        end
-        // A directional light's cascade uses only the first of its matrices.
-        volume:Set(data:GetProjectionMatrix(0))
-        staticTree:Collect(volume, results)
-        dynamicTree:Collect(volume, results)
     end
 
     /*
-    This action adds the items within a point light's reach to the results.
-    Static items are found once and remembered, until the light moves, its
-    reach changes, or the static items change.
+    This action adds the items within a point light's reach, as given by its
+    GetRange action, to the results.
+
+    Attribute: Parameter light The point light.
+    Attribute: Parameter results The array to add the items to.
     */
     action CollectPointShadowCasters(PointLight light, Array<Item3D> results)
-        number x = light:GetGlobalX()
-        number y = light:GetGlobalY()
-        number z = light:GetGlobalZ()
-        number range = light:GetRange()
-
-        ShadowCasterCache3D cache = pointLightCasters:GetValue(light)
-        if cache = undefined
-            ShadowCasterCache3D newCache
-            cache = newCache
-            pointLightCasters:Add(light, cache)
-        end
-
-        if not cache:Matches(x, y, z, range, staticVersion)
-            // Removing from the end, rather than Empty(false), clears each
-            // place, so the cache does not keep removed items alive. It
-            // keeps the array's storage, so no new array is made.
-            repeat while not cache:statics:IsEmpty()
-                cache:statics:RemoveFromEnd()
-            end
-            staticTree:Collect(x, y, z, range, cache:statics)
-            cache:Set(x, y, z, range, staticVersion)
-        end
-
-        integer index = 0
-        repeat while index < cache:statics:GetSize()
-            results:Add(cache:statics:Get(index))
-            index = index + 1
-        end
-        dynamicTree:Collect(x, y, z, range, results)
     end
 
     /*
     This action adds the items overlapping a box to the results.
+
+    Attribute: Parameter box The box, in world coordinates.
+    Attribute: Parameter results The array to add the items to.
     */
     action CollectInBox(BoundingBox box, Array<Item3D> results)
-        staticTree:Collect(box, results)
-        dynamicTree:Collect(box, results)
     end
 
     /*
     This action adds the items overlapping a sphere to the results.
+
+    Attribute: Parameter x The x coordinate of the sphere's center.
+    Attribute: Parameter y The y coordinate of the sphere's center.
+    Attribute: Parameter z The z coordinate of the sphere's center.
+    Attribute: Parameter radius The sphere's radius.
+    Attribute: Parameter results The array to add the items to.
     */
     action CollectInSphere(number x, number y, number z, number radius, Array<Item3D> results)
-        staticTree:Collect(x, y, z, radius, results)
-        dynamicTree:Collect(x, y, z, radius, results)
     end
 
     /*
     This action returns true if the item is showing. It does not look at
     the item's parents, so an item whose parent is hidden still counts as
     showing.
+
+    Attribute: Parameter item The item.
+    Attribute: Returns True if the item is showing.
     */
     action IsShowing(Item3D item) returns boolean
         return item:IsShowing()
@@ -411,6 +283,9 @@ class RenderTree3D
     Layer3D draws by walking down from each item, so a hidden parent hides
     its children. The tree holds items on their own, so this checks upward
     instead.
+
+    Attribute: Parameter item The item.
+    Attribute: Returns True if the item and all of its parents are showing.
     */
     action IsShowingWithParents(Item3D item) returns boolean
         Item3D current = item
@@ -425,70 +300,78 @@ class RenderTree3D
 
     /*
     This action returns how many items are in the tree.
+
+    Attribute: Returns The number of items.
     */
     action GetSize returns integer
-        return staticTree:GetSize() + dynamicTree:GetSize()
+        return 0
     end
 
     /*
-    This action returns how many items are in the static half.
+    This action returns how many items are in the static part of the tree,
+    which holds items that are not moving.
+
+    Attribute: Returns The number of static items.
     */
     action GetStaticSize returns integer
-        return staticTree:GetSize()
+        return 0
     end
 
     /*
-    This action returns how many items are in the dynamic half.
+    This action returns how many items are in the dynamic part of the tree,
+    which holds items that are moving.
+
+    Attribute: Returns The number of dynamic items.
     */
     action GetDynamicSize returns integer
-        return dynamicTree:GetSize()
+        return 0
     end
 
     /*
-    This action returns true if the item is in the static half, and false
-    if it is in the dynamic half or not in the tree.
+    This action returns true if the item is in the static part of the tree,
+    and false if it is in the dynamic part or not in the tree.
+
+    Attribute: Parameter item The item.
+    Attribute: Returns True if the item is static.
     */
     action IsStatic(Item3D item) returns boolean
-        RenderTreeNode3D leaf = leaves:GetValue(item)
-        if leaf = undefined
-            return false
-        end
-        return leaf:IsStatic()
+        return false
     end
 
     /*
-    This action returns how many levels the static half has below its root,
-    or -1 when it is empty. A well balanced tree of n items has about the
-    base 2 logarithm of n levels.
+    This action returns how many levels the static part has below its top,
+    or -1 when it is empty. What a level is depends on the kind of tree.
+
+    Attribute: Returns The number of levels.
     */
     action GetStaticHeight returns integer
-        return staticTree:GetHeight()
+        return -1
     end
 
     /*
-    This action returns how many levels the dynamic half has below its root,
+    This action returns how many levels the dynamic part has below its top,
     or -1 when it is empty.
+
+    Attribute: Returns The number of levels.
     */
     action GetDynamicHeight returns integer
-        return dynamicTree:GetHeight()
+        return -1
     end
 
     /*
     This action returns a number that goes up by one every time the static
-    half changes: when an item is added to it or removed from it, when a
-    static item moves and goes to the dynamic half, or when a still item
-    comes back from the dynamic half. Items in the static half never move,
-    so anything worked out from them stays correct until this number
-    changes.
+    part changes. Items in the static part never move, so anything worked
+    out from them stays correct until this number changes.
 
     Use it to keep work that depends only on static items, such as a list of
     the static items within a light's reach, or data prepared for drawing
     static items. Save the number when doing the work, and redo the work
-    only when GetStaticVersion returns a different number. The tree does
-    this itself for point light shadow casters.
+    only when GetStaticVersion returns a different number.
+
+    Attribute: Returns The static version.
     */
     action GetStaticVersion returns integer
-        return staticVersion
+        return 0
     end
 
     /*

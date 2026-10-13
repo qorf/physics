@@ -52,7 +52,10 @@ class RenderTreeCheck
     public constant integer MOVED_ALL = 0
     public constant integer MOVED_AWAKE = 1
 
-    RenderTree3D tree
+    // The render tree being tested. A DynamicVolumeRenderTree unless SetTree
+    // gives another kind.
+    RenderTree3D tree = undefined
+    DynamicVolumeRenderTree defaultTree
     integer movedChoice = MOVED_AWAKE
 
     // How often, in frames, the answers are checked by hand. 0 turns the
@@ -131,6 +134,10 @@ class RenderTreeCheck
     integer unknown = 0
     integer sizeMismatches = 0
 
+    on create
+        tree = defaultTree
+    end
+
     action SetMovedChoice(integer choice)
         movedChoice = choice
     end
@@ -145,6 +152,16 @@ class RenderTreeCheck
 
     action GetTree returns RenderTree3D
         return tree
+    end
+
+    /*
+    This action sets which render tree to test, such as a QuadTree3D or an
+    Octree. Call it before adding any items.
+
+    Attribute: Parameter value The render tree to test.
+    */
+    action SetTree(RenderTree3D value)
+        tree = value
     end
 
     /*
@@ -355,6 +372,36 @@ class RenderTreeCheck
             i = i + 1
         end
 
+        // A check that uses neither the planes, the bounds nor the tree: move
+        // each item's center by the camera's matrix, the way the graphics
+        // card moves every vertex, and count the centers that land on the
+        // screen. Items whose center is just off screen are not counted, so
+        // this is a little lower than the true number, but it should never
+        // be far above the number the tree says would be drawn.
+        Matrix4 m = camera:GetCombinedMatrix()
+        integer centersOnScreen = 0
+        i = 0
+        repeat while i < items:GetSize()
+            Item3D item = items:Get(i)
+            Matrix4 t = item:GetTransform()
+            BoundingBox local = localBounds:GetValue(item)
+            number lx = local:GetCenterX()
+            number ly = local:GetCenterY()
+            number lz = local:GetCenterZ()
+            number wx = t:row0column0 * lx + t:row0column1 * ly + t:row0column2 * lz + t:row0column3
+            number wy = t:row1column0 * lx + t:row1column1 * ly + t:row1column2 * lz + t:row1column3
+            number wz = t:row2column0 * lx + t:row2column1 * ly + t:row2column2 * lz + t:row2column3
+            number cx = m:row0column0 * wx + m:row0column1 * wy + m:row0column2 * wz + m:row0column3
+            number cy = m:row1column0 * wx + m:row1column1 * wy + m:row1column2 * wz + m:row1column3
+            number cz = m:row2column0 * wx + m:row2column1 * wy + m:row2column2 * wz + m:row2column3
+            number cw = m:row3column0 * wx + m:row3column1 * wy + m:row3column2 * wz + m:row3column3
+            if cw > 0 and cx >= -cw and cx <= cw and cy >= -cw and cy <= cw and cz <= cw and
+                    tree:IsShowingWithParents(item)
+                centersOnScreen = centersOnScreen + 1
+            end
+            i = i + 1
+        end
+
         Vector3 position = camera:GetPosition()
         Vector3 direction = camera:GetDirection()
         output "Frame " + totalFrames + ", camera at (" + math:Round(position:GetX(), 1) + ", " +
@@ -365,6 +412,9 @@ class RenderTreeCheck
             tree:GetDynamicSize() + "). Not in the tree, always drawn: " + refused:GetSize()
         output "  Would be drawn: " + drawn + " (" + Percent(drawn, inTree) + "), culled: " +
             (inTree - drawn) + " (" + Percent(inTree - drawn, inTree) + ")"
+        output "  Centers on screen, by the camera matrix alone: " + centersOnScreen
+        output "  Camera matrix row 3 (" + math:Round(m:row3column0, 3) + ", " + math:Round(m:row3column1, 3) + ", " +
+            math:Round(m:row3column2, 3) + ", " + math:Round(m:row3column3, 3) + "), frame " + totalFrames
         if hidden > 0
             output "  In view but hidden, so not drawn: " + hidden
         end

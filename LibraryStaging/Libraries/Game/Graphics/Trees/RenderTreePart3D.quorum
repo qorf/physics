@@ -1,0 +1,187 @@
+package Libraries.Game.Graphics.Trees
+
+use Libraries.Game.BoundingBox
+use Libraries.Containers.Array
+use Libraries.Interface.Item3D
+use Libraries.Compute.Vector3
+
+/*
+RenderTreePart3D is one half of a StaticDynamicRenderTree3D: the static half
+or the dynamic half. It holds leaves, one for each item, and finds the ones
+inside a view, a box or a sphere. The leaves belong to the render tree, which
+moves them between its two halves.
+
+This class has blank actions. Each kind of render tree uses a different
+kind of part:
+
+- RenderBoundingVolumeTree3D, a tree of boxes, for DynamicVolumeRenderTree.
+- RenderCellTree3D, a grid of cells that splits into smaller cells, for
+  QuadTree3D and Octree.
+
+The actions that are the same for every part, such as giving a leaf its box
+with a margin, are written here once, for the parts to share.
+*/
+class RenderTreePart3D
+    // How much bigger than its item a leaf's box is made, on every side.
+    number margin = 0
+
+    Vector3 minimum
+    Vector3 maximum
+
+    /*
+    This action sets how much bigger than its item a leaf's box is made, on
+    every side. A bigger margin means fewer changes as items move, but more
+    items found just outside a view.
+
+    Attribute: Parameter value The margin.
+    */
+    action SetMargin(number value)
+        margin = value
+    end
+
+    /*
+    This action returns how much bigger than its item a leaf's box is made.
+
+    Attribute: Returns The margin.
+    */
+    action GetMargin returns number
+        return margin
+    end
+
+    /*
+    This action returns how many leaves the part holds.
+
+    Attribute: Returns The number of leaves.
+    */
+    action GetSize returns integer
+        return 0
+    end
+
+    /*
+    This action returns how many levels the part has below its top, or -1
+    when it is empty. What a level is depends on the kind of part.
+
+    Attribute: Returns The number of levels.
+    */
+    action GetHeight returns integer
+        return -1
+    end
+
+    /*
+    This action adds a leaf, with a box around the given bounds of its item.
+
+    Attribute: Parameter leaf The leaf to add.
+    Attribute: Parameter itemBounds The item's bounds in the world.
+    */
+    action Insert(RenderTreeNode3D leaf, BoundingBox itemBounds)
+    end
+
+    /*
+    This action removes a leaf. The leaf itself is not reused, since it
+    belongs to the render tree.
+
+    Attribute: Parameter leaf The leaf to remove.
+    */
+    action Remove(RenderTreeNode3D leaf)
+    end
+
+    /*
+    This action updates a leaf whose item has moved.
+
+    Attribute: Parameter leaf The leaf whose item moved.
+    Attribute: Parameter itemBounds The item's new bounds in the world.
+    Attribute: Returns True if the leaf changed place in the part.
+    */
+    action Move(RenderTreeNode3D leaf, BoundingBox itemBounds) returns boolean
+        return false
+    end
+
+    /*
+    This action removes every leaf. The leaves themselves are not changed.
+    */
+    action Empty
+    end
+
+    /*
+    This action adds to the results every item whose box is at least partly
+    inside the volume.
+
+    Attribute: Parameter volume The volume, such as a camera's view.
+    Attribute: Parameter results The array to add the items to.
+    */
+    action Collect(CullingVolume3D volume, Array<Item3D> results)
+    end
+
+    /*
+    This action adds to the results every item whose box overlaps the box.
+
+    Attribute: Parameter box The box, in world coordinates.
+    Attribute: Parameter results The array to add the items to.
+    */
+    action Collect(BoundingBox box, Array<Item3D> results)
+    end
+
+    /*
+    This action adds to the results every item whose box overlaps the sphere
+    with the given center and radius.
+
+    Attribute: Parameter x The x coordinate of the sphere's center.
+    Attribute: Parameter y The y coordinate of the sphere's center.
+    Attribute: Parameter z The z coordinate of the sphere's center.
+    Attribute: Parameter radius The sphere's radius.
+    Attribute: Parameter results The array to add the items to.
+    */
+    action Collect(number x, number y, number z, number radius, Array<Item3D> results)
+    end
+
+    /*
+    This action sets a leaf's box to its item's bounds plus the margin.
+    */
+    private action SetLeafBounds(RenderTreeNode3D leaf, BoundingBox itemBounds)
+        minimum:Set(itemBounds:GetMinimum():GetX() - margin, itemBounds:GetMinimum():GetY() - margin,
+            itemBounds:GetMinimum():GetZ() - margin)
+        maximum:Set(itemBounds:GetMaximum():GetX() + margin, itemBounds:GetMaximum():GetY() + margin,
+            itemBounds:GetMaximum():GetZ() + margin)
+        leaf:GetBounds():Set(minimum, maximum)
+    end
+
+    /*
+    This action returns true if the outer box holds all of the inner box.
+    Equal edges count as inside, so a flat item, such as a plane, fits a
+    box of the same size.
+    */
+    private action Contains(BoundingBox outer, BoundingBox inner) returns boolean
+        return outer:GetMinimum():GetX() <= inner:GetMinimum():GetX() and
+            outer:GetMinimum():GetY() <= inner:GetMinimum():GetY() and
+            outer:GetMinimum():GetZ() <= inner:GetMinimum():GetZ() and
+            inner:GetMaximum():GetX() <= outer:GetMaximum():GetX() and
+            inner:GetMaximum():GetY() <= outer:GetMaximum():GetY() and
+            inner:GetMaximum():GetZ() <= outer:GetMaximum():GetZ()
+    end
+
+    /*
+    This action returns the squared distance from a point to the nearest
+    point of a box, which is 0 when the point is inside it.
+    */
+    private action DistanceSquared(BoundingBox box, number x, number y, number z) returns number
+        number dx = 0
+        number dy = 0
+        number dz = 0
+        if x < box:GetMinimum():GetX()
+            dx = box:GetMinimum():GetX() - x
+        elseif x > box:GetMaximum():GetX()
+            dx = x - box:GetMaximum():GetX()
+        end
+        if y < box:GetMinimum():GetY()
+            dy = box:GetMinimum():GetY() - y
+        elseif y > box:GetMaximum():GetY()
+            dy = y - box:GetMaximum():GetY()
+        end
+        if z < box:GetMinimum():GetZ()
+            dz = box:GetMinimum():GetZ() - z
+        elseif z > box:GetMaximum():GetZ()
+            dz = z - box:GetMaximum():GetZ()
+        end
+        return dx * dx + dy * dy + dz * dz
+    end
+end

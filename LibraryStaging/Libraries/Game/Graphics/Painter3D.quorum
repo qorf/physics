@@ -1,0 +1,26 @@
+package Libraries.Game.Graphics
+
+class Painter3D
+    
+blueprint action SetCamera(Camera camera)
+    
+    blueprint action Begin
+    
+    blueprint action End
+    
+    blueprint action SetSkybox(Skybox skybox)
+    
+    blueprint action SetEnvironment(Environment environment)
+    
+    blueprint action Render(Model model)
+
+    /*
+    This action draws a model only into shadows, not into the scene. Layer3D
+    uses it, when culling, for models the camera cannot see that may still
+    cast a shadow into view. A painter without shadows does nothing.
+
+    Attribute: Parameter model The model that may cast a shadow.
+    */
+    blueprint action RenderShadowCaster(Model model)
+    
+end
