@@ -1,0 +1,313 @@
+package Rendering2D
+
+use Libraries.Containers.Array
+
+/*
+QuadTreeCell2D is one square of a QuadTree2D. It holds the leaves of the
+items that fit in it but not in one of its smaller children, and it can be
+split into 4 children, each half its size. It is the 2D partner of
+RenderTreeCell3D, and works the same way.
+
+The cell is "loose": the rectangle used to test it is twice its size,
+centered on the same point. An item is placed by its center, so an item up
+to the size of a cell always fits inside that cell's loose rectangle, even
+when it crosses the cell's edge.
+
+The cell counts the leaves in it and in all of its children, so a search
+can skip a cell with nothing in it.
+
+Attribute: Example
+
+use Rendering2D.QuadTreeCell2D
+
+// A square 10 wide centered on the origin. Its loose rectangle is 20 wide.
+QuadTreeCell2D cell
+cell:SetPlace(0, 0, 10)
+output cell:DistanceSquared(13, 0)
+*/
+class QuadTreeCell2D
+    QuadTreeCell2D parentCell = undefined
+
+    // The children, when the cell has been split. Empty otherwise.
+    Array<QuadTreeCell2D> children
+
+    // The leaves of the items placed in this cell, not in its children.
+    Array<RenderTreeNode2D> leaves
+
+    // How many leaves are in this cell and all of its children.
+    integer count = 0
+
+    // How many levels this cell is below the top cell, which is 0.
+    integer depth = 0
+
+    // The center of the cell and the length of its sides.
+    number centerX = 0
+    number centerY = 0
+    number size = 0
+
+    /*
+    This action sets where the cell is.
+
+    Attribute: Parameter x The x coordinate of the cell's center.
+    Attribute: Parameter y The y coordinate of the cell's center.
+    Attribute: Parameter sideLength The length of the cell's sides.
+    */
+    action SetPlace(number x, number y, number sideLength)
+        centerX = x
+        centerY = y
+        size = sideLength
+    end
+
+    /*
+    This action returns the x coordinate of the square's center.
+
+    Attribute: Returns The x coordinate of the center.
+    */
+    action GetCenterX returns number
+        return centerX
+    end
+
+    /*
+    This action returns the y coordinate of the square's center.
+
+    Attribute: Returns The y coordinate of the center.
+    */
+    action GetCenterY returns number
+        return centerY
+    end
+
+    /*
+    This action returns the length of the square's sides. The loose rectangle
+    is twice this.
+
+    Attribute: Returns The length of the square's sides.
+    */
+    action GetSize returns number
+        return size
+    end
+
+    /*
+    This action returns the left edge (smallest x) of the square's loose rectangle, which is
+    twice the square's size.
+
+    Attribute: Returns The left edge (smallest x) of the loose rectangle.
+    */
+    action GetLooseMinimumX returns number
+        return centerX - size
+    end
+
+    /*
+    This action returns the bottom edge (smallest y) of the square's loose rectangle, which is
+    twice the square's size.
+
+    Attribute: Returns The bottom edge (smallest y) of the loose rectangle.
+    */
+    action GetLooseMinimumY returns number
+        return centerY - size
+    end
+
+    /*
+    This action returns the right edge (largest x) of the square's loose rectangle, which is
+    twice the square's size.
+
+    Attribute: Returns The right edge (largest x) of the loose rectangle.
+    */
+    action GetLooseMaximumX returns number
+        return centerX + size
+    end
+
+    /*
+    This action returns the top edge (largest y) of the square's loose rectangle, which is
+    twice the square's size.
+
+    Attribute: Returns The top edge (largest y) of the loose rectangle.
+    */
+    action GetLooseMaximumY returns number
+        return centerY + size
+    end
+
+    /*
+    This action returns the squared distance from a point to the nearest
+    point of the cell's loose rectangle, which is 0 when the point is inside
+    it.
+
+    Attribute: Parameter x The point's x coordinate.
+    Attribute: Parameter y The point's y coordinate.
+    Attribute: Returns The squared distance.
+    */
+    action DistanceSquared(number x, number y) returns number
+        number dx = 0
+        number dy = 0
+        if x < centerX - size
+            dx = centerX - size - x
+        elseif x > centerX + size
+            dx = x - (centerX + size)
+        end
+        if y < centerY - size
+            dy = centerY - size - y
+        elseif y > centerY + size
+            dy = y - (centerY + size)
+        end
+        return dx * dx + dy * dy
+    end
+
+    /*
+    This action returns how many levels this square is below the top square,
+    which is 0.
+
+    Attribute: Returns The square's level.
+    */
+    action GetDepth returns integer
+        return depth
+    end
+
+    /*
+    This action sets how many levels this square is below the top square.
+
+    Attribute: Parameter value The square's level, 0 for the top square.
+    */
+    action SetDepth(integer value)
+        depth = value
+    end
+
+    /*
+    This action returns the square this square was split from, or undefined
+    for the top square.
+
+    Attribute: Returns The parent square, or undefined.
+    */
+    action GetParentCell returns QuadTreeCell2D
+        return parentCell
+    end
+
+    /*
+    This action sets the square this square was split from.
+
+    Attribute: Parameter value The parent square, or undefined for the top
+    square.
+    */
+    action SetParentCell(QuadTreeCell2D value)
+        parentCell = value
+    end
+
+    /*
+    This action returns true if the square has been split into children.
+
+    Attribute: Returns True if the square has children.
+    */
+    action HasChildren returns boolean
+        return not children:IsEmpty()
+    end
+
+    /*
+    This action returns how many children the square has: 0 or 4.
+
+    Attribute: Returns The number of children.
+    */
+    action GetChildCount returns integer
+        return children:GetSize()
+    end
+
+    /*
+    This action returns one of the square's children.
+
+    Attribute: Parameter index Which child, counting from 0.
+    Attribute: Returns The child.
+    */
+    action GetChild(integer index) returns QuadTreeCell2D
+        return children:Get(index)
+    end
+
+    /*
+    This action adds a child to the square.
+
+    Attribute: Parameter child The child to add.
+    */
+    action AddChild(QuadTreeCell2D child)
+        children:Add(child)
+    end
+
+    /*
+    This action returns how many leaves are in this square and all of its
+    children.
+
+    Attribute: Returns The number of leaves.
+    */
+    action GetCount returns integer
+        return count
+    end
+
+    /*
+    This action sets the count of leaves in this square and its children,
+    without changing the squares above. AddToCount uses it.
+
+    Attribute: Parameter value The number of leaves.
+    */
+    action SetCount(integer value)
+        count = value
+    end
+
+    /*
+    This action changes the count of leaves in this cell and every cell
+    above it.
+
+    Attribute: Parameter change How much to add, such as 1 or -1.
+    */
+    action AddToCount(integer change)
+        QuadTreeCell2D current = me
+        repeat while current not= undefined
+            current:SetCount(current:GetCount() + change)
+            current = current:GetParentCell()
+        end
+    end
+
+    /*
+    This action returns how many leaves are in this square itself, not in its
+    children.
+
+    Attribute: Returns The number of leaves in this square.
+    */
+    action GetLeafCount returns integer
+        return leaves:GetSize()
+    end
+
+    /*
+    This action returns one of the leaves in this square itself.
+
+    Attribute: Parameter index Which leaf, counting from 0.
+    Attribute: Returns The leaf.
+    */
+    action GetLeaf(integer index) returns RenderTreeNode2D
+        return leaves:Get(index)
+    end
+
+    /*
+    This action puts a leaf in this square and records the square and the
+    leaf's place on the leaf. The counts are not changed; see AddToCount.
+
+    Attribute: Parameter leaf The leaf to put in this square.
+    */
+    action AddLeaf(RenderTreeNode2D leaf)
+        leaf:SetCell(me)
+        leaf:SetCellIndex(leaves:GetSize())
+        leaves:Add(leaf)
+    end
+
+    /*
+    This action takes a leaf out of this square. The last leaf in the list
+    takes its place, so nothing is shifted, and that leaf's place is updated.
+    The counts are not changed; see AddToCount.
+
+    Attribute: Parameter leaf The leaf to take out. It must be in this square.
+    */
+    action RemoveLeaf(RenderTreeNode2D leaf)
+        integer index = leaf:GetCellIndex()
+        RenderTreeNode2D last = leaves:RemoveFromEnd()
+        if last not= leaf
+            leaves:Set(index, last)
+            last:SetCellIndex(index)
+        end
+        leaf:SetCell(undefined)
+        leaf:SetCellIndex(-1)
+    end
+end

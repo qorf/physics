@@ -1,0 +1,340 @@
+package RenderingChecks
+
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Models.ModelBlueprint
+use Libraries.Game.Layer3D
+use Libraries.Compute.Matrix4
+use Libraries.Compute.Vector3
+
+/*
+Model2 is a Model that tells its TreeLayer3D when something about it
+changes, so the layer does not have to look for changes every frame. It is a
+test of hooks that could be added to Item3D in the standard library. It
+works on any layer. On a layer other than a TreeLayer3D, it tells no one.
+
+It reports three kinds of change:
+
+- Moving, turning or resizing. Every action that changes its position,
+  rotation or scale ends in one of the actions replaced here, including
+  moves made by physics, by a parent moving its children, and by loading
+  with a matrix. The model reports this once, and then not again until the
+  layer has handled it, however many times it moves in between.
+- Its size changing, as when a model finishes loading, so the layer can
+  give it new bounds.
+- Physics starting or stopping simulating it, through its
+  ReportingPhysicsProperties3D, and its physics being turned on or off.
+
+Attribute: Example
+
+use Libraries.Game.Game
+use Libraries.Game.Graphics.Color
+use RenderingChecks.TreeLayer3D
+use RenderingChecks.Model2
+
+class Main is Game
+    action Main
+        StartGame()
+    end
+
+    action CreateGame
+        TreeLayer3D layer
+        SetLayer(0, layer)
+        SetCurrentLayer3D(layer)
+
+        Color color
+        Model2 box
+        box:LoadBox(1, 1, 1, color:Teal())
+        box:SetPosition(0, 0, 5)
+        Add(box)
+    end
+end
+*/
+class Model2 is Model
+    // True after this model has told its layer it moved, until the layer
+    // has handled the move.
+    boolean moveReported = false
+
+    /*
+    This action returns true if this model has reported a move its layer
+    has not handled yet.
+
+    Attribute: Returns True if a move is waiting to be handled.
+    */
+    action IsMoveReported returns boolean
+        return moveReported
+    end
+
+    /*
+    This action sets whether a move is waiting to be handled. The layer sets
+    it back to false once it has handled the move.
+
+    Attribute: Parameter value False once the move has been handled.
+    */
+    action SetMoveReported(boolean value)
+        moveReported = value
+    end
+
+    /*
+    This action moves the model sideways relative to its parent, as Model
+    does, and reports the move.
+
+    Attribute: Parameter xAmount The new offset along x.
+    */
+    action SetOffsetX(number xAmount)
+        parent:Model:SetOffsetX(xAmount)
+        ReportMove()
+    end
+
+    /*
+    This action moves the model up or down relative to its parent, as Model
+    does, and reports the move.
+
+    Attribute: Parameter yAmount The new offset along y.
+    */
+    action SetOffsetY(number yAmount)
+        parent:Model:SetOffsetY(yAmount)
+        ReportMove()
+    end
+
+    /*
+    This action moves the model forward or back relative to its parent, as
+    Model does, and reports the move.
+
+    Attribute: Parameter zAmount The new offset along z.
+    */
+    action SetOffsetZ(number zAmount)
+        parent:Model:SetOffsetZ(zAmount)
+        ReportMove()
+    end
+
+    /*
+    This action sets the model's offset from its parent, as Model does, and
+    reports the move. Every move of the model ends in this action or one of
+    the three above.
+
+    Attribute: Parameter xAmount The new offset along x.
+    Attribute: Parameter yAmount The new offset along y.
+    Attribute: Parameter zAmount The new offset along z.
+    */
+    action SetOffset(number xAmount, number yAmount, number zAmount)
+        parent:Model:SetOffset(xAmount, yAmount, zAmount)
+        ReportMove()
+    end
+
+    /*
+    This action sets the model's rotation from a matrix, as Model does, and
+    reports the move.
+
+    Attribute: Parameter source The matrix to copy the rotation from.
+    */
+    action SetRotationTransform(Matrix4 source)
+        parent:Model:SetRotationTransform(source)
+        ReportMove()
+    end
+
+    /*
+    This action turns the model, as Model does, and reports the move. Every
+    other way of turning the model goes through this action.
+
+    Attribute: Parameter vector The axis to turn around.
+    Attribute: Parameter degrees How far to turn, in degrees.
+    Attribute: Parameter rotateChildren True to turn the children too.
+    */
+    action Rotate(Vector3 vector, number degrees, boolean rotateChildren)
+        parent:Model:Rotate(vector, degrees, rotateChildren)
+        ReportMove()
+    end
+
+    /*
+    This action sets the model's rotation from angles, as Model does, and
+    reports the move.
+
+    Attribute: Parameter yaw The turn around the up direction, in degrees.
+    Attribute: Parameter pitch The tilt up or down, in degrees.
+    Attribute: Parameter roll The tilt to the side, in degrees.
+    */
+    action SetYawPitchRoll(number yaw, number pitch, number roll)
+        parent:Model:SetYawPitchRoll(yaw, pitch, roll)
+        ReportMove()
+    end
+
+    /*
+    This action scales the model, as Model does, and reports the move.
+    Every other way of scaling it by an amount goes through this action.
+
+    Attribute: Parameter vector How much to scale along each direction.
+    Attribute: Parameter scaleChildren True to scale the children too.
+    */
+    action Scale(Vector3 vector, boolean scaleChildren)
+        parent:Model:Scale(vector, scaleChildren)
+        ReportMove()
+    end
+
+    /*
+    This action sets the model's scale, as Model does, and reports the move.
+
+    Attribute: Parameter scaleX The scale along x.
+    Attribute: Parameter scaleY The scale along y.
+    Attribute: Parameter scaleZ The scale along z.
+    Attribute: Parameter scaleChildren True to scale the children too.
+    */
+    action SetScale(number scaleX, number scaleY, number scaleZ, boolean scaleChildren)
+        parent:Model:SetScale(scaleX, scaleY, scaleZ, scaleChildren)
+        ReportMove()
+    end
+
+    /*
+    This action copies the model's physics position to what is drawn, as
+    Model does, and reports the move.
+    */
+    action SetScreenPositionFromPhysicsPosition
+        parent:Model:SetScreenPositionFromPhysicsPosition()
+        ReportMove()
+    end
+
+    /*
+    This action loads the model from a blueprint and places it with a
+    matrix, as Model does. Every other way of loading goes through this
+    action. Loading sets the model's size, which is reported by
+    SetDimensions, and the matrix moves it.
+
+    Attribute: Parameter loader The blueprint to load.
+    Attribute: Parameter matrix The matrix to place the model with, or
+    undefined.
+    */
+    action Load(ModelBlueprint loader, Matrix4 matrix)
+        parent:Model:Load(loader, matrix)
+        if matrix not= undefined
+            ReportMove()
+        end
+    end
+
+    /*
+    This action sets the model's width, as Model does, and reports the new
+    size.
+
+    Attribute: Parameter setWidth The new width.
+    */
+    action SetWidth(number setWidth)
+        parent:Model:SetWidth(setWidth)
+        ReportResize()
+    end
+
+    /*
+    This action sets the model's height, as Model does, and reports the new
+    size.
+
+    Attribute: Parameter setHeight The new height.
+    */
+    action SetHeight(number setHeight)
+        parent:Model:SetHeight(setHeight)
+        ReportResize()
+    end
+
+    /*
+    This action sets the model's depth, as Model does, and reports the new
+    size.
+
+    Attribute: Parameter setDepth The new depth.
+    */
+    action SetDepth(number setDepth)
+        parent:Model:SetDepth(setDepth)
+        ReportResize()
+    end
+
+    /*
+    This action sets the model's width, height and depth, as Model does,
+    and reports the new size.
+
+    Attribute: Parameter setWidth The new width.
+    Attribute: Parameter setHeight The new height.
+    Attribute: Parameter setDepth The new depth.
+    */
+    action SetDimensions(number setWidth, number setHeight, number setDepth)
+        parent:Model:SetDimensions(setWidth, setHeight, setDepth)
+        ReportResize()
+    end
+
+    /*
+    This action sets the model's width, height and depth from a vector, as
+    Model does, and reports the new size. Loading a model uses this action.
+
+    Attribute: Parameter vector The new width, height and depth.
+    */
+    action SetDimensions(Vector3 vector)
+        parent:Model:SetDimensions(vector)
+        ReportResize()
+    end
+
+    /*
+    This action turns physics on or off, as Model does. When it turns
+    physics on, the model's physics data is a ReportingPhysicsProperties3D,
+    so the model hears when it wakes or falls asleep. Either way, the
+    layer is told.
+
+    Attribute: Parameter flag True to turn physics on.
+    */
+    action EnablePhysics(boolean flag)
+        parent:Model:EnablePhysics(flag)
+        if flag
+            ReportingPhysicsProperties3D reporting
+            reporting:SetItem(me)
+            parent:Item3D:properties = reporting
+        end
+
+        TreeLayer3D layer = GetTreeLayer()
+        if layer not= undefined
+            layer:PhysicsChanged(me)
+        end
+    end
+
+    /*
+    This action tells the layer that physics started or stopped simulating
+    this model. The model's ReportingPhysicsProperties3D calls it.
+    */
+    action SimulationChanged
+        TreeLayer3D layer = GetTreeLayer()
+        if layer not= undefined
+            layer:BodySimulationChanged(me)
+        end
+    end
+
+    /*
+    This action tells the layer this model moved, unless it already has and
+    the layer has not handled it yet.
+    */
+    private action ReportMove
+        if moveReported
+            return now
+        end
+        TreeLayer3D layer = GetTreeLayer()
+        if layer not= undefined
+            moveReported = true
+            layer:ItemMoved(me)
+        end
+    end
+
+    /*
+    This action tells the layer this model's size changed.
+    */
+    private action ReportResize
+        TreeLayer3D layer = GetTreeLayer()
+        if layer not= undefined
+            layer:ItemResized(me)
+        end
+    end
+
+    /*
+    This action returns this model's layer if it is a TreeLayer3D, or
+    undefined otherwise.
+
+    Attribute: Returns The layer, or undefined.
+    */
+    private action GetTreeLayer returns TreeLayer3D
+        Layer3D layer = GetLayer()
+        if layer is TreeLayer3D
+            return cast(TreeLayer3D, layer)
+        end
+        return undefined
+    end
+end

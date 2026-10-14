@@ -1,7 +1,7 @@
 package Libraries.Game.Graphics.Trees
 
 /*
-Octree is a render tree that divides space into cubes, and each cube into
+Octree3D is a render tree that divides space into cubes, and each cube into
 eight smaller cubes, as needed. It is a good choice for a scene spread out
 in every direction, such as space, or a city with tall buildings.
 
@@ -9,11 +9,28 @@ Set the region the cubes cover with SetRegion, ideally before adding items.
 Items outside the region still work, but are tested one by one.
 
 Its two parts are RenderCellTree3D grids that split all three directions.
-The cells are loose, so an item is placed by its center and size alone, and
-moving an item rarely changes the tree. Everything else, the actions every
-render tree has, comes from StaticDynamicRenderTree3D.
+The cubes themselves are made and searched by RenderCellTree3D, which
+QuadTree3D also uses. The cubes are loose, so an item is placed by its
+center and size alone, and moving an item rarely changes the tree.
+Everything else, the actions every render tree has, comes from
+StaticDynamicRenderTree3D.
+
+Attribute: Example
+
+use Libraries.Game.Graphics.Trees.Octree3D
+use Libraries.Interface.Item3D
+use Libraries.Containers.Array
+
+Octree3D tree
+tree:SetRegion(-100, -100, -100, 100, 100, 100)
+Item3D box
+box:SetDimensions(1, 1, 1)
+tree:Add(box)
+Array<Item3D> found
+tree:CollectInSphere(0, 0, 0, 5, found)
+output found:GetSize()
 */
-class Octree is StaticDynamicRenderTree3D
+class Octree3D is StaticDynamicRenderTree3D
     RenderCellTree3D staticCells
     RenderCellTree3D dynamicCells
 
@@ -43,7 +60,8 @@ class Octree is StaticDynamicRenderTree3D
     /*
     This action sets how many times a cube can be divided. Each level halves
     the size. Deeper cubes fit small items more tightly, but searches visit
-    more cubes. The default is 8.
+    more cubes. The default is 8. Items already in the tree are placed
+    again.
 
     Attribute: Parameter depth The deepest level, at least 0.
     */
@@ -52,6 +70,11 @@ class Octree is StaticDynamicRenderTree3D
         dynamicCells:SetMaximumDepth(depth)
     end
 
+    /*
+    This action returns how many times a cube can be divided.
+
+    Attribute: Returns The deepest level a cube can be at.
+    */
     action GetMaximumDepth returns integer
         return staticCells:GetMaximumDepth()
     end

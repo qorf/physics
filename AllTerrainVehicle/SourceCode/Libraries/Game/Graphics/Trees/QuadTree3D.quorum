@@ -1,4 +1,4 @@
-package Rendering
+package Libraries.Game.Graphics.Trees
 
 /*
 QuadTree3D is a render tree that divides the ground into squares, and each
@@ -10,9 +10,25 @@ Set the region the squares cover with SetRegion, ideally before adding
 items. Items outside the region still work, but are tested one by one.
 
 Its two parts are RenderCellTree3D grids that do not split the height. The
-cells are loose, so an item is placed by its center and size alone, and
-moving an item rarely changes the tree. Everything else, the actions every
-render tree has, comes from StaticDynamicRenderTree3D.
+squares themselves are made and searched by RenderCellTree3D, which Octree3D
+also uses. The squares are loose, so an item is placed by its center and
+size alone, and moving an item rarely changes the tree. Everything else,
+the actions every render tree has, comes from StaticDynamicRenderTree3D.
+
+Attribute: Example
+
+use Libraries.Game.Graphics.Trees.QuadTree3D
+use Libraries.Interface.Item3D
+use Libraries.Containers.Array
+
+QuadTree3D tree
+tree:SetRegion(-100, -10, -100, 100, 50, 100)
+Item3D box
+box:SetDimensions(1, 1, 1)
+tree:Add(box)
+Array<Item3D> found
+tree:CollectInSphere(0, 0, 0, 5, found)
+output found:GetSize()
 */
 class QuadTree3D is StaticDynamicRenderTree3D
     RenderCellTree3D staticCells
@@ -45,7 +61,8 @@ class QuadTree3D is StaticDynamicRenderTree3D
     /*
     This action sets how many times a square can be divided. Each level
     halves the size. Deeper squares fit small items more tightly, but
-    searches visit more squares. The default is 8.
+    searches visit more squares. The default is 8. Items already in the
+    tree are placed again.
 
     Attribute: Parameter depth The deepest level, at least 0.
     */
@@ -54,6 +71,11 @@ class QuadTree3D is StaticDynamicRenderTree3D
         dynamicCells:SetMaximumDepth(depth)
     end
 
+    /*
+    This action returns how many times a square can be divided.
+
+    Attribute: Returns The deepest level a square can be at.
+    */
     action GetMaximumDepth returns integer
         return staticCells:GetMaximumDepth()
     end

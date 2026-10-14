@@ -54,7 +54,7 @@ use Libraries.Game.Physics.PhysicsBehavior3D
 use Libraries.Game.Graphics.Model
 use Libraries.Game.Graphics.Models.ModelBlueprint
 use Libraries.Game.Graphics.Trees.RenderTree3D
-use Libraries.Game.Graphics.Trees.DynamicVolumeRenderTree
+use Libraries.Game.Graphics.Trees.DynamicVolumeRenderTree3D
 use Libraries.Game.Graphics.Trees.RenderTreeNode3D
 use Libraries.Game.BoundingBox
 use Libraries.Containers.HashTable
@@ -167,8 +167,8 @@ class Layer3D is Layer
     */
     boolean cullingEnabled = false
 
-    // The render tree used for culling. A DynamicVolumeRenderTree unless
-    // SetRenderTree gives another kind, such as a QuadTree3D or an Octree.
+    // The render tree used for culling. A DynamicVolumeRenderTree3D unless
+    // SetRenderTree gives another kind, such as a QuadTree3D or an Octree3D.
     RenderTree3D renderTree = undefined
 
     // Models the render tree does not hold, because their bounds cannot be
@@ -194,7 +194,7 @@ class Layer3D is Layer
     on create
         SetName("Layer3D")
 
-        DynamicVolumeRenderTree defaultRenderTree
+        DynamicVolumeRenderTree3D defaultRenderTree
         renderTree = defaultRenderTree
 
         PerspectiveCamera cam
@@ -1482,10 +1482,10 @@ Painter3D painter = GetPainter()
 
     /*
     This action changes the kind of render tree used for culling. The layer
-    starts with a DynamicVolumeRenderTree, which suits most scenes. A
+    starts with a DynamicVolumeRenderTree3D, which suits most scenes. A
     QuadTree3D may suit a mostly flat, spread out scene, such as terrain, and
-    an Octree a scene spread out in every direction. Set a QuadTree3D's or
-    Octree's region before passing it in.
+    an Octree3D a scene spread out in every direction. Set a QuadTree3D's or
+    Octree3D's region before passing it in.
 
     The tree can be changed at any time. Anything already in the given tree
     is removed. If culling is on, every model on the layer is moved into the

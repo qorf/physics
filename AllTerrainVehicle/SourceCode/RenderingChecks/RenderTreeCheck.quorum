@@ -1,5 +1,11 @@
-package Rendering
+package RenderingChecks
 
+use Libraries.Game.Graphics.Trees.RenderTree3D
+use Libraries.Game.Graphics.Trees.DynamicVolumeRenderTree3D
+use Libraries.Game.Graphics.Trees.QuadTree3D
+use Libraries.Game.Graphics.Trees.Octree3D
+use Libraries.Game.Graphics.Trees.RenderTreeNode3D
+use Libraries.Game.Graphics.Trees.CullingVolume3D
 use Libraries.Containers.Array
 use Libraries.Containers.HashTable
 use Libraries.Interface.Item3D
@@ -52,10 +58,10 @@ class RenderTreeCheck
     public constant integer MOVED_ALL = 0
     public constant integer MOVED_AWAKE = 1
 
-    // The render tree being tested. A DynamicVolumeRenderTree unless SetTree
+    // The render tree being tested. A DynamicVolumeRenderTree3D unless SetTree
     // gives another kind.
     RenderTree3D tree = undefined
-    DynamicVolumeRenderTree defaultTree
+    DynamicVolumeRenderTree3D defaultTree
     integer movedChoice = MOVED_AWAKE
 
     // How often, in frames, the answers are checked by hand. 0 turns the
@@ -156,7 +162,7 @@ class RenderTreeCheck
 
     /*
     This action sets which render tree to test, such as a QuadTree3D or an
-    Octree. Call it before adding any items.
+    Octree3D. Call it before adding any items.
 
     Attribute: Parameter value The render tree to test.
     */

@@ -1,0 +1,281 @@
+package Rendering2D
+
+use Libraries.Containers.Array
+use Libraries.Interface.Item2D
+use Libraries.Game.Graphics.Camera
+use Libraries.Compute.Matrix4
+
+/*
+RenderTree2D keeps track of where every item in a 2D scene is, so that a
+Layer2D can draw only the items the camera can see. It is the 2D partner of
+RenderTree3D. It answers these questions:
+
+- Which items can the camera see? (CollectVisible)
+- Which items overlap a rectangle, a circle or a point? (CollectInRectangle,
+  CollectInCircle, CollectAtPoint), for example to find what the mouse is
+  over.
+
+This class only describes what a 2D render tree does. Most of its actions
+are blank. Use one of the kinds of render tree, which can be swapped for one
+another because they all have these actions:
+
+- DynamicVolumeRenderTree2D, a tree of rectangles that fit around the items,
+  like the one 2D physics uses. A good choice for most scenes, and for
+  scenes whose items are bunched together unevenly, since the tree shapes
+  itself around them and needs no region set ahead of time.
+- QuadTree2D, which divides a region of the world into squares. A good
+  choice for a large world whose items are spread out fairly evenly, such
+  as a tile map, and where items move a lot, since moving an item rarely
+  changes the tree.
+
+An item's rectangle is the one its GetBoundingRectangle action gives, which
+covers its corners after rotation and scaling.
+
+Each answer is added to an Array the caller passes in. The caller empties the
+array when it starts a new frame or search, with Empty(false), so the array
+keeps its storage and no new one is made. The answers include hidden items;
+the caller can leave them out with IsShowing or IsShowingWithParents.
+
+A render tree does not watch items for changes. Whoever owns it, such as
+Layer2D, calls Moved for each item whose position, rotation, scale or size
+has changed, once per frame before drawing.
+
+An item with no size, such as one only used to group other items, is not
+added, and Add returns false. Its owner draws it without asking the tree.
+
+The few actions here that are not blank are the same for every kind of
+tree: CollectVisible, which turns the camera's view into a rectangle and
+passes it to CollectInRectangle, CollectAtPoint, IsShowing and
+IsShowingWithParents.
+
+Attribute: Example
+
+use Rendering2D.RenderTree2D
+use Rendering2D.DynamicVolumeRenderTree2D
+use Libraries.Interface.Item2D
+use Libraries.Containers.Array
+
+DynamicVolumeRenderTree2D volumeTree
+RenderTree2D tree = volumeTree
+Item2D item
+item:SetSize(10, 10)
+tree:Add(item)
+Array<Item2D> found
+tree:CollectAtPoint(5, 5, found)
+output found:GetSize()
+*/
+class RenderTree2D
+    /*
+    This action adds an item.
+
+    Attribute: Parameter item The item to add.
+    Attribute: Returns True if the item was added. False if it was already in
+    the tree, or has no size.
+    */
+    action Add(Item2D item) returns boolean
+        return false
+    end
+
+    /*
+    This action removes an item.
+
+    Attribute: Parameter item The item to remove.
+    Attribute: Returns True if the item was in the tree.
+    */
+    action Remove(Item2D item) returns boolean
+        return false
+    end
+
+    /*
+    This action removes every item.
+    */
+    action Empty
+    end
+
+    /*
+    This action returns true if the item is in the tree.
+
+    Attribute: Parameter item The item to look for.
+    Attribute: Returns True if the item is in the tree.
+    */
+    action Has(Item2D item) returns boolean
+        return false
+    end
+
+    /*
+    This action returns the leaf that holds an item, or undefined if the
+    item is not in the tree. Finding it means a lookup in a hash table, so
+    an owner that tells the tree about moves every frame should get each
+    item's leaf once, after adding the item, keep it, and pass it to
+    Moved(leaf) instead of the item. The leaf must not be used after the
+    item is removed, and its setters must not be called from outside the
+    tree.
+
+    Attribute: Parameter item The item to find.
+    Attribute: Returns The item's leaf, or undefined if it is not in the tree.
+    */
+    action GetLeaf(Item2D item) returns RenderTreeNode2D
+        return undefined
+    end
+
+    /*
+    This action tells the tree an item's position, rotation, scale or size
+    has changed. It looks up the item's leaf each time. Moved(leaf) does not.
+
+    Attribute: Parameter item The item that moved.
+    */
+    action Moved(Item2D item)
+    end
+
+    /*
+    This action does the same as Moved(item), for the leaf GetLeaf returned
+    for that item, without looking it up. A leaf whose item has been
+    removed is ignored.
+
+    Attribute: Parameter leaf The leaf GetLeaf returned for the item.
+    */
+    action Moved(RenderTreeNode2D leaf)
+    end
+
+    /*
+    This action adds the items the camera can see to the results. The
+    camera's view is found from its inverse combined matrix, so it should
+    have been updated this frame. A turned camera's view is covered by the
+    smallest rectangle around it, so a few extra items may be found.
+
+    Attribute: Parameter camera The camera.
+    Attribute: Parameter results The array to add the items to.
+    */
+    action CollectVisible(Camera camera, Array<Item2D> results)
+        Matrix4 inverse = camera:GetInverseCombinedMatrix()
+        number minimumX = 0
+        number minimumY = 0
+        number maximumX = 0
+        number maximumY = 0
+
+        // Each corner of the screen, from -1 to 1 in x and y, is turned back
+        // into a place in the world.
+        integer corner = 0
+        repeat while corner < 4
+            number clipX = -1
+            if corner mod 2 = 1
+                clipX = 1
+            end
+            number clipY = -1
+            if corner >= 2
+                clipY = 1
+            end
+
+            number w = inverse:row3column0 * clipX + inverse:row3column1 * clipY + inverse:row3column3
+            if w = 0
+                w = 1
+            end
+            number x = (inverse:row0column0 * clipX + inverse:row0column1 * clipY + inverse:row0column3) / w
+            number y = (inverse:row1column0 * clipX + inverse:row1column1 * clipY + inverse:row1column3) / w
+
+            if corner = 0 or x < minimumX
+                minimumX = x
+            end
+            if corner = 0 or y < minimumY
+                minimumY = y
+            end
+            if corner = 0 or x > maximumX
+                maximumX = x
+            end
+            if corner = 0 or y > maximumY
+                maximumY = y
+            end
+            corner = corner + 1
+        end
+        CollectInRectangle(minimumX, minimumY, maximumX - minimumX, maximumY - minimumY, results)
+    end
+
+    /*
+    This action adds the items overlapping a rectangle to the results.
+
+    Attribute: Parameter x The x coordinate of the rectangle's left edge.
+    Attribute: Parameter y The y coordinate of the rectangle's bottom edge.
+    Attribute: Parameter width The rectangle's width.
+    Attribute: Parameter height The rectangle's height.
+    Attribute: Parameter results The array to add the items to.
+    */
+    action CollectInRectangle(number x, number y, number width, number height, Array<Item2D> results)
+    end
+
+    /*
+    This action adds the items whose rectangles hold a point to the results,
+    such as the items under the mouse. Items are found by their rectangles,
+    so a turned or round item may be found near its corners.
+
+    Attribute: Parameter x The point's x coordinate.
+    Attribute: Parameter y The point's y coordinate.
+    Attribute: Parameter results The array to add the items to.
+    */
+    action CollectAtPoint(number x, number y, Array<Item2D> results)
+        CollectInRectangle(x, y, 0, 0, results)
+    end
+
+    /*
+    This action adds the items whose rectangles overlap a circle to the
+    results.
+
+    Attribute: Parameter x The x coordinate of the circle's center.
+    Attribute: Parameter y The y coordinate of the circle's center.
+    Attribute: Parameter radius The circle's radius.
+    Attribute: Parameter results The array to add the items to.
+    */
+    action CollectInCircle(number x, number y, number radius, Array<Item2D> results)
+    end
+
+    /*
+    This action returns true if the item is showing. It does not look at
+    the item's parents, so an item whose parent is hidden still counts as
+    showing.
+
+    Attribute: Parameter item The item.
+    Attribute: Returns True if the item is showing.
+    */
+    action IsShowing(Item2D item) returns boolean
+        return item:IsShowing()
+    end
+
+    /*
+    This action returns true if the item and all of its parents are showing.
+    A layer draws by walking down from each item, so a hidden parent hides
+    its children. The tree holds items on their own, so this checks upward
+    instead.
+
+    Attribute: Parameter item The item.
+    Attribute: Returns True if the item and all of its parents are showing.
+    */
+    action IsShowingWithParents(Item2D item) returns boolean
+        Item2D current = item
+        repeat while current not= undefined
+            if not current:IsShowing()
+                return false
+            end
+            current = current:GetParent()
+        end
+        return true
+    end
+
+    /*
+    This action returns how many items are in the tree.
+
+    Attribute: Returns The number of items.
+    */
+    action GetSize returns integer
+        return 0
+    end
+
+    /*
+    This action returns how many levels the tree has below its top, or -1
+    when it is empty. What a level is depends on the kind of tree.
+
+    Attribute: Returns The number of levels.
+    */
+    action GetHeight returns integer
+        return -1
+    end
+
+end

@@ -1,6 +1,7 @@
 package Libraries.Game.Graphics.Trees
 
 use Libraries.Containers.Array
+use Libraries.Containers.Iterator
 use Libraries.Interface.Item3D
 use Libraries.Game.BoundingBox
 use Libraries.Game.Graphics.Camera
@@ -8,7 +9,6 @@ use Libraries.Game.Graphics.PointLight
 use Libraries.Game.Graphics.DirectionalLight
 use Libraries.Compute.Matrix4
 use Libraries.Compute.Vector3
-use Libraries.Compute.Math
 
 /*
 RenderTree3D keeps track of where every drawable item in a 3D scene is, so
@@ -25,13 +25,13 @@ This class only describes what a render tree does. Its actions are blank.
 Use one of the kinds of render tree, which can be swapped for one another
 because they all have these actions:
 
-- DynamicVolumeRenderTree, a tree of boxes that fit around the items, like
+- DynamicVolumeRenderTree3D, a tree of boxes that fit around the items, like
   the one physics uses. A good choice for most scenes, and for scenes whose
   items are spread unevenly or move a lot.
 - QuadTree3D, which divides the ground into squares. A good choice for a
   scene that is mostly flat and spread out, such as terrain and the things
   on it.
-- Octree, which divides space into cubes. A good choice for a scene spread
+- Octree3D, which divides space into cubes. A good choice for a scene spread
   out in every direction, such as space or a tall city.
 
 Each answer is added to an Array the caller passes in. The caller empties the
@@ -50,12 +50,27 @@ draws it every frame, without asking the tree.
 The few actions here that are not blank are the same for every kind of
 tree: the Add and CollectVisible actions that fill in a missing value and
 pass the request on, IsShowing and IsShowingWithParents, and the private
-helpers that find an item's bounds.
+helper that finds an item's bounds, used by Add.
+
+Attribute: Example
+
+use Libraries.Game.Graphics.Trees.RenderTree3D
+use Libraries.Game.Graphics.Trees.DynamicVolumeRenderTree3D
+use Libraries.Interface.Item3D
+use Libraries.Containers.Array
+
+DynamicVolumeRenderTree3D volumeTree
+RenderTree3D tree = volumeTree
+Item3D box
+box:SetDimensions(1, 1, 1)
+tree:Add(box)
+Array<Item3D> found
+tree:CollectInSphere(0, 0, 0, 5, found)
+output found:GetSize()
 */
 class RenderTree3D
     Vector3 minimum
     Vector3 maximum
-    Math math
 
     /*
     This action adds an item that is not expected to move.
@@ -267,6 +282,49 @@ class RenderTree3D
     end
 
     /*
+    This action returns the first leaf in the tree's own order, or undefined
+    when the tree is empty. With GetNextLeaf, it visits every item once,
+    without making any objects. The order comes from how the tree is built,
+    not from when items were added, and it changes as items move.
+
+    Attribute: Returns The first leaf, or undefined.
+    */
+    action GetFirstLeaf returns RenderTreeNode3D
+        return undefined
+    end
+
+    /*
+    This action returns the leaf after the given one in the tree's own
+    order, or undefined after the last. It follows the links between the
+    tree's nodes, so it takes a few steps however many items there are.
+
+    To visit every item while some may be removed, get the next leaf before
+    handling the current one. Removing the current item is then safe.
+    Removing other items, or adding items, can change the tree's shape, so
+    some items may be missed or visited twice in that walk.
+
+    Attribute: Parameter leaf A leaf in this tree.
+    Attribute: Returns The next leaf, or undefined.
+    */
+    action GetNextLeaf(RenderTreeNode3D leaf) returns RenderTreeNode3D
+        return undefined
+    end
+
+    /*
+    This action returns an iterator over every item in the tree, in the
+    tree's own order. It makes a new iterator each time. Code that runs
+    every frame can use GetFirstLeaf and GetNextLeaf instead, which make
+    nothing.
+
+    Attribute: Returns An iterator over the items.
+    */
+    action GetIterator returns Iterator<Item3D>
+        RenderTreeIterator3D iterator
+        iterator:SetTree(me)
+        return iterator
+    end
+
+    /*
     This action returns true if the item is showing. It does not look at
     the item's parents, so an item whose parent is hidden still counts as
     showing.
@@ -384,6 +442,9 @@ class RenderTree3D
     bounds. A negative size, which a blueprint with a bug in its measuring
     could give, is also treated as no bounds. Flat bounds, such as a plane's,
     are allowed, though BoundingBox:IsValid would reject them.
+
+    Attribute: Parameter item The item to find bounds for.
+    Attribute: Returns The item's bounds in its own coordinates, or undefined.
     */
     private action GetBounds(Item3D item) returns BoundingBox
         number halfWidth = item:GetWidth() / 2
@@ -400,53 +461,5 @@ class RenderTree3D
         maximum:Set(halfWidth, halfHeight, halfDepth)
         box:Set(minimum, maximum)
         return box
-    end
-
-    /*
-    This action puts a leaf's item's bounds in world coordinates into the
-    given box.
-
-    The item's bounds in its own coordinates are a center and half sizes.
-    The world center is the item's transform applied to the center. The
-    world half size on each axis is the sum of the absolute values of the
-    transform's entries in that row, each times the matching half size. This
-    is the smallest axis-aligned box around the turned box, and needs no
-    corners. The transform includes the item's scale and its parent's offset.
-    */
-    private action CalculateWorldBounds(RenderTreeNode3D leaf, BoundingBox out)
-        Matrix4 transform = leaf:GetItem():GetTransform()
-        number cx = leaf:GetLocalCenterX()
-        number cy = leaf:GetLocalCenterY()
-        number cz = leaf:GetLocalCenterZ()
-        number hx = leaf:GetLocalHalfX()
-        number hy = leaf:GetLocalHalfY()
-        number hz = leaf:GetLocalHalfZ()
-
-        number worldX = transform:row0column0 * cx + transform:row0column1 * cy + transform:row0column2 * cz + transform:row0column3
-        number worldY = transform:row1column0 * cx + transform:row1column1 * cy + transform:row1column2 * cz + transform:row1column3
-        number worldZ = transform:row2column0 * cx + transform:row2column1 * cy + transform:row2column2 * cz + transform:row2column3
-
-        number halfX = math:AbsoluteValue(transform:row0column0) * hx + math:AbsoluteValue(transform:row0column1) * hy +
-            math:AbsoluteValue(transform:row0column2) * hz
-        number halfY = math:AbsoluteValue(transform:row1column0) * hx + math:AbsoluteValue(transform:row1column1) * hy +
-            math:AbsoluteValue(transform:row1column2) * hz
-        number halfZ = math:AbsoluteValue(transform:row2column0) * hx + math:AbsoluteValue(transform:row2column1) * hy +
-            math:AbsoluteValue(transform:row2column2) * hz
-
-        minimum:Set(worldX - halfX, worldY - halfY, worldZ - halfZ)
-        maximum:Set(worldX + halfX, worldY + halfY, worldZ + halfZ)
-        out:Set(minimum, maximum)
-    end
-
-    /*
-    This action returns true if two boxes have the same corners.
-    */
-    private action HasSameBounds(BoundingBox first, BoundingBox second) returns boolean
-        return first:GetMinimum():GetX() = second:GetMinimum():GetX() and
-            first:GetMinimum():GetY() = second:GetMinimum():GetY() and
-            first:GetMinimum():GetZ() = second:GetMinimum():GetZ() and
-            first:GetMaximum():GetX() = second:GetMaximum():GetX() and
-            first:GetMaximum():GetY() = second:GetMaximum():GetY() and
-            first:GetMaximum():GetZ() = second:GetMaximum():GetZ()
     end
 end

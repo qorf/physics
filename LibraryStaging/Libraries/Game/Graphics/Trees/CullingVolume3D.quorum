@@ -29,6 +29,27 @@ The library's Frustum class is not used. Its box test, BoundsInFrustum, is
 commented out, and it builds its planes from corners that assume OpenGL's
 depth range in a fixed order, which may no longer face inward in the
 left-handed world.
+
+Attribute: Example
+
+use Libraries.Game.Graphics.Trees.CullingVolume3D
+use Libraries.Compute.Matrix4
+use Libraries.Game.BoundingBox
+use Libraries.Compute.Vector3
+
+// A new Matrix4 does nothing to a point, so this volume holds x and y
+// from -1 to 1, and z up to 1.
+Matrix4 matrix
+CullingVolume3D volume
+volume:Set(matrix)
+
+Vector3 minimum
+Vector3 maximum
+minimum:Set(-0.5, -0.5, 0)
+maximum:Set(0.5, 0.5, 0.5)
+BoundingBox box
+box:Set(minimum, maximum)
+output volume:Test(box) = volume:INSIDE
 */
 class CullingVolume3D
     public constant integer OUTSIDE = 0
@@ -57,6 +78,9 @@ class CullingVolume3D
     /*
     This action sets the volume from a view-projection matrix, such as a
     camera's combined matrix or a light's shadow matrix.
+
+    Attribute: Parameter matrix The view-projection matrix to read the planes
+    from.
     */
     action Set(Matrix4 matrix)
         planeCount = 0
@@ -80,7 +104,14 @@ class CullingVolume3D
 
     /*
     This action adds a plane, scaled so (a, b, c) has length 1. A plane with
-    no direction, which a broken matrix can produce, is skipped.
+    no direction, which a broken matrix can produce, is skipped. A point (x, y,
+    z) is on the inner side of the plane when a * x + b * y + c * z + d is 0 or
+    more.
+
+    Attribute: Parameter a How much the plane depends on x.
+    Attribute: Parameter b How much the plane depends on y.
+    Attribute: Parameter c How much the plane depends on z.
+    Attribute: Parameter d How far the plane is from the origin.
     */
     private action AddPlane(number a, number b, number c, number d)
         number length = math:SquareRoot(a * a + b * b + c * c)
@@ -104,6 +135,9 @@ class CullingVolume3D
     outside. Otherwise the opposite corner is tested. If it is on the outer
     side, the box crosses the plane. A box is inside only if it crosses no
     plane.
+
+    Attribute: Parameter box The box to test, in world coordinates.
+    Attribute: Returns OUTSIDE, INTERSECTING or INSIDE.
     */
     action Test(BoundingBox box) returns integer
         number minX = box:GetMinimum():GetX()
@@ -159,6 +193,8 @@ class CullingVolume3D
     /*
     This action returns how many planes the volume has: 5, or fewer if the
     matrix gave a plane with no direction.
+
+    Attribute: Returns The number of planes.
     */
     action GetPlaneCount returns integer
         return planeCount
