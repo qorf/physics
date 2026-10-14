@@ -1,0 +1,43 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.Shapes.Box
+use Libraries.Game.Collision.Shapes.Sphere
+use Libraries.Game.Collision.RayCastResult3D
+
+/*
+Tests casting one ray against several shapes with the same result, which is
+how a ray finds the nearest of many things: each shape only reports a hit
+closer than the one the result already holds. A sphere at the origin is
+reached 0.45 of the way along, and a box below it 0.75 of the way. Either
+order leaves the sphere's hit.
+*/
+class RayCastNearestTest is PhysicsTest
+    on create
+        SetName("Ray cast: the nearest of several shapes")
+    end
+
+    action Run
+        Sphere sphere
+        sphere:SetRadius(0.5)
+        Box box = MakeCollisionBox(1)
+        RayCastResult3D result
+
+        result:SetToDefault()
+        CheckNumber("a new result has fraction 1", result:GetFraction(), 1)
+        CheckThat("a new result has no hit", not result:IsHit())
+
+        // The sphere first, then the box.
+        sphere:RayCast(MakeVector(0, 5, 0), MakeVector(0, -5, 0), MakeTransform(0, 0, 0, 0, 1, 0, 0), result)
+        box:RayCast(MakeVector(0, 5, 0), MakeVector(0, -5, 0), MakeTransform(0, -3, 0, 0, 1, 0, 0), result)
+        CheckNumber("sphere first: the sphere's fraction", result:GetFraction(), 0.45)
+        CheckVector("sphere first: the sphere's point", result:GetHitPointWorldSpace(), 0, 0.5, 0)
+
+        // The box first, then the sphere.
+        result:SetToDefault()
+        box:RayCast(MakeVector(0, 5, 0), MakeVector(0, -5, 0), MakeTransform(0, -3, 0, 0, 1, 0, 0), result)
+        CheckNumber("box first: the box's fraction", result:GetFraction(), 0.75)
+        sphere:RayCast(MakeVector(0, 5, 0), MakeVector(0, -5, 0), MakeTransform(0, 0, 0, 0, 1, 0, 0), result)
+        CheckNumber("box first: then the sphere's fraction", result:GetFraction(), 0.45)
+        CheckVector("box first: then the sphere's point", result:GetHitPointWorldSpace(), 0, 0.5, 0)
+    end
+end

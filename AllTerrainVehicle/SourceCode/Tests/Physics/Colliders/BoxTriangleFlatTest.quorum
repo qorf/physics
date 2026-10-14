@@ -1,0 +1,29 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+A box lying flat gets one contact under each of its four bottom corners.
+
+Unless a test says otherwise, the triangle is a large one lying flat
+at height 0, from MakeLargeTriangle, with the usual margin of 0.04, so
+its thickened surface is at 0.04. The box is 0.5 on each side for
+collisions (see RunBox), with no rotation, and the triangle is item A.
+A box whose center is at 0.28 has its bottom at 0.03, so it sinks 0.01
+into the surface.
+*/
+class BoxTriangleFlatTest is PhysicsTest
+    on create
+        SetName("Box and triangle: lying flat")
+    end
+
+    action Run
+        LocalCollisionPoints3D points = RunBox(MakeLargeTriangle(0.04), MakeTransform(0, 0.28, 0, 0, 1, 0, 0), false)
+        CheckWhole("box flat: four contacts", points:GetPointCount(), 4)
+        CheckAllContacts("box flat", points, 0, -1, 0, -0.01)
+        CheckWhole("box flat: corner 1", CountContactsNear(points, 0.25, 0.03, 0.25), 1)
+        CheckWhole("box flat: corner 2", CountContactsNear(points, -0.25, 0.03, 0.25), 1)
+        CheckWhole("box flat: corner 3", CountContactsNear(points, -0.25, 0.03, -0.25), 1)
+        CheckWhole("box flat: corner 4", CountContactsNear(points, 0.25, 0.03, -0.25), 1)
+    end
+end

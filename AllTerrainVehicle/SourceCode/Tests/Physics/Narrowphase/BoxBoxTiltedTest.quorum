@@ -1,0 +1,35 @@
+package Physics.Tests
+
+use Libraries.Compute.Math
+use Libraries.Compute.Vector3
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+Tests BoxBoxCollider with box A tilted 5 degrees about x, so only one of its
+bottom edges touches box B. Here B's up axis is the best direction, so B's
+top face is the reference, and the contacts found on A are moved onto B's
+top face. Only the two corners of the low edge reach into B, both by 0.02.
+*/
+class BoxBoxTiltedTest is PhysicsTest
+    on create
+        SetName("Box and box: tilted onto an edge")
+    end
+
+    action Run
+        Math math
+        number tilt = 5 * math:pi / 180
+        number reach = 0.5 * (math:Cosine(tilt) + math:Sine(tilt))
+        LocalCollisionPoints3D points = RunBoxBox(MakeCollisionBox(1), MakeTransform(0, 0.5 + reach - 0.02, 0, 1, 0, 0, 5),
+            MakeCollisionBox(1), MakeTransform(0, 0, 0, 0, 1, 0, 0))
+        CheckWhole("two contacts, one for each corner of the low edge", points:GetPointCount(), 2)
+        CheckAllContacts("tilted", points, 0, 1, 0, -0.02)
+
+        integer i = 0
+        repeat while i < points:GetPointCount()
+            Vector3 position = points:GetCollisionPoint(i):GetWorldPositionOnB()
+            CheckNumber("contact " + i + " is on B's top face", position:GetY(), 0.5)
+            CheckNumber("contact " + i + " is at a corner", math:AbsoluteValue(position:GetX()), 0.5)
+            i = i + 1
+        end
+    end
+end

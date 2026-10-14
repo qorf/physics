@@ -1,0 +1,32 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Game.Collision.RayCastResult3D
+
+/*
+Tests rays that should hit nothing: one beside a box, and one that stops
+short of the ground. Each should return false and leave the result saying
+there was no hit.
+*/
+class RayCastMissTest is PhysicsWorldTest
+    on create
+        SetName("World: a ray cast that misses reports no hit")
+    end
+
+    action Run
+        Layer3D layer = MakeWorldWithoutGravity()
+        AddFixedBox(layer, 0, 0, 0, 1, 1, 1)
+        Step(layer)
+
+        RayCastResult3D beside
+        CheckThat("a ray beside the box misses",
+            not layer:RayCastPhysics(MakeVector(2, 5, 0), MakeVector(2, -5, 0), beside))
+        CheckThat("its result says it missed", not beside:IsHit())
+
+        RayCastResult3D tooShort
+        CheckThat("a ray that stops short misses",
+            not layer:RayCastPhysics(MakeVector(0, 5, 0), MakeVector(0, 1, 0), tooShort))
+        CheckThat("its result says it missed", not tooShort:IsHit())
+    end
+end

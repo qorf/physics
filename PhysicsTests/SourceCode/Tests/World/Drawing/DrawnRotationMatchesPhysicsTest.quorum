@@ -1,0 +1,49 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Compute.Matrix3
+use Libraries.Compute.Matrix4
+
+/*
+Tests that an item is drawn turned the same way its physics shape is turned.
+An item keeps two copies of its rotation: the one the physics uses, in its
+collision transform, and the one it is drawn with, in its transform. The item
+copies its position between the two unchanged, so its rotation must also be
+copied unchanged. If one copy were mirrored, the item would be drawn turning
+the opposite way from how it actually moves.
+
+Two cases are checked. First, a box spinning about y, the way a vehicle
+turns, is stepped for half a second, and the rotation it is drawn with must
+match its physics rotation. Turning by 0.5 radians about y puts sin(0.5) =
+0.4794 in row 0, column 2 of the physics rotation. Second, a box turned with
+Rotate must have its physics rotation set to match how it is drawn.
+*/
+class DrawnRotationMatchesPhysicsTest is PhysicsWorldTest
+    on create
+        SetName("World: an item is drawn turned the same way as its physics")
+    end
+
+    action Run
+        Layer3D layer = MakeWorldWithoutGravity()
+
+        Item3D spinning = AddMovingBox(layer, 0, 0, 0, 2, 1, 4, 1)
+        spinning:SetAngularVelocity(MakeVector(0, 1, 0))
+        Advance(layer, 0.5)
+        Matrix3 physics = spinning:GetCollisionTransform():GetBasis()
+        Matrix4 drawn = spinning:GetTransform()
+        CheckNear("spinning: the physics turned 0.5 about y", physics:row0column2, 0.4794, 0.001)
+        CheckNear("spinning: drawn row 0, column 2", drawn:row0column2, physics:row0column2, 0.0001)
+        CheckNear("spinning: drawn row 2, column 0", drawn:row2column0, physics:row2column0, 0.0001)
+        CheckNear("spinning: drawn row 0, column 0", drawn:row0column0, physics:row0column0, 0.0001)
+
+        Item3D turned = AddMovingBox(layer, 5, 0, 0, 2, 1, 4, 1)
+        turned:Rotate(1, 1, 0, 30)
+        physics = turned:GetCollisionTransform():GetBasis()
+        drawn = turned:GetTransform()
+        CheckNear("turned: physics row 0, column 2", physics:row0column2, drawn:row0column2, 0.0001)
+        CheckNear("turned: physics row 1, column 2", physics:row1column2, drawn:row1column2, 0.0001)
+        CheckNear("turned: physics row 2, column 0", physics:row2column0, drawn:row2column0, 0.0001)
+        CheckNear("turned: physics row 2, column 1", physics:row2column1, drawn:row2column1, 0.0001)
+    end
+end

@@ -1,0 +1,62 @@
+package Physics.Tests
+
+use Libraries.Interface.Item3D
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.CollisionPointsResult3D
+
+/*
+Tests how CollisionPointsResult3D combines two items' friction and
+restitution for a contact. Friction is the product of the two, limited to
+between -10 and 10. Restitution is the larger of the two. If either item does
+not have physics enabled, both are 0.
+
+Each item is given a shape before its physics is enabled, because enabling
+physics works out the item's inertia from its shape.
+*/
+class ContactResultMaterialsTest is PhysicsTest
+    on create
+        SetName("Contact result: combined friction and restitution")
+    end
+
+    action Run
+        Item3D first
+        first:SetShape(MakeBox(1, 1, 1))
+        first:EnablePhysics(true)
+        first:SetFriction(0.5)
+        first:SetRestitution(0.3)
+        Item3D second
+        second:SetShape(MakeBox(1, 1, 1))
+        second:EnablePhysics(true)
+        second:SetFriction(0.4)
+        second:SetRestitution(0.7)
+
+        CollisionPointsResult3D result
+        CheckNumber("friction is the product", result:CalculateCombinedFriction(first, second), 0.2)
+        CheckNumber("restitution is the larger", result:CalculateCombinedRestitution(first, second), 0.7)
+
+        // Stored contacts carry the combined values.
+        LocalCollisionPoints3D points
+        points:Set(first, second)
+        result:Initialize(first, second)
+        result:SetCollisionPoints(points)
+        result:AddCollisionPoint(MakeVector(0, 1, 0), MakeVector(0, 0, 0), -0.01)
+        CheckNumber("a stored contact's friction", points:GetCollisionPoint(0):GetCombinedFriction(), 0.2)
+        CheckNumber("a stored contact's restitution", points:GetCollisionPoint(0):GetCombinedRestitution(), 0.7)
+
+        // Very high friction is limited to 10.
+        Item3D sticky
+        sticky:SetShape(MakeBox(1, 1, 1))
+        sticky:EnablePhysics(true)
+        sticky:SetFriction(5)
+        Item3D alsoSticky
+        alsoSticky:SetShape(MakeBox(1, 1, 1))
+        alsoSticky:EnablePhysics(true)
+        alsoSticky:SetFriction(4)
+        CheckNumber("friction is limited to 10", result:CalculateCombinedFriction(sticky, alsoSticky), 10)
+
+        // An item without physics gives 0 for both.
+        Item3D plain
+        CheckNumber("no physics, no friction", result:CalculateCombinedFriction(first, plain), 0)
+        CheckNumber("no physics, no restitution", result:CalculateCombinedRestitution(plain, second), 0)
+    end
+end

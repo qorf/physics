@@ -1,0 +1,396 @@
+package Physics.Tests
+
+use Libraries.Testing.Test
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Game.Collision.Shapes.Box
+use Libraries.Game.Collision.Shapes.Sphere
+use Libraries.Game.Collision.PhysicsPosition3D
+use Libraries.Game.Physics.Vehicles.Vehicle
+use Libraries.Game.Physics.Vehicles.Suspension
+use Libraries.Compute.Vector3
+use Libraries.Compute.Matrix4
+use Libraries.Compute.Math
+
+/*
+PhysicsWorldTest is the parent of the physics world tests. Each test builds a
+small world in its own Layer3D, steps it, and checks how the items moved. It
+adds what the tests share: checks that describe what failed, and helpers that
+build worlds, add items, and step time forward.
+
+A Layer3D can only be created while a game is running, so these tests must be
+run from a game. Main does this.
+
+Sizes. Box:Set keeps the shape's margin inside the size it is given, as
+Bullet does, so a box collides at exactly its Set size. A sphere's margin is
+its radius, so it collides at its radius.
+
+Time. Step moves a world forward by 1/60 of a second, the layer's fixed step,
+so each call runs exactly one physics step. Advance runs as many steps as
+there are in the given number of seconds.
+
+The ground, made by AddGround, is a slab 40 wide and deep and 1 thick whose
+top is at height 0.
+*/
+class PhysicsWorldTest is Test
+    Math worldMath
+
+    // How long one physics step lasts. Layer3D steps 1/60 of a second at a time.
+    number stepSeconds = 1.0 / 60.0
+
+    // The strength of gravity in the worlds made by MakeWorld.
+    number gravity = 9.8
+
+    // Notes about the test, such as which checks failed. They become the
+    // test's message.
+    text notes = ""
+
+    /*
+    This action adds a line to the test's message.
+    */
+    action AddNote(text note)
+        if notes = ""
+            notes = note
+        else
+            notes = notes + "; " + note
+        end
+        SetMessage(notes)
+    end
+
+    /*
+    This action checks that a condition is true.
+    */
+    action CheckThat(text name, boolean condition)
+        if not Check(condition, true)
+            AddNote("failed: " + name)
+        end
+    end
+
+    /*
+    This action checks that a number is within the given distance of what was
+    expected. World tests step through time, so each check says how close is
+    close enough.
+    */
+    action CheckNear(text name, number actual, number expected, number allowed)
+        if not Check(actual, expected, allowed)
+            AddNote("failed: " + name + " (expected " + expected + " give or take " + allowed + ", got " + actual + ")")
+        end
+    end
+
+    /*
+    This action checks that a number is no more than a limit.
+    */
+    action CheckAtMost(text name, number actual, number limit)
+        if not Check(actual <= limit, true)
+            AddNote("failed: " + name + " (expected at most " + limit + ", got " + actual + ")")
+        end
+    end
+
+    /*
+    This action checks that a number is at least a limit.
+    */
+    action CheckAtLeast(text name, number actual, number limit)
+        if not Check(actual >= limit, true)
+            AddNote("failed: " + name + " (expected at least " + limit + ", got " + actual + ")")
+        end
+    end
+
+    /*
+    This action checks that an integer is exactly what was expected.
+    */
+    action CheckWhole(text name, integer actual, integer expected)
+        if not Check(actual = expected, true)
+            AddNote("failed: " + name + " (expected " + expected + ", got " + actual + ")")
+        end
+    end
+
+    /*
+    This action makes a world with physics turned on and gravity pulling down.
+    */
+    action MakeWorld returns Layer3D
+        Layer3D layer
+        layer:EnablePhysics(true)
+        layer:SetGravity(0, -gravity, 0)
+        return layer
+    end
+
+    /*
+    This action makes a world with physics turned on and no gravity.
+    */
+    action MakeWorldWithoutGravity returns Layer3D
+        Layer3D layer
+        layer:EnablePhysics(true)
+        layer:SetGravity(0, 0, 0)
+        return layer
+    end
+
+    /*
+    This action moves a world forward by one physics step.
+    */
+    action Step(Layer3D layer)
+        layer:TestForCollisions(stepSeconds)
+    end
+
+    /*
+    This action moves a world forward by the given number of seconds, one
+    physics step at a time.
+    */
+    action Advance(Layer3D layer, number seconds)
+        integer steps = StepsIn(seconds)
+        integer i = 0
+        repeat while i < steps
+            Step(layer)
+            i = i + 1
+        end
+    end
+
+    /*
+    This action returns how many physics steps there are in the given number
+    of seconds.
+    */
+    action StepsIn(number seconds) returns integer
+        return cast(integer, seconds / stepSeconds + 0.5)
+    end
+
+    /*
+    This action makes a box shape that collides at the given size.
+    */
+    action MakeCollisionBox(number width, number height, number depth) returns Box
+        Box box
+        box:Set(width, height, depth)
+        return box
+    end
+
+    /*
+    This action adds the ground, a slab 40 wide and deep and 1 thick whose top
+    is at height 0. It does not move.
+    */
+    action AddGround(Layer3D layer) returns Item3D
+        return AddFixedBox(layer, 0, -0.5, 0, 40, 1, 40)
+    end
+
+    /*
+    This action adds a box that does not move, centered at the given point.
+    */
+    action AddFixedBox(Layer3D layer, number x, number y, number z, number width, number height, number depth) returns Item3D
+        Item3D box
+        box:SetShape(MakeCollisionBox(width, height, depth))
+        box:SetPosition(x, y, z)
+        box:EnablePhysics(true)
+        box:SetMass(0)
+        box:SetUnmovable()
+        layer:Add(box)
+        return box
+    end
+
+    /*
+    This action adds a cube that moves, with the given size and mass,
+    centered at the given point.
+    */
+    action AddBox(Layer3D layer, number x, number y, number z, number size, number mass) returns Item3D
+        return AddMovingBox(layer, x, y, z, size, size, size, mass)
+    end
+
+    /*
+    This action adds a box that moves, with the given sizes and mass,
+    centered at the given point.
+    */
+    action AddMovingBox(Layer3D layer, number x, number y, number z, number width, number height, number depth,
+            number mass) returns Item3D
+        Item3D box
+        box:SetShape(MakeCollisionBox(width, height, depth))
+        box:SetPosition(x, y, z)
+        box:EnablePhysics(true)
+        box:SetResponsive()
+        box:SetMass(mass)
+        layer:Add(box)
+        return box
+    end
+
+    /*
+    This action adds a sphere that moves, with the given radius and mass,
+    centered at the given point.
+    */
+    action AddSphere(Layer3D layer, number x, number y, number z, number radius, number mass) returns Item3D
+        Item3D ball
+        Sphere sphere
+        sphere:SetRadius(radius)
+        ball:SetShape(sphere)
+        ball:SetPosition(x, y, z)
+        ball:EnablePhysics(true)
+        ball:SetResponsive()
+        ball:SetMass(mass)
+        layer:Add(ball)
+        return ball
+    end
+
+    /*
+    This action adds a slope: the ground slab, 40 wide and deep and 1 thick,
+    turned about the z axis by the given number of degrees. The slab is
+    placed so that its top surface passes through the origin.
+    */
+    action AddSlope(Layer3D layer, number degrees) returns Item3D
+        Item3D slope
+        slope:SetShape(MakeCollisionBox(40, 1, 40))
+        slope:Rotate(0, 0, 1, degrees)
+        Vector3 up = GetUp(slope)
+        slope:SetPosition(-0.5 * up:GetX(), -0.5 * up:GetY(), -0.5 * up:GetZ())
+        slope:EnablePhysics(true)
+        slope:SetMass(0)
+        slope:SetUnmovable()
+        layer:Add(slope)
+        return slope
+    end
+
+    /*
+    This action adds a cube 1 on each side, with a mass of 1, sitting on a
+    slope made by AddSlope at the origin, turned by the same number of
+    degrees. The cube is turned to match the slope and starts just above its
+    surface.
+    */
+    action AddBoxOnSlope(Layer3D layer, Item3D slope, number degrees) returns Item3D
+        Vector3 up = GetUp(slope)
+        Item3D box
+        box:SetShape(MakeCollisionBox(1, 1, 1))
+        box:Rotate(0, 0, 1, degrees)
+        box:SetPosition(0.505 * up:GetX(), 0.505 * up:GetY(), 0.505 * up:GetZ())
+        box:EnablePhysics(true)
+        box:SetResponsive()
+        box:SetMass(1)
+        layer:Add(box)
+        return box
+    end
+
+    /*
+    This action returns the direction an item's own up, its y axis, points in
+    the world, read from its transform.
+    */
+    action GetUp(Item3D item) returns Vector3
+        Matrix4 transform = item:GetTransform()
+        Vector3 up
+        up:Set(transform:row0column1, transform:row1column1, transform:row2column1)
+        up:Normalize()
+        return up
+    end
+
+    /*
+    This action returns how far apart the centers of two items are.
+    */
+    action Distance(Item3D first, Item3D second) returns number
+        number x = first:GetX() - second:GetX()
+        number y = first:GetY() - second:GetY()
+        number z = first:GetZ() - second:GetZ()
+        return worldMath:SquareRoot(x * x + y * y + z * z)
+    end
+
+    /*
+    This action returns how far, in radians, the line from a pivot to an
+    item's center has dropped below the horizontal, for an item that hangs
+    out from the pivot along +x in the xy plane. Level is 0. Once the item
+    swings down past straight below the pivot, this returns 1.6, a little more
+    than straight down, pi / 2.
+    */
+    action AngleBelowHorizontal(Item3D item, number pivotX, number pivotY) returns number
+        number across = item:GetX() - pivotX
+        number drop = pivotY - item:GetY()
+        if across <= 0
+            return 1.6
+        end
+        return worldMath:InverseTangent(drop / across)
+    end
+
+    /*
+    This action returns how far a number is from 0.
+    */
+    action Absolute(number value) returns number
+        return worldMath:AbsoluteValue(value)
+    end
+
+    /*
+    This action returns the square root of a number.
+    */
+    action SquareRoot(number value) returns number
+        return worldMath:SquareRoot(value)
+    end
+
+    /*
+    This action returns how fast an item is moving.
+    */
+    action Speed(Item3D item) returns number
+        return item:GetLinearVelocity():Length()
+    end
+
+    /*
+    This action returns how fast an item is turning.
+    */
+    action TurningSpeed(Item3D item) returns number
+        return item:GetAngularVelocity():Length()
+    end
+
+    /*
+    This action makes a vector.
+    */
+    action MakeVector(number x, number y, number z) returns Vector3
+        Vector3 vector
+        vector:Set(x, y, z)
+        return vector
+    end
+
+    /*
+    This action makes a joint frame: a position with no turn, at the given
+    point.
+    */
+    action MakeFrame(number x, number y, number z) returns PhysicsPosition3D
+        PhysicsPosition3D frame
+        frame:SetToIdentity()
+        frame:GetOrigin():Set(x, y, z)
+        return frame
+    end
+
+    /*
+    This action adds a test vehicle to a world and returns its chassis. The
+    chassis is a box 2 wide, 1 tall and 4 long with a mass of 800, centered
+    at the given height above the origin. It has four wheels, set up like the
+    AllTerrainVehicle's: each hangs from a point 1.1 to the side, 0.3 below
+    and 1.5 ahead of or behind the chassis center, with a rest length of 0.4,
+    a radius of 0.4, and a stiffness of 20. The front two steer. Wheels 0 and
+    1 are the front left and right, and 2 and 3 the back left and right.
+
+    The chassis has no linear damping, so how fast it speeds up and slows
+    down depends only on the engine, the brakes and the tires.
+    */
+    action AddVehicle(Layer3D layer, Vehicle vehicle, number height) returns Item3D
+        Item3D chassis = AddMovingBox(layer, 0, height, 0, 2, 1, 4, 800)
+        chassis:SetFriction(0.6)
+        chassis:SetRestitution(0)
+        chassis:SetAngularDamping(0.8)
+
+        vehicle:SetChassis(chassis)
+        vehicle:Add(MakeWheel(-1.1, -0.3, 1.5, true))
+        vehicle:Add(MakeWheel(1.1, -0.3, 1.5, true))
+        vehicle:Add(MakeWheel(-1.1, -0.3, -1.5, false))
+        vehicle:Add(MakeWheel(1.1, -0.3, -1.5, false))
+        layer:Add(vehicle)
+        return chassis
+    end
+
+    /*
+    This action makes one of the test vehicle's wheels, hanging from the
+    given point on the chassis. The wheel has no visual.
+    */
+    action MakeWheel(number x, number y, number z, boolean steers) returns Suspension
+        Suspension wheel
+        wheel:SetConnectionPoint(MakeVector(x, y, z))
+        wheel:SetDirection(MakeVector(0, -1, 0))
+        wheel:SetAxle(MakeVector(1, 0, 0))
+        wheel:SetRestLength(0.4)
+        wheel:SetRadius(0.4)
+        wheel:SetSteeringEnabled(steers)
+        wheel:SetSuspensionStiffness(20)
+        wheel:SetDampingCompression(2.5)
+        wheel:SetDampingRelaxation(2.0)
+        wheel:SetFrictionSlip(10)
+        wheel:SetRollInfluence(0.02)
+        return wheel
+    end
+end

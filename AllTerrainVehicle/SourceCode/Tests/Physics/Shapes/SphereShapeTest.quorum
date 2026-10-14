@@ -1,0 +1,44 @@
+package Physics.Tests
+
+use Libraries.Compute.Vector3
+use Libraries.Game.BoundingBox
+use Libraries.Game.Collision.Shapes.Sphere
+
+/*
+Tests the Sphere shape. A sphere's margin is its whole radius, so without
+its margin it is a single point at its center. Its supporting point with the
+margin is on its surface.
+*/
+class SphereShapeTest is PhysicsTest
+    on create
+        SetName("Sphere shape")
+    end
+
+    action Run
+        Sphere sphere
+        sphere:SetRadius(0.5)
+        CheckNumber("radius", sphere:GetRadius(), 0.5)
+        CheckNumber("the margin is the radius", sphere:GetMargin(), 0.5)
+
+        CheckVector("supporting point without the margin is the center",
+            sphere:LocalGetSupportingVertexWithoutMargin(MakeVector(3, 4, 0)), 0, 0, 0)
+        CheckVector("supporting point with the margin is on the surface",
+            sphere:LocalGetSupportingVertex(MakeVector(3, 4, 0)), 0.3, 0.4, 0)
+
+        BoundingBox bounds
+        sphere:ComputeBoundingBox(bounds, MakeTransform(1, 2, 3, 0, 1, 0, 0))
+        CheckVector("bounding box minimum", bounds:GetMinimum(), 0.5, 1.5, 2.5)
+        CheckVector("bounding box maximum", bounds:GetMaximum(), 1.5, 2.5, 3.5)
+
+        // Inertia of a solid sphere, 2 / 5 of the mass times the radius
+        // squared, about every axis.
+        Vector3 inertia
+        sphere:CalculateLocalInertia(2, inertia)
+        CheckVector("inertia", inertia, 0.2, 0.2, 0.2)
+
+        // Scaling a sphere scales its radius by the x scale.
+        sphere:SetLocalScaling(MakeVector(2, 2, 2))
+        CheckNumber("a scaled radius", sphere:GetRadius(), 1)
+        CheckNumber("a scaled margin", sphere:GetMargin(), 1)
+    end
+end

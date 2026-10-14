@@ -1,0 +1,30 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.Shapes.CollisionShape3D
+use Libraries.Game.Collision.Shapes.Sphere
+
+/*
+Tests Sphere:Copy. A copy should have the same radius as the sphere it was
+copied from, whether or not that sphere was scaled.
+*/
+class SphereCopyTest is PhysicsTest
+    on create
+        SetName("Sphere shape: copy")
+    end
+
+    action Run
+        Sphere sphere
+        sphere:SetRadius(0.5)
+        CollisionShape3D shape = sphere:Copy()
+        CheckThat("the copy is a sphere", shape:GetType() = shape:SPHERE)
+        Sphere copy = cast(Sphere, shape)
+        CheckNumber("the copy has the same radius", copy:GetRadius(), 0.5)
+
+        // A sphere scaled to twice its size has radius 1, and so should its copy.
+        Sphere scaled
+        scaled:SetRadius(0.5)
+        scaled:SetLocalScaling(MakeVector(2, 2, 2))
+        Sphere scaledCopy = cast(Sphere, scaled:Copy())
+        CheckNumber("the copy of a scaled sphere has the same radius", scaledCopy:GetRadius(), 1)
+    end
+end

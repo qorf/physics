@@ -1,0 +1,442 @@
+package Libraries.Language.Compile.Test
+
+use Libraries.Testing.Tester
+use Physics.Tests.RoutingCollideTriangleTest
+use Physics.Tests.RoutingItemTriangleTest
+use Physics.Tests.BoxRayCastTest
+use Physics.Tests.SphereRayCastTest
+use Physics.Tests.CylinderRayCastTest
+use Physics.Tests.TriangleRayCastTest
+use Physics.Tests.RayCastNearestTest
+use Physics.Tests.BoxBoxFaceTest
+use Physics.Tests.BoxBoxTurnedTest
+use Physics.Tests.BoxBoxTiltedTest
+use Physics.Tests.BoxBoxEdgeTest
+use Physics.Tests.BoxBoxApartTest
+use Physics.Tests.SphereSphereTest
+use Physics.Tests.ConvexSphereBoxTest
+use Physics.Tests.ConvexCylinderBoxTest
+use Physics.Tests.ConvexDeepOverlapTest
+use Physics.Tests.ContactPointsCacheEntryTest
+use Physics.Tests.ContactPointsReplaceTest
+use Physics.Tests.ContactPointsRemoveTest
+use Physics.Tests.ContactPointsSortTest
+use Physics.Tests.ContactPointsRefreshTest
+use Physics.Tests.ContactResultStoreTest
+use Physics.Tests.ContactResultFaceNormalTest
+use Physics.Tests.ContactResultGatheringTest
+use Physics.Tests.ContactResultMaterialsTest
+use Physics.Tests.BoxShapeTest
+use Physics.Tests.BoxCopyTest
+use Physics.Tests.SphereShapeTest
+use Physics.Tests.SphereCopyTest
+use Physics.Tests.CylinderShapeTest
+use Physics.Tests.CylinderUpAxisTest
+use Physics.Tests.CylinderCopyTest
+use Physics.Tests.TriangleShapeTest
+use Physics.Tests.PhysicsPositionTransformTest
+use Physics.Tests.PhysicsPositionInverseTransformTest
+use Physics.Tests.PhysicsPositionInverseTest
+use Physics.Tests.PhysicsPositionMultiplyTest
+use Physics.Tests.PhysicsPositionRotationTest
+use Physics.Tests.PhysicsPositionMatrixTest
+use Physics.Tests.Matrix3TransformTest
+use Physics.Tests.Matrix3ElementsTest
+use Physics.Tests.Matrix3EulerTest
+use Physics.Tests.BoundingBoxSetTest
+use Physics.Tests.BoundingBoxIntersectsTest
+use Physics.Tests.BoundingBoxContainsTest
+use Physics.Tests.BoundingBoxExtendTest
+use Physics.Tests.BoundingBoxCombineTest
+use Physics.Tests.TriangleGeometryPlaneTest
+use Physics.Tests.TriangleGeometrySidePlanesTest
+use Physics.Tests.TriangleGeometryClosestPointTest
+use Physics.Tests.TriangleGeometryTransformedLoadTest
+use Physics.Tests.TriangleGeometryDegenerateTest
+use Physics.Tests.TriangleGeometrySegmentsTest
+use Physics.Tests.TriangleGeometryProjectionTest
+use Physics.Tests.ClipAgainstPlaneTest
+use Physics.Tests.ClipSmallInputsTest
+use Physics.Tests.ClipToTriangleTest
+use Physics.Tests.ReduceToFourTest
+use Physics.Tests.TriangleColliderTriangleIsItemATest
+use Physics.Tests.TriangleColliderShapeIsItemATest
+use Physics.Tests.TriangleColliderThresholdTest
+use Physics.Tests.TriangleColliderLoadTest
+use Physics.Tests.SphereTriangleOnFaceTest
+use Physics.Tests.SphereTriangleThresholdTest
+use Physics.Tests.SphereTriangleEdgeAndCornerTest
+use Physics.Tests.SphereTriangleUnderneathTest
+use Physics.Tests.SphereTriangleCenterOnTriangleTest
+use Physics.Tests.SphereTriangleMarginTest
+use Physics.Tests.SphereTriangleIsItemATest
+use Physics.Tests.SphereTriangleTransformedTriangleTest
+use Physics.Tests.SphereTriangleOutOfReachTest
+use Physics.Tests.SphereTriangleDegenerateTriangleTest
+use Physics.Tests.BoxTriangleFlatTest
+use Physics.Tests.BoxTriangleTurnedTest
+use Physics.Tests.BoxTriangleOnEdgeTest
+use Physics.Tests.BoxTriangleSmallTriangleTest
+use Physics.Tests.BoxTriangleOverhangTest
+use Physics.Tests.BoxTriangleUnderneathTest
+use Physics.Tests.BoxTriangleOutOfReachTest
+use Physics.Tests.BoxTriangleIsItemATest
+use Physics.Tests.BoxTriangleFaceDirectionTest
+use Physics.Tests.BoxTriangleEdgeDirectionTest
+use Physics.Tests.CylinderTriangleStandingTest
+use Physics.Tests.CylinderTriangleLyingTest
+use Physics.Tests.CylinderTriangleUpAxisXTest
+use Physics.Tests.CylinderTriangleTiltedTest
+use Physics.Tests.CylinderTriangleOutOfReachTest
+use Physics.Tests.CylinderTriangleIsItemATest
+use Physics.Tests.CylinderTriangleOverEdgeTest
+use Physics.Tests.SphereTriangleMatchesGeneralTest
+use Physics.Tests.BoxTriangleRestingMatchesGeneralTest
+use Physics.Tests.BoxTriangleRandomTrianglesMatchesGeneralTest
+use Physics.Tests.CylinderTriangleMatchesGeneralTest
+
+/*
+PhysicsTester runs the physics tests, in the same way ScienceTester runs the
+statistics tests. The test classes are in Tests/Physics, one test to a file.
+*/
+class PhysicsTester
+    Tester tester = undefined
+
+    action GetName returns text
+        return "Physics Tests"
+    end
+
+    action SetTester(Tester tester)
+        me:tester = tester
+    end
+
+    action Test
+        TestPositions()
+        TestMatrices()
+        TestBounds()
+        TestShapes()
+        TestContacts()
+        TestNarrowphase()
+        TestRayCasts()
+        TestRouting()
+        TestGeometry()
+        TestClipping()
+        TestColliders()
+        TestComparisons()
+    end
+
+    action TestGeometry
+        TriangleGeometryPlaneTest test1
+        tester:Run(test1)
+
+        TriangleGeometrySidePlanesTest test2
+        tester:Run(test2)
+
+        TriangleGeometryClosestPointTest test3
+        tester:Run(test3)
+
+        TriangleGeometryTransformedLoadTest test4
+        tester:Run(test4)
+
+        TriangleGeometryDegenerateTest test5
+        tester:Run(test5)
+
+        TriangleGeometrySegmentsTest test6
+        tester:Run(test6)
+
+        TriangleGeometryProjectionTest test7
+        tester:Run(test7)
+
+    end
+
+    action TestClipping
+        ClipAgainstPlaneTest test1
+        tester:Run(test1)
+
+        ClipSmallInputsTest test2
+        tester:Run(test2)
+
+        ClipToTriangleTest test3
+        tester:Run(test3)
+
+        ReduceToFourTest test4
+        tester:Run(test4)
+
+    end
+
+    action TestColliders
+        TriangleColliderTriangleIsItemATest test1
+        tester:Run(test1)
+
+        TriangleColliderShapeIsItemATest test2
+        tester:Run(test2)
+
+        TriangleColliderThresholdTest test3
+        tester:Run(test3)
+
+        TriangleColliderLoadTest test4
+        tester:Run(test4)
+
+        SphereTriangleOnFaceTest test5
+        tester:Run(test5)
+
+        SphereTriangleThresholdTest test6
+        tester:Run(test6)
+
+        SphereTriangleEdgeAndCornerTest test7
+        tester:Run(test7)
+
+        SphereTriangleUnderneathTest test8
+        tester:Run(test8)
+
+        SphereTriangleCenterOnTriangleTest test9
+        tester:Run(test9)
+
+        SphereTriangleMarginTest test10
+        tester:Run(test10)
+
+        SphereTriangleIsItemATest test11
+        tester:Run(test11)
+
+        SphereTriangleTransformedTriangleTest test12
+        tester:Run(test12)
+
+        SphereTriangleOutOfReachTest test13
+        tester:Run(test13)
+
+        SphereTriangleDegenerateTriangleTest test14
+        tester:Run(test14)
+
+        BoxTriangleFlatTest test15
+        tester:Run(test15)
+
+        BoxTriangleTurnedTest test16
+        tester:Run(test16)
+
+        BoxTriangleOnEdgeTest test17
+        tester:Run(test17)
+
+        BoxTriangleSmallTriangleTest test18
+        tester:Run(test18)
+
+        BoxTriangleOverhangTest test19
+        tester:Run(test19)
+
+        BoxTriangleUnderneathTest test20
+        tester:Run(test20)
+
+        BoxTriangleOutOfReachTest test21
+        tester:Run(test21)
+
+        BoxTriangleIsItemATest test22
+        tester:Run(test22)
+
+        BoxTriangleFaceDirectionTest test23
+        tester:Run(test23)
+
+        BoxTriangleEdgeDirectionTest test24
+        tester:Run(test24)
+
+        CylinderTriangleStandingTest test25
+        tester:Run(test25)
+
+        CylinderTriangleLyingTest test26
+        tester:Run(test26)
+
+        CylinderTriangleUpAxisXTest test27
+        tester:Run(test27)
+
+        CylinderTriangleTiltedTest test28
+        tester:Run(test28)
+
+        CylinderTriangleOutOfReachTest test29
+        tester:Run(test29)
+
+        CylinderTriangleIsItemATest test30
+        tester:Run(test30)
+
+        CylinderTriangleOverEdgeTest test31
+        tester:Run(test31)
+
+    end
+
+    action TestComparisons
+        SphereTriangleMatchesGeneralTest test1
+        tester:Run(test1)
+
+        BoxTriangleRestingMatchesGeneralTest test2
+        tester:Run(test2)
+
+        BoxTriangleRandomTrianglesMatchesGeneralTest test3
+        tester:Run(test3)
+
+        CylinderTriangleMatchesGeneralTest test4
+        tester:Run(test4)
+
+    end
+
+    action TestPositions
+        PhysicsPositionTransformTest test1
+        tester:Run(test1)
+
+        PhysicsPositionInverseTransformTest test2
+        tester:Run(test2)
+
+        PhysicsPositionInverseTest test3
+        tester:Run(test3)
+
+        PhysicsPositionMultiplyTest test4
+        tester:Run(test4)
+
+        PhysicsPositionRotationTest test5
+        tester:Run(test5)
+
+        PhysicsPositionMatrixTest test6
+        tester:Run(test6)
+
+    end
+
+    action TestMatrices
+        Matrix3TransformTest test1
+        tester:Run(test1)
+
+        Matrix3ElementsTest test2
+        tester:Run(test2)
+
+        Matrix3EulerTest test3
+        tester:Run(test3)
+
+    end
+
+    action TestBounds
+        BoundingBoxSetTest test1
+        tester:Run(test1)
+
+        BoundingBoxIntersectsTest test2
+        tester:Run(test2)
+
+        BoundingBoxContainsTest test3
+        tester:Run(test3)
+
+        BoundingBoxExtendTest test4
+        tester:Run(test4)
+
+        BoundingBoxCombineTest test5
+        tester:Run(test5)
+
+    end
+
+    action TestShapes
+        BoxShapeTest test1
+        tester:Run(test1)
+
+        BoxCopyTest test2
+        tester:Run(test2)
+
+        SphereShapeTest test3
+        tester:Run(test3)
+
+        SphereCopyTest test4
+        tester:Run(test4)
+
+        CylinderShapeTest test5
+        tester:Run(test5)
+
+        CylinderUpAxisTest test6
+        tester:Run(test6)
+
+        CylinderCopyTest test7
+        tester:Run(test7)
+
+        TriangleShapeTest test8
+        tester:Run(test8)
+
+    end
+
+    action TestContacts
+        ContactPointsCacheEntryTest test1
+        tester:Run(test1)
+
+        ContactPointsReplaceTest test2
+        tester:Run(test2)
+
+        ContactPointsRemoveTest test3
+        tester:Run(test3)
+
+        ContactPointsSortTest test4
+        tester:Run(test4)
+
+        ContactPointsRefreshTest test5
+        tester:Run(test5)
+
+        ContactResultStoreTest test6
+        tester:Run(test6)
+
+        ContactResultFaceNormalTest test7
+        tester:Run(test7)
+
+        ContactResultGatheringTest test8
+        tester:Run(test8)
+
+        ContactResultMaterialsTest test9
+        tester:Run(test9)
+
+    end
+
+    action TestNarrowphase
+        BoxBoxFaceTest test1
+        tester:Run(test1)
+
+        BoxBoxTurnedTest test2
+        tester:Run(test2)
+
+        BoxBoxTiltedTest test3
+        tester:Run(test3)
+
+        BoxBoxEdgeTest test4
+        tester:Run(test4)
+
+        BoxBoxApartTest test5
+        tester:Run(test5)
+
+        SphereSphereTest test6
+        tester:Run(test6)
+
+        ConvexSphereBoxTest test7
+        tester:Run(test7)
+
+        ConvexCylinderBoxTest test8
+        tester:Run(test8)
+
+        ConvexDeepOverlapTest test9
+        tester:Run(test9)
+
+    end
+
+    action TestRayCasts
+        BoxRayCastTest test1
+        tester:Run(test1)
+
+        SphereRayCastTest test2
+        tester:Run(test2)
+
+        CylinderRayCastTest test3
+        tester:Run(test3)
+
+        TriangleRayCastTest test4
+        tester:Run(test4)
+
+        RayCastNearestTest test5
+        tester:Run(test5)
+
+    end
+
+    action TestRouting
+        RoutingCollideTriangleTest test1
+        tester:Run(test1)
+
+        RoutingItemTriangleTest test2
+        tester:Run(test2)
+
+    end
+end

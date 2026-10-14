@@ -1,0 +1,44 @@
+package Physics.Tests
+
+use Libraries.Compute.Vector3
+use Libraries.Game.Collision.PhysicsPosition3D
+
+/*
+Tests PhysicsPosition3D:Inverse, which turns a position into the one that
+undoes it.
+*/
+class PhysicsPositionInverseTest is PhysicsTest
+    on create
+        SetName("Physics position: inverse")
+    end
+
+    action Run
+        PhysicsPosition3D general = MakeTransform(0.5, -2, 3, 1, 2, 3, 37)
+
+        // The inverse undoes the transform.
+        PhysicsPosition3D inverse
+        inverse:Inverse(general)
+        Vector3 point = MakeVector(1.5, 0.25, -4)
+        general:Transform(point)
+        inverse:Transform(point)
+        CheckVector("the inverse undoes the transform", point, 1.5, 0.25, -4)
+
+        // The position passed in is not changed.
+        point:Set(1.5, 0.25, -4)
+        general:Transform(point)
+        CheckVector("the original is unchanged", point, 0.146755, -0.720849, -1.068352)
+
+        // Inverting in place, twice, gives back the original.
+        PhysicsPosition3D twice = MakeTransform(0.5, -2, 3, 1, 2, 3, 37)
+        twice:Inverse()
+        twice:Inverse()
+        point:Set(1.5, 0.25, -4)
+        twice:Transform(point)
+        CheckVector("inverting twice", point, 0.146755, -0.720849, -1.068352)
+
+        // The inverse of a pure translation moves the other way.
+        PhysicsPosition3D moved = MakeTransform(10, 2, -1, 0, 1, 0, 0)
+        moved:Inverse()
+        CheckVector("inverse of a translation", moved:GetOrigin(), -10, -2, 1)
+    end
+end

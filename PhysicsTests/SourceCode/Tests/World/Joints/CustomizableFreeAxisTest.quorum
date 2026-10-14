@@ -1,0 +1,34 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Game.Physics.Joints.CustomizableJoint3D
+
+/*
+Tests a customizable joint with one moving axis given room. The box from
+CustomizableLockedTest may now move from 1 below its starting point to its
+starting point along y. Gravity should pull it down that 1, where the limit
+stops it, while x and z stay locked.
+*/
+class CustomizableFreeAxisTest is PhysicsWorldTest
+    on create
+        SetName("World: a customizable joint lets a box move within a limit")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        Item3D anchor = AddFixedBox(layer, 0, 5, 0, 0.2, 0.2, 0.2)
+        Item3D box = AddBox(layer, 0, 4, 0, 0.4, 1)
+
+        CustomizableJoint3D joint
+        joint:Initialize(anchor, box, MakeFrame(0, -1, 0), MakeFrame(0, 0, 0), true)
+        joint:SetLimit(1, -1, 0)
+        layer:Add(joint)
+
+        Advance(layer, 2)
+
+        CheckNear("height after falling to the limit", box:GetY(), 3, 0.05)
+        CheckNear("drift along x", box:GetX(), 0, 0.01)
+        CheckNear("drift along z", box:GetZ(), 0, 0.01)
+    end
+end

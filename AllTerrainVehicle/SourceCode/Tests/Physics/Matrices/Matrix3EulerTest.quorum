@@ -1,0 +1,61 @@
+package Physics.Tests
+
+use Libraries.Compute.Math
+use Libraries.Compute.Vector3
+use Libraries.Compute.Matrix3
+
+/*
+Tests Matrix3:SetEulerZYX, which the joints use. Given turns about x, y and
+z, in radians, it makes the rotation that turns about x first, then y, then
+z. So it equals the z rotation times the y rotation times the x rotation.
+*/
+class Matrix3EulerTest is PhysicsTest
+    on create
+        SetName("Matrix3: SetEulerZYX")
+    end
+
+    action Run
+        Math math
+        Matrix3 matrix
+        Vector3 vector
+
+        // A quarter turn about each axis on its own.
+        matrix:SetEulerZYX(0, 0, math:pi / 2)
+        vector:Set(1, 0, 0)
+        matrix:Transform(vector)
+        CheckVector("a quarter turn about z takes x to y", vector, 0, 1, 0)
+
+        matrix:SetEulerZYX(math:pi / 2, 0, 0)
+        vector:Set(0, 1, 0)
+        matrix:Transform(vector)
+        CheckVector("a quarter turn about x takes y to z", vector, 0, 0, 1)
+
+        matrix:SetEulerZYX(0, math:pi / 2, 0)
+        vector:Set(0, 0, 1)
+        matrix:Transform(vector)
+        CheckVector("a quarter turn about y takes z to x", vector, 1, 0, 0)
+
+        // All three together equal the three single turns multiplied, z times
+        // y times x.
+        matrix:SetEulerZYX(0.3, -0.7, 1.1)
+        Matrix3 aboutX
+        aboutX:SetEulerZYX(0.3, 0, 0)
+        Matrix3 aboutY
+        aboutY:SetEulerZYX(0, -0.7, 0)
+        Matrix3 product
+        product:SetEulerZYX(0, 0, 1.1)
+        product:Multiply(aboutY)
+        product:Multiply(aboutX)
+
+        integer row = 0
+        repeat while row < 3
+            integer column = 0
+            repeat while column < 3
+                CheckNumber("all three turns, element " + row + ", " + column,
+                    matrix:GetElement(row, column), product:GetElement(row, column))
+                column = column + 1
+            end
+            row = row + 1
+        end
+    end
+end

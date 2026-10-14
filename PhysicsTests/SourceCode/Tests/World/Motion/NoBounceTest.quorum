@@ -1,0 +1,38 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+
+/*
+Tests that a ball with no restitution does not bounce. The ground's
+restitution is also 0, the default, so the ball should land and stay down,
+with its center no higher than a little above its resting height of 0.5.
+*/
+class NoBounceTest is PhysicsWorldTest
+    on create
+        SetName("World: a ball with no restitution does not bounce")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        AddGround(layer)
+        Item3D ball = AddSphere(layer, 0, 2.5, 0, 0.5, 1)
+        ball:SetRestitution(0)
+
+        // The ball lands after about 0.64 seconds. Watch it from 0.7 seconds on.
+        Advance(layer, 0.7)
+        number highest = ball:GetY()
+        integer steps = StepsIn(1)
+        integer i = 0
+        repeat while i < steps
+            Step(layer)
+            if ball:GetY() > highest
+                highest = ball:GetY()
+            end
+            i = i + 1
+        end
+
+        CheckAtMost("highest point after landing", highest, 0.53)
+        CheckNear("resting height", ball:GetY(), 0.5, 0.03)
+    end
+end

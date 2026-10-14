@@ -1,0 +1,30 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Game.Collision.RayCastResult3D
+
+/*
+Tests that a ray cast reports the nearest of the items it passes through. A
+box 1 on each side sits on the ground, and a ray comes straight down through
+both. It should report the box, whose top is at 1, not the ground below it.
+*/
+class RayCastNearestTest is PhysicsWorldTest
+    on create
+        SetName("World: a ray cast hits the nearest item")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        AddGround(layer)
+        Item3D box = AddBox(layer, 0, 0.5, 0, 1, 1)
+        Step(layer)
+
+        RayCastResult3D result
+        boolean hit = layer:RayCastPhysics(MakeVector(0, 5, 0), MakeVector(0, -5, 0), result)
+
+        CheckThat("the ray hit", hit)
+        CheckThat("the ray hit the box", result:GetHitBody() = box)
+        CheckNear("hit point height", result:GetHitPointWorldSpace():GetY(), 1, 0.05)
+    end
+end

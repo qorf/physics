@@ -1,0 +1,59 @@
+package Physics.Tests
+
+use Libraries.Compute.Vector3
+use Libraries.Game.BoundingBox
+use Libraries.Game.Collision.PhysicsPosition3D
+use Libraries.Game.Collision.Shapes.Box
+
+/*
+Tests the Box shape: its size and margin, its supporting points, its
+bounding box, and its inertia.
+
+Box:Set(width, height, depth) keeps the box's margin, 0.04 by default,
+inside the size it is given, as Bullet does. Half of each size is the box
+with its margin, and the box without its margin is 0.04 smaller on each
+side. So a box set to 1 by 2 by 3 collides as a box 1 by 2 by 3.
+*/
+class BoxShapeTest is PhysicsTest
+    on create
+        SetName("Box shape")
+    end
+
+    action Run
+        Box box
+        box:Set(1, 2, 3)
+        CheckNumber("default margin", box:GetMargin(), 0.04)
+        CheckVector("half extents without the margin", box:GetHalfExtentsWithoutMargin(), 0.46, 0.96, 1.46)
+        CheckVector("half extents with the margin", box:GetHalfExtentsWithMargin(), 0.5, 1, 1.5)
+
+        // The supporting point is the corner farthest along a direction. A
+        // zero component counts as positive.
+        CheckVector("supporting corner without the margin",
+            box:LocalGetSupportingVertexWithoutMargin(MakeVector(1, -1, 1)), 0.46, -0.96, 1.46)
+        CheckVector("supporting corner with the margin",
+            box:LocalGetSupportingVertex(MakeVector(-2, 3, -0.5)), -0.5, 1, -1.5)
+        CheckVector("a zero component counts as positive",
+            box:LocalGetSupportingVertexWithoutMargin(MakeVector(0, -1, 0)), 0.46, -0.96, 1.46)
+
+        // The bounding box is around the box with its margin.
+        BoundingBox bounds
+        box:ComputeBoundingBox(bounds, MakeTransform(1, 2, 3, 0, 1, 0, 0))
+        CheckVector("bounding box minimum", bounds:GetMinimum(), 0.5, 1, 1.5)
+        CheckVector("bounding box maximum", bounds:GetMaximum(), 1.5, 3, 4.5)
+
+        // Turned a quarter turn about y, the box's width and depth swap.
+        box:ComputeBoundingBox(bounds, MakeTransform(0, 0, 0, 0, 1, 0, 90))
+        CheckVector("turned bounding box maximum", bounds:GetMaximum(), 1.5, 1, 0.5)
+
+        // Inertia of a solid box, mass / 12 times the sum of the squares of
+        // the other two full sizes, which include the margin.
+        Vector3 inertia
+        box:CalculateLocalInertia(12, inertia)
+        CheckVector("inertia", inertia, 13, 10, 5)
+
+        // Changing the margin keeps the box's outside the same size.
+        box:SetMargin(0.1)
+        CheckVector("a new margin keeps the outside", box:GetHalfExtentsWithMargin(), 0.5, 1, 1.5)
+        CheckVector("a new margin moves the inside", box:GetHalfExtentsWithoutMargin(), 0.4, 0.9, 1.4)
+    end
+end

@@ -1,0 +1,620 @@
+package Rendering2D
+
+use Libraries.Containers.Array
+use Libraries.Containers.HashTable
+use Libraries.Containers.Iterator
+use Libraries.Interface.Item2D
+use Libraries.Game.Shapes.Rectangle
+
+/*
+DynamicVolumeRenderTree2D is a 2D render tree made of rectangles that fit
+around the items: a binary tree where each leaf holds one item and each
+branch holds the rectangle around its two children. A search can skip a
+whole branch when its rectangle is out of view. It is the 2D partner of
+DynamicVolumeRenderTree3D, and a good choice for most scenes, especially ones
+whose items are bunched together unevenly, since the tree shapes itself
+around them and needs no region set ahead of time.
+
+The algorithm is the one used by the 2D physics tree,
+DynamicBoundingVolumeTree2D, which comes from Box2D. Adding a leaf walks down
+from the root, choosing the child whose rectangle grows least, measured by
+perimeter. Removing replaces the leaf's parent with its sibling. Both refit
+the rectangles above and rebalance with rotations, so the tree stays
+shallow. This class is a separate copy rather than a shared one, so that
+drawing can change without any risk to physics. The physics tree also works
+only with physics: it holds Item2DNode objects, finds pairs for a
+BroadphaseCollision2D, and stretches each box in the direction its item is
+moving. A fix to the shared algorithm in either class should be checked in
+the other.
+
+Each leaf's rectangle is the margin bigger than its item on every side, so
+small moves need no change to the tree. Unlike the 3D tree, there is no
+separate static half with no margin. In 2D the margin is small next to most
+items, so a static half would leave out very little more, and would add
+work every frame to move items between the halves.
+
+Everything else, such as how answers are given and when to call Moved, is
+the same for every 2D render tree, and is described in RenderTree2D.
+
+Attribute: Example
+
+use Rendering2D.DynamicVolumeRenderTree2D
+use Libraries.Interface.Item2D
+use Libraries.Containers.Array
+
+DynamicVolumeRenderTree2D tree
+Item2D item
+item:SetSize(10, 10)
+tree:Add(item)
+Array<Item2D> found
+tree:CollectAtPoint(5, 5, found)
+output found:GetSize()
+*/
+class DynamicVolumeRenderTree2D is RenderTree2D
+    // How much bigger than its item a leaf's rectangle is, on every side.
+    number margin = 4
+
+    RenderTreeNode2D root = undefined
+
+    // The leaf for each item in the tree.
+    HashTable<Item2D, RenderTreeNode2D> leaves
+
+    integer leafCount = 0
+
+    // Branch nodes that have been removed, kept for reuse so the tree does
+    // not create objects while items move. An Array, not a List, because a
+    // List creates a node object for every Add.
+    Array<RenderTreeNode2D> freeNodes
+
+    // Reused by the searches, as stacks of nodes still to visit. They are
+    // emptied with Empty(false), which keeps their storage, so searching
+    // creates no objects once the stacks have grown to fit the tree.
+    Array<RenderTreeNode2D> stack
+    Array<RenderTreeNode2D> subtreeStack
+
+    /*
+    This action adds an item.
+
+    Attribute: Parameter item The item to add.
+    Attribute: Returns True if the item was added. False if it was already in
+    the tree, or has no size.
+    */
+    action Add(Item2D item) returns boolean
+        if item = undefined or Has(item)
+            return false
+        end
+        Rectangle box = item:GetBoundingRectangle()
+        if box:GetWidth() <= 0 and box:GetHeight() <= 0
+            return false
+        end
+
+        RenderTreeNode2D leaf
+        leaf:SetItem(item)
+        SetLeafBounds(leaf, box)
+        AddLeaf(leaf)
+        leaves:Add(item, leaf)
+        leafCount = leafCount + 1
+        return true
+    end
+
+    /*
+    This action removes an item.
+
+    Attribute: Parameter item The item to remove.
+    Attribute: Returns True if the item was in the tree.
+    */
+    action Remove(Item2D item) returns boolean
+        RenderTreeNode2D leaf = leaves:RemoveKey(item)
+        if leaf = undefined
+            return false
+        end
+        RemoveLeaf(leaf)
+        leaf:Reset()
+        leafCount = leafCount - 1
+        return true
+    end
+
+    /*
+    This action removes every item. The branch nodes are dropped rather than
+    kept for reuse, since emptying is rare.
+    */
+    action Empty
+        Iterator<RenderTreeNode2D> iterator = leaves:GetValueIterator()
+        repeat while iterator:HasNext()
+            iterator:Next():Reset()
+        end
+        leaves:Empty()
+        root = undefined
+        leafCount = 0
+        freeNodes:Empty()
+    end
+
+    /*
+    This action returns true if the item is in the tree.
+
+    Attribute: Parameter item The item to look for.
+    Attribute: Returns True if the item is in the tree.
+    */
+    action Has(Item2D item) returns boolean
+        return leaves:HasKey(item)
+    end
+
+    /*
+    This action returns the leaf that holds an item, or undefined if the item
+    is not in the tree. See RenderTree2D for how to use it.
+
+    Attribute: Parameter item The item to find.
+    Attribute: Returns The item's leaf, or undefined if it is not in the tree.
+    */
+    action GetLeaf(Item2D item) returns RenderTreeNode2D
+        return leaves:GetValue(item)
+    end
+
+    /*
+    This action tells the tree an item's position, rotation, scale or size has
+    changed. It looks up the item's leaf each time. Moved(leaf) does not.
+
+    Attribute: Parameter item The item that moved.
+    */
+    action Moved(Item2D item)
+        RenderTreeNode2D leaf = leaves:GetValue(item)
+        if leaf = undefined
+            return now
+        end
+        Moved(leaf)
+    end
+
+    /*
+    This action does the same as Moved(item), for the leaf GetLeaf returned
+    for that item, without looking it up. If the item's new rectangle is still
+    inside the leaf's rectangle, nothing changes. Otherwise the leaf is
+    removed, given a new rectangle, and added again. A leaf whose item has
+    been removed is ignored.
+
+    Attribute: Parameter leaf The leaf GetLeaf returned for the item.
+    */
+    action Moved(RenderTreeNode2D leaf)
+        if leaf:GetItem() = undefined
+            return now
+        end
+
+        Rectangle box = leaf:GetItem():GetBoundingRectangle()
+        if leaf:Contains(box:GetX(), box:GetY(), box:GetX() + box:GetWidth(), box:GetY() + box:GetHeight())
+            return now
+        end
+        RemoveLeaf(leaf)
+        SetLeafBounds(leaf, box)
+        AddLeaf(leaf)
+    end
+
+    /*
+    This action adds the items overlapping a rectangle to the results. A
+    branch entirely inside the rectangle adds all of its items without testing
+    them, and a branch entirely outside is skipped.
+
+    Attribute: Parameter x The x coordinate of the rectangle's left edge.
+    Attribute: Parameter y The y coordinate of the rectangle's bottom edge.
+    Attribute: Parameter width The rectangle's width.
+    Attribute: Parameter height The rectangle's height.
+    Attribute: Parameter results The array to add the items to.
+    */
+    action CollectInRectangle(number x, number y, number width, number height, Array<Item2D> results)
+        if root = undefined
+            return now
+        end
+        number maximumX = x + width
+        number maximumY = y + height
+
+        stack:Empty(false)
+        stack:Add(root)
+        repeat while not stack:IsEmpty()
+            RenderTreeNode2D node = stack:RemoveFromEnd()
+            if node:IsInside(x, y, maximumX, maximumY)
+                AddAll(node, results)
+            elseif node:Overlaps(x, y, maximumX, maximumY)
+                if node:IsLeaf()
+                    results:Add(node:GetItem())
+                else
+                    stack:Add(node:GetLeft())
+                    stack:Add(node:GetRight())
+                end
+            end
+        end
+    end
+
+    /*
+    This action adds the items whose rectangles overlap a circle to the
+    results.
+
+    Attribute: Parameter x The x coordinate of the circle's center.
+    Attribute: Parameter y The y coordinate of the circle's center.
+    Attribute: Parameter radius The circle's radius.
+    Attribute: Parameter results The array to add the items to.
+    */
+    action CollectInCircle(number x, number y, number radius, Array<Item2D> results)
+        if root = undefined
+            return now
+        end
+        number radiusSquared = radius * radius
+        stack:Empty(false)
+        stack:Add(root)
+        repeat while not stack:IsEmpty()
+            RenderTreeNode2D node = stack:RemoveFromEnd()
+            if node:DistanceSquared(x, y) <= radiusSquared
+                if node:IsLeaf()
+                    results:Add(node:GetItem())
+                else
+                    stack:Add(node:GetLeft())
+                    stack:Add(node:GetRight())
+                end
+            end
+        end
+    end
+
+    /*
+    This action returns how many items are in the tree.
+
+    Attribute: Returns The number of items.
+    */
+    action GetSize returns integer
+        return leafCount
+    end
+
+    /*
+    This action returns how many levels the tree has below its root, or -1
+    when it is empty.
+
+    Attribute: Returns The number of levels.
+    */
+    action GetHeight returns integer
+        if root = undefined
+            return -1
+        end
+        return root:GetHeight()
+    end
+
+    /*
+    This action sets how much bigger than its item a leaf's rectangle is
+    made, on every side. A bigger margin means fewer changes to the tree as
+    items move, but more items found just outside the view. It is used for
+    items added or moved from now on. The default is 4.
+
+    Attribute: Parameter value The margin, at least 0.
+    */
+    action SetMargin(number value)
+        if value < 0
+            margin = 0
+        else
+            margin = value
+        end
+    end
+
+    /*
+    This action returns how much bigger than its item a leaf's rectangle is
+    made, on every side.
+
+    Attribute: Returns The margin.
+    */
+    action GetMargin returns number
+        return margin
+    end
+
+    /*
+    This action sets a leaf's rectangle to its item's rectangle plus the
+    margin.
+
+    Attribute: Parameter leaf The leaf to set.
+    Attribute: Parameter box The item's rectangle in the world.
+    */
+    private action SetLeafBounds(RenderTreeNode2D leaf, Rectangle box)
+        leaf:SetBounds(box:GetX() - margin, box:GetY() - margin,
+            box:GetX() + box:GetWidth() + margin, box:GetY() + box:GetHeight() + margin)
+    end
+
+    /*
+    This action adds every item below the given node to the results, without
+    testing them.
+
+    Attribute: Parameter start The node to start from.
+    Attribute: Parameter results The array to add the items to.
+    */
+    private action AddAll(RenderTreeNode2D start, Array<Item2D> results)
+        subtreeStack:Empty(false)
+        subtreeStack:Add(start)
+        repeat while not subtreeStack:IsEmpty()
+            RenderTreeNode2D node = subtreeStack:RemoveFromEnd()
+            if node:IsLeaf()
+                results:Add(node:GetItem())
+            else
+                subtreeStack:Add(node:GetLeft())
+                subtreeStack:Add(node:GetRight())
+            end
+        end
+    end
+
+    /*
+    This action returns a branch node, reusing a removed one if there is one.
+
+    Attribute: Returns A branch node, cleared and ready to use.
+    */
+    private action NewBranch returns RenderTreeNode2D
+        if not freeNodes:IsEmpty()
+            return freeNodes:RemoveFromEnd()
+        end
+        RenderTreeNode2D node
+        return node
+    end
+
+    /*
+    This action clears a branch node that is no longer in the tree and keeps
+    it for reuse.
+
+    Attribute: Parameter node The branch node to keep.
+    */
+    private action FreeBranch(RenderTreeNode2D node)
+        node:Reset()
+        freeNodes:Add(node)
+    end
+
+    /*
+    This action returns the perimeter of the smallest rectangle around two
+    nodes' rectangles, without making a new rectangle.
+
+    Attribute: Parameter first The first node.
+    Attribute: Parameter second The second node.
+    Attribute: Returns The perimeter of the rectangle around both.
+    */
+    private action CombinedPerimeter(RenderTreeNode2D first, RenderTreeNode2D second) returns number
+        number minimumX = first:GetMinimumX()
+        if second:GetMinimumX() < minimumX
+            minimumX = second:GetMinimumX()
+        end
+        number minimumY = first:GetMinimumY()
+        if second:GetMinimumY() < minimumY
+            minimumY = second:GetMinimumY()
+        end
+        number maximumX = first:GetMaximumX()
+        if second:GetMaximumX() > maximumX
+            maximumX = second:GetMaximumX()
+        end
+        number maximumY = first:GetMaximumY()
+        if second:GetMaximumY() > maximumY
+            maximumY = second:GetMaximumY()
+        end
+        return 2 * ((maximumX - minimumX) + (maximumY - minimumY))
+    end
+
+    /*
+    This action places a leaf in the tree. It walks down from the root, at
+    each branch comparing the cost of making the leaf a sibling of the branch
+    here with the cost of going down into either child. The cost is how much
+    the rectangles above would grow, measured by perimeter, as in the physics
+    tree.
+
+    Attribute: Parameter leaf The leaf to place. Its rectangle must already be
+    set.
+    */
+    private action AddLeaf(RenderTreeNode2D leaf)
+        leaf:SetParentNode(undefined)
+        leaf:SetLeft(undefined)
+        leaf:SetRight(undefined)
+        leaf:SetHeight(0)
+
+        if root = undefined
+            root = leaf
+            return now
+        end
+
+        RenderTreeNode2D sibling = root
+        boolean found = false
+        repeat while not sibling:IsLeaf() and not found
+            number perimeter = sibling:GetPerimeter()
+            number combinedPerimeter = CombinedPerimeter(sibling, leaf)
+
+            // The cost of making the leaf a sibling of this branch.
+            number cost = 2 * combinedPerimeter
+            // The cost every rectangle above pays, wherever the leaf goes.
+            number inheritedCost = 2 * (combinedPerimeter - perimeter)
+
+            number leftCost = DescendCost(sibling:GetLeft(), leaf, inheritedCost)
+            number rightCost = DescendCost(sibling:GetRight(), leaf, inheritedCost)
+
+            if cost < leftCost and cost < rightCost
+                found = true
+            elseif leftCost < rightCost
+                sibling = sibling:GetLeft()
+            else
+                sibling = sibling:GetRight()
+            end
+        end
+
+        // Put a new branch where the sibling was, holding the sibling and
+        // the leaf.
+        RenderTreeNode2D oldParent = sibling:GetParentNode()
+        RenderTreeNode2D branch = NewBranch()
+        branch:SetParentNode(oldParent)
+        branch:SetBoundsAround(leaf, sibling)
+        branch:SetHeight(sibling:GetHeight() + 1)
+        branch:SetLeft(sibling)
+        branch:SetRight(leaf)
+        sibling:SetParentNode(branch)
+        leaf:SetParentNode(branch)
+        ReplaceChild(oldParent, sibling, branch)
+
+        Refit(branch)
+    end
+
+    /*
+    This action returns the cost of going down into a child when adding a
+    leaf.
+
+    Attribute: Parameter child The child that might be gone down into.
+    Attribute: Parameter leaf The leaf being added.
+    Attribute: Parameter inheritedCost The cost every rectangle above pays,
+    wherever the leaf goes.
+    Attribute: Returns The cost of going down into the child.
+    */
+    private action DescendCost(RenderTreeNode2D child, RenderTreeNode2D leaf, number inheritedCost) returns number
+        number combinedPerimeter = CombinedPerimeter(leaf, child)
+        if child:IsLeaf()
+            return combinedPerimeter + inheritedCost
+        end
+        return (combinedPerimeter - child:GetPerimeter()) + inheritedCost
+    end
+
+    /*
+    This action takes a leaf out of the tree. Its parent branch is removed,
+    and the leaf's sibling takes the parent's place.
+
+    Attribute: Parameter leaf The leaf to take out.
+    */
+    private action RemoveLeaf(RenderTreeNode2D leaf)
+        if leaf = root
+            root = undefined
+            leaf:SetParentNode(undefined)
+            return now
+        end
+
+        RenderTreeNode2D branch = leaf:GetParentNode()
+        RenderTreeNode2D grandparent = branch:GetParentNode()
+        RenderTreeNode2D sibling = branch:GetLeft()
+        if sibling = leaf
+            sibling = branch:GetRight()
+        end
+
+        sibling:SetParentNode(grandparent)
+        ReplaceChild(grandparent, branch, sibling)
+        FreeBranch(branch)
+        leaf:SetParentNode(undefined)
+
+        if grandparent not= undefined
+            Refit(grandparent)
+        end
+    end
+
+    /*
+    This action walks from a branch up to the root, rebalancing each branch
+    and recomputing its rectangle and height.
+
+    Attribute: Parameter start The branch to start from.
+    */
+    private action Refit(RenderTreeNode2D start)
+        RenderTreeNode2D node = start
+        repeat while node not= undefined
+            node = Balance(node)
+            node:SetHeight(1 + Larger(node:GetLeft():GetHeight(), node:GetRight():GetHeight()))
+            node:SetBoundsAround(node:GetLeft(), node:GetRight())
+            node = node:GetParentNode()
+        end
+    end
+
+    /*
+    This action puts a new child in place of an old one.
+
+    Attribute: Parameter owner The branch holding the old child, or undefined
+    if the old child was the root.
+    Attribute: Parameter oldChild The child being replaced.
+    Attribute: Parameter newChild The child to put in its place.
+    */
+    private action ReplaceChild(RenderTreeNode2D owner, RenderTreeNode2D oldChild, RenderTreeNode2D newChild)
+        if owner = undefined
+            root = newChild
+        elseif owner:GetLeft() = oldChild
+            owner:SetLeft(newChild)
+        else
+            owner:SetRight(newChild)
+        end
+    end
+
+    /*
+    This action returns the larger of two whole numbers.
+
+    Attribute: Parameter first The first number.
+    Attribute: Parameter second The second number.
+    Attribute: Returns The larger of the two.
+    */
+    private action Larger(integer first, integer second) returns integer
+        if first > second
+            return first
+        end
+        return second
+    end
+
+    /*
+    This action rebalances the branch a when one of its children is more than
+    one level taller than the other, by rotating the taller child up into a's
+    place. This is the rotation from Box2D, as in the physics tree.
+
+    Attribute: Parameter a The branch to rebalance.
+    Attribute: Returns The branch now in a's place.
+    */
+    private action Balance(RenderTreeNode2D a) returns RenderTreeNode2D
+        if a:IsLeaf() or a:GetHeight() < 2
+            return a
+        end
+
+        RenderTreeNode2D b = a:GetLeft()
+        RenderTreeNode2D c = a:GetRight()
+        integer balance = c:GetHeight() - b:GetHeight()
+
+        // The right child, c, is too tall: rotate it up.
+        if balance > 1
+            RenderTreeNode2D f = c:GetLeft()
+            RenderTreeNode2D g = c:GetRight()
+            c:SetLeft(a)
+            c:SetParentNode(a:GetParentNode())
+            a:SetParentNode(c)
+            ReplaceChild(c:GetParentNode(), a, c)
+
+            if f:GetHeight() > g:GetHeight()
+                c:SetRight(f)
+                a:SetRight(g)
+                g:SetParentNode(a)
+                a:SetBoundsAround(b, g)
+                c:SetBoundsAround(a, f)
+                a:SetHeight(1 + Larger(b:GetHeight(), g:GetHeight()))
+                c:SetHeight(1 + Larger(a:GetHeight(), f:GetHeight()))
+            else
+                c:SetRight(g)
+                a:SetRight(f)
+                f:SetParentNode(a)
+                a:SetBoundsAround(b, f)
+                c:SetBoundsAround(a, g)
+                a:SetHeight(1 + Larger(b:GetHeight(), f:GetHeight()))
+                c:SetHeight(1 + Larger(a:GetHeight(), g:GetHeight()))
+            end
+            return c
+        end
+
+        // The left child, b, is too tall: rotate it up.
+        if balance < -1
+            RenderTreeNode2D d = b:GetLeft()
+            RenderTreeNode2D e = b:GetRight()
+            b:SetLeft(a)
+            b:SetParentNode(a:GetParentNode())
+            a:SetParentNode(b)
+            ReplaceChild(b:GetParentNode(), a, b)
+
+            if d:GetHeight() > e:GetHeight()
+                b:SetRight(d)
+                a:SetLeft(e)
+                e:SetParentNode(a)
+                a:SetBoundsAround(c, e)
+                b:SetBoundsAround(a, d)
+                a:SetHeight(1 + Larger(c:GetHeight(), e:GetHeight()))
+                b:SetHeight(1 + Larger(a:GetHeight(), d:GetHeight()))
+            else
+                b:SetRight(e)
+                a:SetLeft(d)
+                d:SetParentNode(a)
+                a:SetBoundsAround(c, d)
+                b:SetBoundsAround(a, e)
+                a:SetHeight(1 + Larger(c:GetHeight(), d:GetHeight()))
+                b:SetHeight(1 + Larger(a:GetHeight(), e:GetHeight()))
+            end
+            return b
+        end
+
+        return a
+    end
+end

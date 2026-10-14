@@ -1,0 +1,58 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Game.Physics.Joints.ConeTwistJoint3D
+
+/*
+Tests that a cone twist joint holds an arm within its swing limit. An arm 2
+long sticks out level from a fixed shoulder, joined 1.2 from the arm's
+center, with the joint frames lined up so the arm points along the frames' x
+axis. The swing limits are 0.8 radians, as in ConeTwistJoint3D's example. A
+free arm would swing down to hang straight below the shoulder, about 1.57
+radians, so the arm should instead be held near 0.8 below level.
+
+The joint starts easing the arm when it is past the softness, 0.8 of the
+limit, so the arm may stop a little short of 0.8, and may swing a little
+past it before settling.
+*/
+class ConeTwistLimitTest is PhysicsWorldTest
+    on create
+        SetName("World: a cone twist joint holds an arm within its swing limit")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        Item3D shoulder = AddFixedBox(layer, 0, 5, 0, 0.2, 0.2, 0.2)
+        Item3D arm = AddMovingBox(layer, 1.8, 5, 0, 2, 0.4, 0.4, 1)
+
+        ConeTwistJoint3D joint
+        joint:Initialize(shoulder, arm, MakeFrame(0.6, 0, 0), MakeFrame(-1.2, 0, 0))
+        joint:SetLimits(0.8, 0.8, 0.4, 0.8, 0.3, 1.0)
+        layer:Add(joint)
+
+        number largest = 0
+        number stretch = 0
+        integer steps = StepsIn(3)
+        integer i = 0
+        repeat while i < steps
+            Step(layer)
+            number angle = AngleBelowHorizontal(arm, 0.6, 5)
+            if angle > largest
+                largest = angle
+            end
+            number dx = arm:GetX() - 0.6
+            number dy = arm:GetY() - 5
+            number dz = arm:GetZ()
+            number gap = Absolute(SquareRoot(dx * dx + dy * dy + dz * dz) - 1.2)
+            if gap > stretch
+                stretch = gap
+            end
+            i = i + 1
+        end
+
+        CheckAtMost("largest angle below level", largest, 1.0)
+        CheckNear("angle after settling", AngleBelowHorizontal(arm, 0.6, 5), 0.75, 0.15)
+        CheckAtMost("most the joint stretched", stretch, 0.05)
+    end
+end

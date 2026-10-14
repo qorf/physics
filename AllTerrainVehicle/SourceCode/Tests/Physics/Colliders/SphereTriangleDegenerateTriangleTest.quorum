@@ -1,0 +1,28 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.PhysicsPosition3D
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.Shapes.Triangle
+
+/*
+A triangle with no area is still collided with, using its edges.
+
+Unless a test says otherwise, the triangle is the standard one with no
+margin, and the triangle is item A, the way terrain calls it. A stored
+contact's normal then points from the sphere toward the triangle, and
+its point on B is on the sphere's surface.
+*/
+class SphereTriangleDegenerateTriangleTest is PhysicsTest
+    on create
+        SetName("Sphere and triangle: degenerate triangle")
+    end
+
+    action Run
+        Triangle triangle
+        triangle:Set(MakeVector(0, 0, 0), MakeVector(1, 0, 0), MakeVector(2, 0, 0))
+        triangle:SetMargin(0)
+        PhysicsPosition3D identity
+        LocalCollisionPoints3D points = RunSphereOn(triangle, identity, 0.5, 0.4, 0, 0.5, false)
+        CheckContact("sphere on a degenerate triangle", points, 0, -1, 0, 0.5, -0.1, 0, -0.1)
+    end
+end

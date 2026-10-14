@@ -1,0 +1,74 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.PhysicsPosition3D
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.Shapes.Triangle
+use Libraries.Game.Collision.Shapes.Box
+use Libraries.Compute.Random
+
+/*
+Compares BoxTriangleCollider with the general collision test for boxes
+of random sizes and rotations resting on the large triangle, from 0.04
+into it to 0.05 above it.
+
+The general test rounds the box's corners and edges by its margin, while
+the collider keeps them sharp, so a corner can reach up to about 0.03
+farther with the collider. So the deepest contacts must agree to within
+0.035, and a box whose separation is within 0.035 of the threshold is
+skipped when only one of them finds a contact.
+*/
+class BoxTriangleRestingMatchesGeneralTest is PhysicsTest
+    on create
+        SetName("Box and triangle: resting boxes match the general test")
+    end
+
+    action Run
+        Random random
+        random:SetSeed(77)
+        Triangle triangle = MakeLargeTriangle(0.04)
+        PhysicsPosition3D triangleTransform
+
+        integer samples = 1000
+        integer touching = 0
+        integer skipped = 0
+        integer mismatches = 0
+        integer fastContacts = 0
+        integer generalContacts = 0
+
+        integer i = 0
+        repeat while i < samples
+            Box box = MakeBox(0.2 + 0.4 * random:RandomNumber(), 0.2 + 0.4 * random:RandomNumber(),
+                0.2 + 0.4 * random:RandomNumber())
+            PhysicsPosition3D transform = MakeRandomRotation(random)
+            number lowest = BoxReachDown(box, transform)
+            // The bottom ends up from 0.04 into the thickened surface, which
+            // is 0.04 above the plane, to 0.05 above it.
+            transform:GetOrigin():Set(-1 + 2 * random:RandomNumber(),
+                lowest + 0.09 * random:RandomNumber(),
+                -1 + 2 * random:RandomNumber())
+
+            LocalCollisionPoints3D fast = RunBoxOn(triangle, triangleTransform, box, transform, false)
+            LocalCollisionPoints3D general = RunGeneralWith(triangle, triangleTransform, box, transform)
+
+            integer outcome = CompareDeepest(fast, general, 0.035, 0.035)
+            if outcome = 0
+                touching = touching + 1
+                fastContacts = fastContacts + fast:GetPointCount()
+                generalContacts = generalContacts + general:GetPointCount()
+            elseif outcome = 2
+                skipped = skipped + 1
+            elseif outcome = 3
+                mismatches = mismatches + 1
+                ReportMismatch("box", mismatches, transform:GetOrigin(), fast, general)
+            end
+            i = i + 1
+        end
+
+        AddNote("Resting box against the general test: " + samples + " boxes, " + touching + " touching, " +
+            skipped + " on the threshold, " + mismatches + " mismatches. Contacts per touching box: " +
+            AverageText(fastContacts, touching) + " with the collider, " + AverageText(generalContacts, touching) +
+            " with the general test.")
+        CheckThat("resting box matches the general test", mismatches = 0)
+        CheckThat("resting box comparison found contacts to compare", touching > 100)
+    end
+end

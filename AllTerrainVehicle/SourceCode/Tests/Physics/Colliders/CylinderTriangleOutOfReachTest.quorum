@@ -1,0 +1,24 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+A standing cylinder 0.06 above the surface is ruled out by the cheap
+directions, without the general test.
+
+Unless a test says otherwise, the triangle is the large flat one with
+a margin of 0.04, and the cylinder has radius 0.3 and height 1, made
+by Cylinder:Set(0.6, 1, 0.6), standing along y. Standing with its
+center at 0.53, its bottom is at 0.03, 0.01 into the surface.
+*/
+class CylinderTriangleOutOfReachTest is PhysicsTest
+    on create
+        SetName("Cylinder and triangle: out of reach")
+    end
+
+    action Run
+        LocalCollisionPoints3D points = RunCylinder(MakeLargeTriangle(0.04), MakeCylinder(), MakeTransform(0, 0.6, 0, 0, 1, 0, 0), false)
+        CheckWhole("cylinder out of reach", points:GetPointCount(), 0)
+        CheckThat("cylinder out of reach: did not use the general test", not CylinderUsedGeneralTest())
+    end
+end

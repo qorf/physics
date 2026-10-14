@@ -1,0 +1,230 @@
+use Libraries.Game.Game
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Color
+use Libraries.Interface.Events.KeyboardEvent
+use Libraries.Compute.Vector3
+use Libraries.Interface.Events.KeyboardListener
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Graphics.AmbientLight
+use Libraries.Game.Physics.PhysicsProperties3D
+use Libraries.Interface.Events.TouchListener
+use Libraries.Interface.Events.TouchEvent
+use Libraries.Interface.Events.MouseListener
+use Libraries.Interface.Events.MouseEvent
+use Libraries.Game.Graphics.FramesPerSecondLabel
+use Libraries.Interface.Vibration.Vibration
+use Libraries.Interface.Vibration.VibrationCommand
+use Libraries.System.SystemHelper
+use Libraries.Game.Graphics.Camera
+use Libraries.Game.Graphics.PointLight
+use Libraries.Compute.Random
+use Libraries.Game.Layer3D
+use Libraries.Game.InputMonitor
+use Libraries.Game.ScreenResolution
+
+class Main is Game, KeyboardListener, TouchListener, MouseListener
+    Model ball
+    Model ground
+    Color color
+    PointLight pl
+    number sceneWidth = 20
+    number sceneDepth = 20
+    number sceneHeight = 1
+
+    Vector3 force
+    Vector3 gravity
+
+    PhysicsProperties3D stackProperties
+    PhysicsProperties3D wallProperties
+    Camera camera = undefined
+    
+    integer numBoxesY = 12
+    integer numBoxesX = 10
+    integer numBoxesZ = 3
+    action Main
+        UseVulkan(true)
+        SetScreenSize(2000, 1000)
+        StartGame()
+    end
+
+    action CreateGame
+        FramesPerSecondLabel label
+        label:SetSize(50)
+        DirectionalLight light
+        light:SetColor(0.8, 0.8, 0.8, 1)
+        
+        Vector3 dir = GetCamera3D():GetDirection()
+        //dir:Scale(-1)
+        light:SetDirection(0.1, -0.1, 0.4)
+        Add(light)
+
+        AmbientLight ambient
+        ambient:SetColor(0.2, 0.2, 0.6, 1)
+        SetAmbientLight(ambient)
+
+        AddKeyboardListener(me)
+        GetCurrentLayer3D():EnablePhysics(true)
+
+        ball:SetName("ball")
+        ball:LoadSphere(2.0, 2.0, 2.0, color:Blue())
+        ball:SetPosition(0, 1, -3.5)
+        Add(ball)
+        ball:EnablePhysics(true)
+        ball:SetResponsive()
+        ball:SetFriction(0.2)
+        ball:SetRestitution(0.5)
+        ball:SetMass(100)
+
+        ground:SetName("ground")
+        ground:LoadBox(sceneWidth, sceneHeight, sceneDepth, color:Green())
+        Add(ground)
+        ground:EnablePhysics(true)
+        ground:SetFriction(0.3)
+
+        gravity:Set(0, -9.8, 0)
+        GetCurrentLayer3D():SetGravity(gravity)
+
+        force:Set(0, 275*20, 250*400)
+
+        wallProperties:SetFriction(0.4)
+        wallProperties:SetRestitution(0.8)
+        SetUpExteriorWalls()
+
+        stackProperties:SetResponsiveness(stackProperties:RESPONSIVE)
+        stackProperties:SetFriction(0.5)
+        stackProperties:SetRestitution(0.5)
+        //stackProperties:RequireSimulation(true)
+        BuildStack()
+        ball:AddTouchListener(me)
+        ball:AddMouseListener(me)
+        Add(label)
+        
+        //pl:SetIntensity(4)
+        //Add(pl)
+        
+        //output camera:GetPosition():ToText()
+        camera = GetCamera3D()
+        camera:SetPosition(0.0, 6.0, -15)
+        
+        Layer3D layer = GetCurrentLayer3D()
+        //layer:SetMaxSubSteps(3)
+    end
+    
+    InputMonitor monitor
+    KeyboardEvent keys
+
+    /*
+        The update action is called on every "frame" of animation in a game. This
+        action should be used to do operations on items. So, for example, we 
+        might use this action to change frames of animation, to rotate items, 
+        or to make creatures jump.
+    */
+    action Update(number seconds)
+        Vector3 position = ball:GetPosition()
+        Vector3 copy = position:Copy()
+        copy:SetY(copy:GetY() + 3)
+        copy:SetZ(copy:GetZ() + 3)
+        pl:SetPosition(copy)
+        number speed = 10
+        
+        if monitor:IsKeyPressed(keys:S)
+            camera:Move(0, 0, -seconds * speed)
+        elseif monitor:IsKeyPressed(keys:W)
+            camera:Move(0, 0, seconds * speed)
+        elseif monitor:IsKeyPressed(keys:A)
+            camera:Move(-seconds * speed, 0, 0)
+        elseif monitor:IsKeyPressed(keys:D)
+            camera:Move(seconds * speed, 0, 0)
+        elseif monitor:IsKeyPressed(keys:UP)
+            camera:Move(0, seconds * speed, 0)
+        elseif monitor:IsKeyPressed(keys:DOWN)
+            camera:Move(0, -seconds * speed, 0)
+        end
+        
+    end
+    
+    action BuildStack
+        number xstart = -2
+        number ystart = 0.75
+        Random random
+        
+        i = 0
+        j = 0
+        k = 0
+        repeat while i < numBoxesY
+            repeat while j < numBoxesX
+                repeat while k < numBoxesZ
+                    Model box
+                box:LoadBox(0.5, 0.5, 0.5, color:CustomColor(random:RandomNumber(), random:RandomNumber(), random:RandomNumber(), 1))
+                box:SetPosition(xstart + (j * 0.5), ystart + (i * 0.5), 3.5 + (-k * 0.5))
+                box:EnablePhysics(true)
+                box:SetPhysicsProperties(stackProperties)
+                
+                Add(box)
+                    
+                    k = k + 1
+                end
+                
+                k = 0
+                j = j + 1
+            end
+            
+            j = 0
+            i = i + 1
+        end
+    end
+    
+
+
+    action SetUpExteriorWalls
+        Model backWall
+        Model leftWall
+        Model rightWall
+        Model frontWall
+
+        backWall:SetName("backWall")
+        leftWall:SetName("leftWall")
+        rightWall:SetName("rightWall")
+        frontWall:SetName("frontWall")
+
+        number height = 10
+        backWall:LoadBox(sceneWidth, height, 1, color:CustomColor(1,1,1,1))
+        leftWall:LoadBox(1, height, sceneDepth, color:CustomColor(1,1,1,1))
+        rightWall:LoadBox(1, height, sceneDepth, color:CustomColor(1,1,1,1))
+        frontWall:LoadBox(sceneWidth, height * 0.3, 1, color:CustomColor(1,1,1,1))
+
+        Add(backWall)
+        Add(leftWall)
+        Add(rightWall)
+        Add(frontWall)
+
+        backWall:SetPosition(0, -0.5, (sceneDepth / 2.0))
+        leftWall:SetPosition(-(sceneDepth / 2.0), -0.5, 0)
+        rightWall:SetPosition((sceneDepth / 2.0), -0.5, 0)
+        frontWall:SetPosition(0, -0.5, -(sceneDepth / 2.0))
+
+        backWall:EnablePhysics(true)
+        leftWall:EnablePhysics(true)
+        rightWall:EnablePhysics(true)
+        frontWall:EnablePhysics(true)
+
+        backWall:SetPhysicsProperties(wallProperties)
+        leftWall:SetPhysicsProperties(wallProperties)
+        rightWall:SetPhysicsProperties(wallProperties)
+        frontWall:SetPhysicsProperties(wallProperties)
+    end
+
+    action PressedKey(KeyboardEvent event)
+        if event:keyCode = event:SPACE
+            ball:ApplyForceToCenter(force)
+        end
+    end
+
+    action BeganTouch(TouchEvent event)
+        ball:ApplyForceToCenter(force)
+    end
+
+    action ClickedMouse(MouseEvent event)
+        ball:ApplyForceToCenter(force)
+    end
+end

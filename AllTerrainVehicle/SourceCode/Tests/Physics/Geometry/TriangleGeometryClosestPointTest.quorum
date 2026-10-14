@@ -1,0 +1,56 @@
+package Physics.Tests
+
+use Libraries.Compute.Vector3
+use Libraries.Game.Collision.Narrowphase.TriangleGeometry3D
+
+/*
+ClosestPoint finds the right point and the right part of the triangle for
+a point in each of the seven regions.
+*/
+class TriangleGeometryClosestPointTest is PhysicsTest
+    on create
+        SetName("Triangle geometry: closest point regions")
+    end
+
+    action Run
+        TriangleGeometry3D geometry = MakeStandardGeometry()
+        Vector3 closest
+
+        integer region = geometry:ClosestPoint(MakeVector(0.25, 2, -0.25), closest)
+        CheckWhole("closest: over the face, region", region, geometry:FACE)
+        CheckVector("closest: over the face, point", closest, 0.25, 0, -0.25)
+
+        region = geometry:ClosestPoint(MakeVector(0.25, -3, -0.5), closest)
+        CheckWhole("closest: under the face, region", region, geometry:FACE)
+        CheckVector("closest: under the face, point", closest, 0.25, 0, -0.5)
+
+        region = geometry:ClosestPoint(MakeVector(-1, 0.5, 1), closest)
+        CheckWhole("closest: past corner 0, region", region, geometry:CORNER_0)
+        CheckVector("closest: past corner 0, point", closest, 0, 0, 0)
+
+        region = geometry:ClosestPoint(MakeVector(2, 3, 0), closest)
+        CheckWhole("closest: past corner 1, region", region, geometry:CORNER_1)
+        CheckVector("closest: past corner 1, point", closest, 1, 0, 0)
+
+        region = geometry:ClosestPoint(MakeVector(0, -1, -2), closest)
+        CheckWhole("closest: past corner 2, region", region, geometry:CORNER_2)
+        CheckVector("closest: past corner 2, point", closest, 0, 0, -1)
+
+        region = geometry:ClosestPoint(MakeVector(0.5, 1, 1), closest)
+        CheckWhole("closest: past edge 0, region", region, geometry:EDGE_0)
+        CheckVector("closest: past edge 0, point", closest, 0.5, 0, 0)
+
+        region = geometry:ClosestPoint(MakeVector(1, 0, -1), closest)
+        CheckWhole("closest: past edge 1, region", region, geometry:EDGE_1)
+        CheckVector("closest: past edge 1, point", closest, 0.5, 0, -0.5)
+
+        region = geometry:ClosestPoint(MakeVector(-1, 0, -0.5), closest)
+        CheckWhole("closest: past edge 2, region", region, geometry:EDGE_2)
+        CheckVector("closest: past edge 2, point", closest, 0, 0, -0.5)
+
+        // A point on the triangle is its own closest point.
+        region = geometry:ClosestPoint(MakeVector(0.2, 0, -0.3), closest)
+        CheckWhole("closest: on the face, region", region, geometry:FACE)
+        CheckVector("closest: on the face, point", closest, 0.2, 0, -0.3)
+    end
+end

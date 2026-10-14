@@ -1,0 +1,416 @@
+package Rendering2D
+
+use Libraries.Interface.Item2D
+
+/*
+RenderTreeNode2D is the record a 2D render tree keeps for each item: the
+item, the rectangle around it in the world, and where it is in the tree. It
+is called a leaf. It is the 2D partner of RenderTreeNode3D.
+
+In a DynamicVolumeRenderTree2D, nodes are also the tree itself. A node is
+either a leaf, which holds one item and the rectangle around it, or a
+branch, which holds two children and the rectangle around both. The parent,
+left, right and height fields are used only there.
+
+In a QuadTree2D, a leaf instead records the square it is in and its place
+in that square's list, so it can be removed without searching.
+
+The rectangle is kept as four numbers rather than as an object, so changing
+it never makes a new object.
+
+Only the tree classes in this package should change a node.
+
+Attribute: Example
+
+use Rendering2D.DynamicVolumeRenderTree2D
+use Rendering2D.RenderTreeNode2D
+use Libraries.Interface.Item2D
+
+DynamicVolumeRenderTree2D tree
+Item2D item
+item:SetSize(10, 10)
+tree:Add(item)
+
+// Keep the leaf, so moves need no lookup.
+RenderTreeNode2D leaf = tree:GetLeaf(item)
+item:SetPosition(50, 0)
+tree:Moved(leaf)
+output leaf:GetMinimumX()
+*/
+class RenderTreeNode2D
+    // The rectangle this node covers, as its corners. In a
+    // DynamicVolumeRenderTree2D a leaf's rectangle is a little bigger than its
+    // item, so small moves do not change the tree.
+    number minimumX = 0
+    number minimumY = 0
+    number maximumX = 0
+    number maximumY = 0
+
+    RenderTreeNode2D parentNode = undefined
+    RenderTreeNode2D left = undefined
+    RenderTreeNode2D right = undefined
+
+    // How many levels are below this node. A leaf is 0.
+    integer height = 0
+
+    // The item a leaf holds. Branches hold no item.
+    Item2D item = undefined
+
+    // The QuadTree2D square the leaf is in, and its place in the square's
+    // list of leaves. A leaf in the quadtree's list of leaves outside its
+    // region has no square, but still has a place in that list.
+    QuadTreeCell2D cell = undefined
+    integer cellIndex = -1
+
+    // The last frame the owner handed this leaf's item to be drawn, kept by
+    // the owner so an item found twice in a frame is only drawn once.
+    integer lastDrawnFrame = -1
+
+    /*
+    This action returns the item a leaf holds, or undefined for a branch or
+    for a leaf whose item has been removed.
+
+    Attribute: Returns The item, or undefined.
+    */
+    action GetItem returns Item2D
+        return item
+    end
+
+    /*
+    This action sets the item a leaf holds.
+
+    Attribute: Parameter value The item.
+    */
+    action SetItem(Item2D value)
+        item = value
+    end
+
+    /*
+    This action sets the rectangle this node covers, in world coordinates.
+
+    Attribute: Parameter minX The x coordinate of the left edge.
+    Attribute: Parameter minY The y coordinate of the bottom edge.
+    Attribute: Parameter maxX The x coordinate of the right edge.
+    Attribute: Parameter maxY The y coordinate of the top edge.
+    */
+    action SetBounds(number minX, number minY, number maxX, number maxY)
+        minimumX = minX
+        minimumY = minY
+        maximumX = maxX
+        maximumY = maxY
+    end
+
+    /*
+    This action sets the rectangle this node covers to the smallest one
+    around the rectangles of two other nodes.
+
+    Attribute: Parameter first The first node.
+    Attribute: Parameter second The second node.
+    */
+    action SetBoundsAround(RenderTreeNode2D first, RenderTreeNode2D second)
+        minimumX = first:GetMinimumX()
+        if second:GetMinimumX() < minimumX
+            minimumX = second:GetMinimumX()
+        end
+        minimumY = first:GetMinimumY()
+        if second:GetMinimumY() < minimumY
+            minimumY = second:GetMinimumY()
+        end
+        maximumX = first:GetMaximumX()
+        if second:GetMaximumX() > maximumX
+            maximumX = second:GetMaximumX()
+        end
+        maximumY = first:GetMaximumY()
+        if second:GetMaximumY() > maximumY
+            maximumY = second:GetMaximumY()
+        end
+    end
+
+    /*
+    This action returns the left edge (smallest x) of the node's rectangle.
+
+    Attribute: Returns The left edge (smallest x).
+    */
+    action GetMinimumX returns number
+        return minimumX
+    end
+
+    /*
+    This action returns the bottom edge (smallest y) of the node's rectangle.
+
+    Attribute: Returns The bottom edge (smallest y).
+    */
+    action GetMinimumY returns number
+        return minimumY
+    end
+
+    /*
+    This action returns the right edge (largest x) of the node's rectangle.
+
+    Attribute: Returns The right edge (largest x).
+    */
+    action GetMaximumX returns number
+        return maximumX
+    end
+
+    /*
+    This action returns the top edge (largest y) of the node's rectangle.
+
+    Attribute: Returns The top edge (largest y).
+    */
+    action GetMaximumY returns number
+        return maximumY
+    end
+
+    /*
+    This action returns the distance around the node's rectangle.
+
+    Attribute: Returns The perimeter.
+    */
+    action GetPerimeter returns number
+        return 2 * ((maximumX - minimumX) + (maximumY - minimumY))
+    end
+
+    /*
+    This action returns true if the node's rectangle has these corners.
+
+    Attribute: Parameter minX The x coordinate of the other rectangle's left edge.
+    Attribute: Parameter minY The y coordinate of the other rectangle's bottom edge.
+    Attribute: Parameter maxX The x coordinate of the other rectangle's right edge.
+    Attribute: Parameter maxY The y coordinate of the other rectangle's top edge.
+    Attribute: Returns True if the corners are the same.
+    */
+    action HasBounds(number minX, number minY, number maxX, number maxY) returns boolean
+        return minimumX = minX and minimumY = minY and maximumX = maxX and maximumY = maxY
+    end
+
+    /*
+    This action returns true if the node's rectangle holds all of the given
+    one. Equal edges count as inside.
+
+    Attribute: Parameter minX The x coordinate of the other rectangle's left edge.
+    Attribute: Parameter minY The y coordinate of the other rectangle's bottom edge.
+    Attribute: Parameter maxX The x coordinate of the other rectangle's right edge.
+    Attribute: Parameter maxY The y coordinate of the other rectangle's top edge.
+    Attribute: Returns True if the node's rectangle holds all of it.
+    */
+    action Contains(number minX, number minY, number maxX, number maxY) returns boolean
+        return minimumX <= minX and minimumY <= minY and maxX <= maximumX and maxY <= maximumY
+    end
+
+    /*
+    This action returns true if the given rectangle holds all of the node's
+    rectangle. Equal edges count as inside.
+
+    Attribute: Parameter minX The x coordinate of the other rectangle's left edge.
+    Attribute: Parameter minY The y coordinate of the other rectangle's bottom edge.
+    Attribute: Parameter maxX The x coordinate of the other rectangle's right edge.
+    Attribute: Parameter maxY The y coordinate of the other rectangle's top edge.
+    Attribute: Returns True if the node's rectangle is inside it.
+    */
+    action IsInside(number minX, number minY, number maxX, number maxY) returns boolean
+        return minX <= minimumX and minY <= minimumY and maximumX <= maxX and maximumY <= maxY
+    end
+
+    /*
+    This action returns true if the node's rectangle overlaps the given one.
+    Touching edges count as overlapping.
+
+    Attribute: Parameter minX The x coordinate of the other rectangle's left edge.
+    Attribute: Parameter minY The y coordinate of the other rectangle's bottom edge.
+    Attribute: Parameter maxX The x coordinate of the other rectangle's right edge.
+    Attribute: Parameter maxY The y coordinate of the other rectangle's top edge.
+    Attribute: Returns True if the rectangles overlap.
+    */
+    action Overlaps(number minX, number minY, number maxX, number maxY) returns boolean
+        return minimumX <= maxX and maximumX >= minX and minimumY <= maxY and maximumY >= minY
+    end
+
+    /*
+    This action returns the squared distance from a point to the nearest
+    point of the node's rectangle, which is 0 when the point is inside it.
+
+    Attribute: Parameter x The point's x coordinate.
+    Attribute: Parameter y The point's y coordinate.
+    Attribute: Returns The squared distance.
+    */
+    action DistanceSquared(number x, number y) returns number
+        number dx = 0
+        number dy = 0
+        if x < minimumX
+            dx = minimumX - x
+        elseif x > maximumX
+            dx = x - maximumX
+        end
+        if y < minimumY
+            dy = minimumY - y
+        elseif y > maximumY
+            dy = y - maximumY
+        end
+        return dx * dx + dy * dy
+    end
+
+    /*
+    This action returns the branch above this node, or undefined if this node
+    is the root or is in a QuadTree2D.
+
+    Attribute: Returns The branch above this node, or undefined.
+    */
+    action GetParentNode returns RenderTreeNode2D
+        return parentNode
+    end
+
+    /*
+    This action sets the branch above this node.
+
+    Attribute: Parameter node The branch above this node, or undefined for the
+    root.
+    */
+    action SetParentNode(RenderTreeNode2D node)
+        parentNode = node
+    end
+
+    /*
+    This action returns the first child of a branch, or undefined for a leaf.
+
+    Attribute: Returns The first child, or undefined.
+    */
+    action GetLeft returns RenderTreeNode2D
+        return left
+    end
+
+    /*
+    This action sets the first child of a branch.
+
+    Attribute: Parameter node The first child, or undefined to make this node a
+    leaf.
+    */
+    action SetLeft(RenderTreeNode2D node)
+        left = node
+    end
+
+    /*
+    This action returns the second child of a branch, or undefined for a leaf.
+
+    Attribute: Returns The second child, or undefined.
+    */
+    action GetRight returns RenderTreeNode2D
+        return right
+    end
+
+    /*
+    This action sets the second child of a branch.
+
+    Attribute: Parameter node The second child, or undefined for a leaf.
+    */
+    action SetRight(RenderTreeNode2D node)
+        right = node
+    end
+
+    /*
+    This action returns how many levels are below this node. A leaf is 0.
+
+    Attribute: Returns The number of levels below this node.
+    */
+    action GetHeight returns integer
+        return height
+    end
+
+    /*
+    This action sets how many levels are below this node.
+
+    Attribute: Parameter value The number of levels below this node.
+    */
+    action SetHeight(integer value)
+        height = value
+    end
+
+    /*
+    This action returns true if this node is a leaf, which holds an item, and
+    false if it is a branch.
+
+    Attribute: Returns True if this node is a leaf.
+    */
+    action IsLeaf returns boolean
+        return left = undefined
+    end
+
+    /*
+    This action returns the QuadTree2D square the leaf is in, or undefined if
+    it is in none.
+
+    Attribute: Returns The square, or undefined.
+    */
+    action GetCell returns QuadTreeCell2D
+        return cell
+    end
+
+    /*
+    This action sets the QuadTree2D square the leaf is in.
+
+    Attribute: Parameter value The square, or undefined if the leaf is in none.
+    */
+    action SetCell(QuadTreeCell2D value)
+        cell = value
+    end
+
+    /*
+    This action returns the leaf's place in its square's list of leaves, or in
+    the quadtree's list of leaves outside its region, or -1 if it is in
+    neither.
+
+    Attribute: Returns The leaf's place, or -1.
+    */
+    action GetCellIndex returns integer
+        return cellIndex
+    end
+
+    /*
+    This action sets the leaf's place in its square's list of leaves, or in
+    the quadtree's list of leaves outside its region.
+
+    Attribute: Parameter index The leaf's place, or -1 if it is in neither.
+    */
+    action SetCellIndex(integer index)
+        cellIndex = index
+    end
+
+    /*
+    This action returns the last frame the leaf's item was handed to be
+    drawn, or -1 if it never has been. The tree does not use this. It is kept
+    for the tree's owner.
+
+    Attribute: Returns The frame number, or -1.
+    */
+    action GetLastDrawnFrame returns integer
+        return lastDrawnFrame
+    end
+
+    /*
+    This action sets the last frame the leaf's item was handed to be drawn.
+
+    Attribute: Parameter frame The frame number.
+    */
+    action SetLastDrawnFrame(integer frame)
+        lastDrawnFrame = frame
+    end
+
+    /*
+    This action clears the node so it can be reused for another item or
+    branch.
+    */
+    action Reset
+        item = undefined
+        minimumX = 0
+        minimumY = 0
+        maximumX = 0
+        maximumY = 0
+        parentNode = undefined
+        left = undefined
+        right = undefined
+        height = 0
+        cell = undefined
+        cellIndex = -1
+        lastDrawnFrame = -1
+    end
+end

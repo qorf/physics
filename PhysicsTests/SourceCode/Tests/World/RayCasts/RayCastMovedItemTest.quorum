@@ -1,0 +1,37 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Game.Collision.RayCastResult3D
+
+/*
+Tests that a ray cast finds an item where it has moved to, not where it
+started. A box starts 5 to the side of a ray and slides across, with no
+gravity, at 5 a second. Before it moves the ray misses it. After 1 second
+the box is centered on the ray, so the ray should hit its top, at 0.5.
+*/
+class RayCastMovedItemTest is PhysicsWorldTest
+    on create
+        SetName("World: a ray cast finds an item where it moved to")
+    end
+
+    action Run
+        Layer3D layer = MakeWorldWithoutGravity()
+        Item3D box = AddBox(layer, -5, 0, 0, 1, 1)
+        Step(layer)
+
+        RayCastResult3D before
+        CheckThat("the ray misses the box before it moves",
+            not layer:RayCastPhysics(MakeVector(0, 5, 0), MakeVector(0, -5, 0), before))
+
+        box:SetLinearVelocity(MakeVector(5, 0, 0))
+        Advance(layer, 1)
+        CheckNear("the box's position", box:GetX(), 0, 0.1)
+
+        RayCastResult3D after
+        CheckThat("the ray hits the box after it moves",
+            layer:RayCastPhysics(MakeVector(0, 5, 0), MakeVector(0, -5, 0), after))
+        CheckThat("the ray hit the box", after:GetHitBody() = box)
+        CheckNear("hit point height", after:GetHitPointWorldSpace():GetY(), 0.5, 0.05)
+    end
+end

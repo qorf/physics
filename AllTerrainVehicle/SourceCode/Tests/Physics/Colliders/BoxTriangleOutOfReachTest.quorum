@@ -1,0 +1,24 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+A box 0.11 above the surface, past the contact threshold, gets nothing.
+
+Unless a test says otherwise, the triangle is a large one lying flat
+at height 0, from MakeLargeTriangle, with the usual margin of 0.04, so
+its thickened surface is at 0.04. The box is 0.5 on each side for
+collisions (see RunBox), with no rotation, and the triangle is item A.
+A box whose center is at 0.28 has its bottom at 0.03, so it sinks 0.01
+into the surface.
+*/
+class BoxTriangleOutOfReachTest is PhysicsTest
+    on create
+        SetName("Box and triangle: out of reach")
+    end
+
+    action Run
+        LocalCollisionPoints3D points = RunBox(MakeLargeTriangle(0.04), MakeTransform(0, 0.4, 0, 0, 1, 0, 0), false)
+        CheckWhole("box out of reach", points:GetPointCount(), 0)
+    end
+end

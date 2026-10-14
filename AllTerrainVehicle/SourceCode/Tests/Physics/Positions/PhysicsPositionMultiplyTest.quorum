@@ -1,0 +1,49 @@
+package Physics.Tests
+
+use Libraries.Compute.Vector3
+use Libraries.Game.Collision.PhysicsPosition3D
+
+/*
+Tests PhysicsPosition3D:Multiply, which combines two positions so that the
+result applies the second one first and then the first one.
+*/
+class PhysicsPositionMultiplyTest is PhysicsTest
+    on create
+        SetName("Physics position: multiply")
+    end
+
+    action Run
+        PhysicsPosition3D moveX = MakeTransform(1, 0, 0, 0, 1, 0, 0)
+        PhysicsPosition3D turnY = MakeTransform(0, 0, 0, 0, 1, 0, 90)
+
+        // moveX times turnY turns first, so (1, 0, 0) goes to (0, 0, -1),
+        // then moves to (1, 0, -1).
+        PhysicsPosition3D product
+        product:Multiply(moveX, turnY)
+        Vector3 point = MakeVector(1, 0, 0)
+        product:Transform(point)
+        CheckVector("two argument multiply", point, 1, 0, -1)
+
+        // The other order moves first, to (2, 0, 0), then turns, to (0, 0, -2).
+        product:Multiply(turnY, moveX)
+        point:Set(1, 0, 0)
+        product:Transform(point)
+        CheckVector("the order matters", point, 0, 0, -2)
+
+        // Multiplying in place does the same as the two argument version.
+        PhysicsPosition3D inPlace = MakeTransform(1, 0, 0, 0, 1, 0, 0)
+        inPlace:Multiply(turnY)
+        point:Set(1, 0, 0)
+        inPlace:Transform(point)
+        CheckVector("multiply in place", point, 1, 0, -1)
+
+        // A position times its inverse is the identity.
+        PhysicsPosition3D general = MakeTransform(0.5, -2, 3, 1, 2, 3, 37)
+        PhysicsPosition3D inverse
+        inverse:Inverse(general)
+        product:Multiply(general, inverse)
+        point:Set(1.5, 0.25, -4)
+        product:Transform(point)
+        CheckVector("a position times its inverse", point, 1.5, 0.25, -4)
+    end
+end

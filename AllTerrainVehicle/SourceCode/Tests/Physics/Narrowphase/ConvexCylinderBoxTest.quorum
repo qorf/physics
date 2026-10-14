@@ -1,0 +1,25 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+Tests the general collision test on a cylinder standing on a box, 0.02 into
+it. The general test gives one contact, on the box's top face, with the
+normal (0, 1, 0).
+*/
+class ConvexCylinderBoxTest is PhysicsTest
+    on create
+        SetName("General test: cylinder and box")
+    end
+
+    action Run
+        LocalCollisionPoints3D points = RunConvexConvex(MakeCylinder(), MakeTransform(0, 0.98, 0, 0, 1, 0, 0),
+            MakeCollisionBox(1), MakeTransform(0, 0, 0, 0, 1, 0, 0))
+        CheckWhole("one contact", points:GetPointCount(), 1)
+        if points:GetPointCount() = 1
+            CheckNumberWithin("depth", points:GetCollisionPoint(0):GetDistance(), -0.02, 0.001)
+            CheckVector("normal", points:GetCollisionPoint(0):GetWorldNormalOnB(), 0, 1, 0)
+            CheckNumberWithin("on the box's top", points:GetCollisionPoint(0):GetWorldPositionOnB():GetY(), 0.5, 0.001)
+        end
+    end
+end

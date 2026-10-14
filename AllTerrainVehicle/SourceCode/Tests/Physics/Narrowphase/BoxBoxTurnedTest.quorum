@@ -1,0 +1,43 @@
+package Physics.Tests
+
+use Libraries.Compute.Vector3
+use Libraries.Compute.Math
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+Tests BoxBoxCollider with box A turned 45 degrees about y, resting on box B.
+The two square faces overlap in an eight sided shape, so there are more than
+four candidate contacts, and four are chosen. All of them are on B's top
+face, inside both squares.
+*/
+class BoxBoxTurnedTest is PhysicsTest
+    on create
+        SetName("Box and box: turned 45 degrees")
+    end
+
+    action Run
+        LocalCollisionPoints3D points = RunBoxBox(MakeCollisionBox(1), MakeTransform(0, 0.98, 0, 0, 1, 0, 45),
+            MakeCollisionBox(1), MakeTransform(0, 0, 0, 0, 1, 0, 0))
+        CheckWhole("four of the eight are chosen", points:GetPointCount(), 4)
+        CheckAllContacts("turned", points, 0, 1, 0, -0.02)
+
+        Math math
+        boolean onTop = true
+        boolean insideBoth = true
+        integer i = 0
+        repeat while i < points:GetPointCount()
+            Vector3 position = points:GetCollisionPoint(i):GetWorldPositionOnB()
+            if math:AbsoluteValue(position:GetY() - 0.5) > 0.0001
+                onTop = false
+            end
+            number x = math:AbsoluteValue(position:GetX())
+            number z = math:AbsoluteValue(position:GetZ())
+            if x > 0.5001 or z > 0.5001 or x + z > 0.5 * math:SquareRoot(2) + 0.0001
+                insideBoth = false
+            end
+            i = i + 1
+        end
+        CheckThat("all on B's top face", onTop)
+        CheckThat("all inside both squares", insideBoth)
+    end
+end

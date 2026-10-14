@@ -1,0 +1,34 @@
+package Physics.Tests
+
+use Libraries.Game.BoundingBox
+
+/*
+Tests BoundingBox:Set, which takes two corners and works out the minimum,
+maximum, center and size, even when the corners are given out of order.
+*/
+class BoundingBoxSetTest is PhysicsTest
+    on create
+        SetName("Bounding box: set")
+    end
+
+    action Run
+        BoundingBox box
+        box:Set(MakeVector(-1, 2, 0), MakeVector(3, 4, 6))
+        CheckVector("minimum", box:GetMinimum(), -1, 2, 0)
+        CheckVector("maximum", box:GetMaximum(), 3, 4, 6)
+        CheckVector("center", box:GetCenter(), 1, 3, 3)
+        CheckNumber("width", box:GetWidth(), 4)
+        CheckNumber("height", box:GetHeight(), 2)
+        CheckNumber("depth", box:GetDepth(), 6)
+        CheckThat("a box with size is valid", box:IsValid())
+
+        // Corners given the wrong way around in every direction are sorted.
+        box:Set(MakeVector(3, 4, 6), MakeVector(-1, 2, 0))
+        CheckVector("swapped corners, minimum", box:GetMinimum(), -1, 2, 0)
+        CheckVector("swapped corners, maximum", box:GetMaximum(), 3, 4, 6)
+
+        // A box with no thickness in one direction is not valid.
+        box:Set(MakeVector(0, 0, 0), MakeVector(1, 0, 1))
+        CheckThat("a flat box is not valid", not box:IsValid())
+    end
+end

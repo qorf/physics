@@ -1,0 +1,57 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.Shapes.Box
+use Libraries.Game.Collision.RayCastResult3D
+
+/*
+Tests Box:RayCast. The box is 1 on each side for collisions, at the origin.
+A ray from (0, 5, 0) to (0, -5, 0) reaches the top face at (0, 0.5, 0),
+0.45 of the way along. A ray that starts inside the box does not count as a
+hit, as in Bullet, and a ray only hits if it is closer than the hit the
+result already holds.
+*/
+class BoxRayCastTest is PhysicsTest
+    on create
+        SetName("Box ray cast")
+    end
+
+    action Run
+        Box box = MakeCollisionBox(1)
+        RayCastResult3D result
+
+        result:SetToDefault()
+        CheckThat("straight down hits", box:RayCast(MakeVector(0, 5, 0), MakeVector(0, -5, 0), MakeTransform(0, 0, 0, 0, 1, 0, 0), result))
+        CheckThat("straight down: the result is a hit", result:IsHit())
+        CheckNumber("straight down: fraction", result:GetFraction(), 0.45)
+        CheckVector("straight down: point", result:GetHitPointWorldSpace(), 0, 0.5, 0)
+        CheckVector("straight down: normal", result:GetHitNormalWorldSpace(), 0, 1, 0)
+
+        result:SetToDefault()
+        box:RayCast(MakeVector(-5, 0.2, 0.1), MakeVector(5, 0.2, 0.1), MakeTransform(0, 0, 0, 0, 1, 0, 0), result)
+        CheckNumber("from the side: fraction", result:GetFraction(), 0.45)
+        CheckVector("from the side: point", result:GetHitPointWorldSpace(), -0.5, 0.2, 0.1)
+        CheckVector("from the side: normal", result:GetHitNormalWorldSpace(), -1, 0, 0)
+
+        result:SetToDefault()
+        CheckThat("passing above misses", not box:RayCast(MakeVector(-5, 0.6, 0), MakeVector(5, 0.6, 0), MakeTransform(0, 0, 0, 0, 1, 0, 0), result))
+        CheckThat("starting inside misses", not box:RayCast(MakeVector(0, 0, 0), MakeVector(0, -5, 0), MakeTransform(0, 0, 0, 0, 1, 0, 0), result))
+        CheckThat("stopping short misses", not box:RayCast(MakeVector(0, 5, 0), MakeVector(0, 1, 0), MakeTransform(0, 0, 0, 0, 1, 0, 0), result))
+        CheckThat("a miss leaves the result empty", not result:IsHit())
+
+        // A closer hit already in the result wins.
+        result:SetToDefault()
+        result:SetFraction(0.3)
+        CheckThat("a farther hit does not replace a closer one",
+            not box:RayCast(MakeVector(0, 5, 0), MakeVector(0, -5, 0), MakeTransform(0, 0, 0, 0, 1, 0, 0), result))
+        CheckNumber("the closer fraction is kept", result:GetFraction(), 0.3)
+
+        // A box 1 by 2 by 3 turned a quarter turn about y, at (10, 0, 0), is
+        // 3 long along x, so a ray along x reaches it at x = 8.5.
+        Box long = MakeBox(1, 2, 3)
+        result:SetToDefault()
+        long:RayCast(MakeVector(5, 0, 0), MakeVector(15, 0, 0), MakeTransform(10, 0, 0, 0, 1, 0, 90), result)
+        CheckNumber("turned box: fraction", result:GetFraction(), 0.35)
+        CheckVector("turned box: point", result:GetHitPointWorldSpace(), 8.5, 0, 0)
+        CheckVector("turned box: normal", result:GetHitNormalWorldSpace(), -1, 0, 0)
+    end
+end

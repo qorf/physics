@@ -1,0 +1,260 @@
+package Libraries.Game.Graphics.Vulkan
+
+use Libraries.Containers.Array
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Models.Vulkan.ModelBlueprintVulkan
+use Libraries.Game.Graphics.Models.Vulkan.MeshVulkan
+use Libraries.Game.Graphics.Models.Vulkan.ModelResourcesVulkan
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.Texture
+use Libraries.Game.Graphics.Models.Vulkan.MaterialVulkan
+use Libraries.Game.Graphics.Models.Data.AnimationState
+
+class VulkanPainter3DBatch
+    
+    ModelBlueprintVulkan schematic = undefined
+    // It's necessary to store individual models in order to provide per-instance data when drawing occurs.
+    Array<Model> models
+
+    // Models drawn only into shadows this frame, not into the scene.
+    Array<Model> shadowOnlyModels
+    integer meshesPerModel = 0
+    integer totalVertices = 0
+    
+    boolean isTransparent = false
+    
+    // How many frames have passed without using this batch. Can be used to determine if a batch hasn't been used in a long time and can be disposed.
+    integer age = 0
+    
+    boolean isPending = false
+    
+    // This action tracks how many meshes have been sent to each draw queue this frame.
+    Array<integer> drawQueueUses
+    
+    action Create(ModelBlueprintVulkan schematic, boolean isTransparent)
+        me:schematic = schematic
+        me:isTransparent = isTransparent
+        
+        Array<MeshVulkan> meshes = schematic:GetMeshes()
+        meshesPerModel = meshes:GetSize()
+        
+        integer i = 0
+        repeat while i < meshesPerModel
+            totalVertices = totalVertices + meshes:Get(i):GetVertexCount()
+            i = i + 1
+        end
+    end
+    
+    action IsTransparent returns boolean
+        return isTransparent
+    end
+
+    action GetModelBlueprint returns ModelBlueprintVulkan
+        return schematic
+    end
+    
+    action Add(Model model)
+        models:Add(model)
+    end
+
+    /*
+    This action adds a model to be drawn only into shadows this frame.
+    */
+    action AddShadowCaster(Model model)
+        shadowOnlyModels:Add(model)
+    end
+    
+    action PrepareForNextFrame
+        models:Empty()
+        shadowOnlyModels:Empty()
+        isPending = false
+        age = age + 1
+        
+        integer i = 0
+        repeat while i < drawQueueUses:GetSize()
+            drawQueueUses:Set(i, 0)
+            i = i + 1
+        end
+    end
+
+    action ResetAge
+        age = 0
+    end
+
+    action GetAge returns integer
+        return age
+    end
+    
+    action Dispose
+        models = undefined
+    end
+    
+    action SetPending(boolean pending)
+        isPending = pending
+    end
+    
+    action IsPending returns boolean
+        return isPending
+    end
+    
+    action GetModelCount returns integer
+        return models:GetSize()
+    end
+    
+    action GetMeshCount returns integer
+        return models:GetSize() * meshesPerModel
+    end
+    
+    // For all of the models in this batch, store their per-instance data and queue up indirect draw command(s).
+    action ProcessBatch(VulkanPainter3D painter)
+        if schematic:HasAnimations()
+            integer i = 0
+            repeat while i < meshesPerModel
+                MeshVulkan mesh = schematic:GetMeshes():Get(i)
+                VulkanBuffer indexBuffer = mesh:GetIndexBuffer()
+                MaterialVulkan material = mesh:GetMaterial()
+                integer baseTextureGroup = material:GetTextureGroupIndex()
+                
+                integer j = 0
+                repeat while j < models:GetSize()
+                    Model model = models:Get(j)
+                    ModelResourcesVulkan resources = cast(ModelResourcesVulkan, model:GetResources())
+                    Color diffuseOverride = resources:GetColor(i)
+                    Texture textureOverride = resources:GetTexture(i)
+                    
+                    VulkanBuffer vertexBuffer = resources:GetPostAnimationVertexBuffers():Get(i)
+                    //VulkanBuffer vertexBuffer = mesh:GetVertexBuffer()
+                    //if model:GetAnimationState() not= undefined
+                        //// Get the animation vertex buffer associated with this mesh.
+                        //vertexBuffer = resources:GetPostAnimationVertexBuffers():Get(i)
+                    //end
+                    
+                    VulkanDrawQueue3D queue = undefined
+                    if textureOverride not= undefined
+                        queue = painter:GetCurrentDrawQueue(textureOverride:GetVulkanTextureGroupIndex())
+                    else
+                        queue = painter:GetCurrentDrawQueue(baseTextureGroup)
+                    end
+                    
+                    // Each animated model potentially uses a different vertex buffer and must be drawn separately.
+                    queue:AddInstanceData(vertexBuffer, indexBuffer, material, textureOverride, diffuseOverride, model:GetTransform())
+                    queue:AddDrawIndirectCommand(mesh:GetIndexCount(), 1, model:CastsShadows())
+                    
+                    j = j + 1
+                end
+
+                // Animated models drawn only into shadows, each with its own
+                // shadow-only command.
+                j = 0
+                repeat while j < shadowOnlyModels:GetSize()
+                    Model model = shadowOnlyModels:Get(j)
+                    ModelResourcesVulkan resources = cast(ModelResourcesVulkan, model:GetResources())
+                    Color diffuseOverride = resources:GetColor(i)
+                    Texture textureOverride = resources:GetTexture(i)
+                    VulkanBuffer vertexBuffer = resources:GetPostAnimationVertexBuffers():Get(i)
+
+                    VulkanDrawQueue3D queue = undefined
+                    if textureOverride not= undefined
+                        queue = painter:GetCurrentDrawQueue(textureOverride:GetVulkanTextureGroupIndex())
+                    else
+                        queue = painter:GetCurrentDrawQueue(baseTextureGroup)
+                    end
+
+                    queue:AddInstanceData(vertexBuffer, indexBuffer, material, textureOverride, diffuseOverride, model:GetTransform())
+                    queue:AddShadowOnlyDrawIndirectCommand(mesh:GetIndexCount(), 1)
+
+                    j = j + 1
+                end
+                
+                i = i + 1
+            end
+            
+            else
+            integer i = 0
+            repeat while i < meshesPerModel
+                // The models that cast shadows and those that do not are written
+                // as separate groups, each with its own command, since one
+                // command either casts shadows for all its instances or for
+                // none. Then the models drawn only into shadows.
+                AddStaticInstances(painter, i, models, true, true)
+                AddStaticInstances(painter, i, models, true, false)
+                AddStaticInstances(painter, i, shadowOnlyModels, false, true)
+                i = i + 1
+            end
+        end
+    end
+
+    /*
+    This action writes the instance data for one mesh of a group of models
+    whose blueprint has no animations, and queues one draw command for each
+    draw queue the group used.
+
+    Attribute: Parameter painter The painter whose draw queues are used.
+    Attribute: Parameter meshIndex Which of the blueprint's meshes to write.
+    Attribute: Parameter list The models to choose from.
+    Attribute: Parameter inScene True to draw the models in the scene. Only
+    the models whose CastsShadows matches castsShadows are written, and the
+    commands also draw into shadows if castsShadows is true. False to draw
+    every model in the list only into shadows.
+    Attribute: Parameter castsShadows Whether the commands draw into shadows.
+    */
+    private action AddStaticInstances(VulkanPainter3D painter, integer meshIndex, Array<Model> list, boolean inScene, boolean castsShadows)
+        if list:IsEmpty()
+            return now
+        end
+
+        MeshVulkan mesh = schematic:GetMeshes():Get(meshIndex)
+        integer baseTextureGroup = mesh:GetMaterial():GetTextureGroupIndex()
+
+        boolean any = false
+        integer j = 0
+        repeat while j < list:GetSize()
+            Model model = list:Get(j)
+            if not inScene or model:CastsShadows() = castsShadows
+                ModelResourcesVulkan resources = cast(ModelResourcesVulkan, model:GetResources())
+                Color diffuseOverride = resources:GetColor(meshIndex)
+                Texture textureOverride = resources:GetTexture(meshIndex)
+
+                VulkanDrawQueue3D queue = undefined
+                if textureOverride not= undefined
+                    queue = painter:GetCurrentDrawQueue(textureOverride:GetVulkanTextureGroupIndex())
+                    IncrementUses(textureOverride:GetVulkanTextureGroupIndex())
+                else
+                    queue = painter:GetCurrentDrawQueue(baseTextureGroup)
+                    IncrementUses(baseTextureGroup)
+                end
+
+                queue:AddInstanceData(mesh, textureOverride, diffuseOverride, model:GetTransform())
+                any = true
+            end
+            j = j + 1
+        end
+
+        if not any
+            return now
+        end
+
+        j = 0
+        repeat while j < drawQueueUses:GetSize()
+            if drawQueueUses:Get(j) > 0
+                VulkanDrawQueue3D queue = painter:GetCurrentDrawQueue(j)
+                if inScene
+                    queue:AddDrawIndirectCommand(mesh:GetIndexCount(), drawQueueUses:Get(j), castsShadows)
+                else
+                    queue:AddShadowOnlyDrawIndirectCommand(mesh:GetIndexCount(), drawQueueUses:Get(j))
+                end
+                drawQueueUses:Set(j, 0)
+            end
+            j = j + 1
+        end
+    end
+    
+    private action IncrementUses(integer index)
+        // Make sure there's an array entry at the requested index.
+        repeat until drawQueueUses:GetSize() > index
+            drawQueueUses:Add(0)
+        end
+        drawQueueUses:Set(index, drawQueueUses:Get(index) + 1)
+    end
+
+end

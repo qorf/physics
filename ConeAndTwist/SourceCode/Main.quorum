@@ -1,0 +1,113 @@
+use Libraries.Game.Game
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.Camera
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Layer3D
+use Libraries.Game.Collision.PhysicsPosition3D
+use Libraries.Game.Physics.Joints.ConeTwistJoint3D
+use Libraries.Compute.Vector3
+
+class Main is Game
+    Color color
+
+    action Main
+        StartGame()
+    end
+
+    action CreateGame
+        EnablePhysics3D(true)
+        SetGravity3D(0, -9.8, 0)
+
+        // A floor gives the example a clear world reference.
+        Model floor
+        floor:LoadBox(12, 0.5, 8, color:Gray())
+        floor:SetPosition(0, -0.25, 0)
+        floor:EnablePhysics(true)
+        floor:SetUnmovable()
+        Add(floor)
+
+        // The torso is fixed in place to make the shoulder motion easy to see.
+        Model torso
+        torso:LoadBox(1.8, 2.5, 1, color:Blue())
+        torso:SetPosition(0, 4, 0)
+        torso:EnablePhysics(true)
+        torso:SetUnmovable()
+        Add(torso)
+
+        // The upper arm is dynamic. Its inner end meets the torso at x = 1.
+        Model upperArm
+        upperArm:LoadBox(2, 0.7, 0.7, color:Red())
+        upperArm:SetPosition(2.2, 4, 0)
+        upperArm:EnablePhysics(true)
+        upperArm:SetResponsive()
+        Add(upperArm)
+
+        // Mirror the dynamic arm on the other side of the torso.
+        Model leftArm
+        leftArm:LoadBox(2, 0.7, 0.7, color:Green())
+        leftArm:SetPosition(-2.2, 4, 0)
+        leftArm:EnablePhysics(true)
+        leftArm:SetResponsive()
+        Add(leftArm)
+
+        // Each frame locates the same shoulder pivot in that body's local space.
+        // Both frames use identity orientation, so their joint axes initially align.
+        PhysicsPosition3D frameOnTorso
+        frameOnTorso:SetToIdentity()
+        frameOnTorso:GetOrigin():Set(1, 0, 0)
+
+        PhysicsPosition3D frameOnArm
+        frameOnArm:SetToIdentity()
+        frameOnArm:GetOrigin():Set(-1.2, 0, 0)
+
+        ConeTwistJoint3D shoulder
+        shoulder:Initialize(torso, upperArm, frameOnTorso, frameOnArm)
+        // Angles are radians in this implementation: about 46 degrees of swing
+        // in each swing direction, and about 23 degrees of twist.
+        shoulder:SetLimits(0.8, 0.8, 0.4, 0.8, 0.3, 1.0)
+
+        
+        /*
+These two transforms define the left shoulder pivot in the local coordinates
+of each connected body.
+
+The torso is centered at x = 0, so frameOnLeftShoulder places its pivot
+1 unit to the left of the torso's center.
+
+The left arm is centered at x = -2.2, so frameOnLeftArm places its pivot
+1.2 units to the right of the arm's center.
+
+Both local points therefore start at the same world position, x = -1:
+    torso pivot:  0 + (-1) = -1
+    arm pivot:   -2.2 + 1.2 = -1
+
+The joint keeps these two points together. SetToIdentity() gives both joint
+frames the same initial orientation, so their local axes align.
+*/
+        PhysicsPosition3D frameOnLeftShoulder
+        frameOnLeftShoulder:SetToIdentity()
+        frameOnLeftShoulder:GetOrigin():Set(-1, 0, 0)
+
+        PhysicsPosition3D frameOnLeftArm
+        frameOnLeftArm:SetToIdentity()
+        frameOnLeftArm:GetOrigin():Set(1.2, 0, 0)
+
+        ConeTwistJoint3D leftShoulder
+        leftShoulder:Initialize(torso, leftArm, frameOnLeftShoulder, frameOnLeftArm)
+        leftShoulder:SetLimits(0.8, 0.8, 0.4, 0.8, 0.3, 1.0)
+
+        Layer3D layer = GetCurrentLayer3D()
+        layer:AddJoint(shoulder)
+        layer:AddJoint(leftShoulder)
+
+        DirectionalLight light
+        light:SetColor(0,1,0, 1)
+        light:SetDirection(0, -2, -1)
+        light:SetIntensity(10)
+        Add(light)
+
+        Camera camera = GetCamera3D()
+        camera:SetPosition(0, 4, -12)
+    end
+end

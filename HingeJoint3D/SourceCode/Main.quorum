@@ -1,0 +1,63 @@
+use Libraries.Game.Game
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Physics.Joints.HingeJoint3D
+use Libraries.Compute.Vector3
+
+/*
+This example shows a HingeJoint3D, which lets an item turn around one axis
+only, like a door on its hinges. A plank is hinged to a post that does not
+move. The hinge runs straight toward the camera, along the z axis. The plank
+starts level, and gravity swings it down and back up like a pendulum. Since
+the hinge only lets it turn around z, the plank swings flat across the
+screen, and never twists or tips toward the camera.
+*/
+class Main is Game
+    action Main
+        UseVulkan(true)
+        StartGame()
+    end
+
+    action CreateGame
+        EnablePhysics3D(true)
+        SetGravity3D(0, -9.8, 0)
+        Color color
+
+        // The post does not move. The plank hangs from it.
+        Model post
+        post:LoadBox(0.3, 0.3, 0.3, color:Gray())
+        post:SetPosition(0, 2, 0)
+        post:EnablePhysics(true)
+        post:SetUnmovable()
+        Add(post)
+
+        // The plank is 2 long and starts level, to the right of the post.
+        Model plank
+        plank:LoadBox(2, 0.2, 0.4, color:Blue())
+        plank:SetPosition(1.3, 2, 0)
+        plank:EnablePhysics(true)
+        plank:SetResponsive()
+        Add(plank)
+
+        // The hinge is at the center of the post. Each item gives that point
+        // in its own coordinates, measured from its own center, so for the
+        // plank it is 1.3 to the left. Both give the axis the hinge turns
+        // around, z.
+        Vector3 pointOnPost
+        pointOnPost:Set(0, 0, 0)
+        Vector3 pointOnPlank
+        pointOnPlank:Set(-1.3, 0, 0)
+        Vector3 axis
+        axis:Set(0, 0, 1)
+
+        HingeJoint3D hinge
+        hinge:Initialize(post, plank, pointOnPost, pointOnPlank, axis, axis)
+        GetCurrentLayer3D():Add(hinge)
+
+        DirectionalLight light
+        light:SetDirection(0, -2, 1)
+        Add(light)
+        GetCamera3D():SetPosition(0, 2.5, -7)
+    end
+end

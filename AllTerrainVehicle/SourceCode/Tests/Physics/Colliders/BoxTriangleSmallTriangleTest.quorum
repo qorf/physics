@@ -1,0 +1,31 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.Shapes.Triangle
+
+/*
+A triangle smaller than the box's bottom face. The face is cut down to
+the triangle, grown by its margin, so the contacts are at the grown
+triangle's three corners.
+
+Unless a test says otherwise, the triangle is a large one lying flat
+at height 0, from MakeLargeTriangle, with the usual margin of 0.04, so
+its thickened surface is at 0.04. The box is 0.5 on each side for
+collisions (see RunBox), with no rotation, and the triangle is item A.
+A box whose center is at 0.28 has its bottom at 0.03, so it sinks 0.01
+into the surface.
+*/
+class BoxTriangleSmallTriangleTest is PhysicsTest
+    on create
+        SetName("Box and triangle: triangle smaller than the face")
+    end
+
+    action Run
+        Triangle triangle
+        triangle:Set(MakeVector(-0.1, 0, 0.1), MakeVector(0.1, 0, 0.1), MakeVector(0, 0, -0.1))
+        triangle:SetMargin(0.04)
+        LocalCollisionPoints3D points = RunBox(triangle, MakeTransform(0, 0.28, 0, 0, 1, 0, 0), false)
+        CheckWhole("box small triangle: three contacts", points:GetPointCount(), 3)
+        CheckAllContacts("box small triangle", points, 0, -1, 0, -0.01)
+    end
+end

@@ -1,0 +1,27 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+A sphere of radius 0.5 whose center is 0.4 above the middle of the face,
+so it sinks 0.1 into the triangle.
+
+Unless a test says otherwise, the triangle is the standard one with no
+margin, and the triangle is item A, the way terrain calls it. A stored
+contact's normal then points from the sphere toward the triangle, and
+its point on B is on the sphere's surface.
+*/
+class SphereTriangleOnFaceTest is PhysicsTest
+    on create
+        SetName("Sphere and triangle: on the face")
+    end
+
+    action Run
+        LocalCollisionPoints3D points = RunSphere(0.25, 0.4, -0.25, 0.5, 0, false)
+        CheckContact("sphere face", points, 0, -1, 0, 0.25, -0.1, -0.25, -0.1)
+        if points:GetPointCount() = 1
+            CheckVector("sphere face: point on A is on the triangle",
+                points:GetCollisionPoint(0):GetWorldPositionOnA(), 0.25, 0, -0.25)
+        end
+    end
+end

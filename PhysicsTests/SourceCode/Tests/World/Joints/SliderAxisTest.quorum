@@ -1,0 +1,38 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Game.Physics.Joints.SliderJoint3D
+
+/*
+Tests that a slider only lets an item move along its axis. A slider's axis is
+the x axis of its frames, and by default it may slide any distance along it
+but may not turn. Here a small box hangs 1 below a fixed rail, with no
+gravity, and is pushed at 1 along each of x, y and z and set turning. The
+slider should keep only the push along x, so after 1 second the box has
+moved 1 along x, has not moved along y or z, and is not turning.
+*/
+class SliderAxisTest is PhysicsWorldTest
+    on create
+        SetName("World: a slider only moves along its axis")
+    end
+
+    action Run
+        Layer3D layer = MakeWorldWithoutGravity()
+        Item3D rail = AddFixedBox(layer, 0, 5, 0, 0.4, 0.4, 0.4)
+        Item3D carriage = AddBox(layer, 0, 4, 0, 0.4, 1)
+
+        SliderJoint3D slider
+        slider:Initialize(rail, carriage, MakeFrame(0, -1, 0), MakeFrame(0, 0, 0), true)
+        layer:Add(slider)
+
+        carriage:SetLinearVelocity(MakeVector(1, 1, 1))
+        carriage:SetAngularVelocity(MakeVector(1, 1, 1))
+        Advance(layer, 1)
+
+        CheckNear("distance along x", carriage:GetX(), 1, 0.05)
+        CheckNear("height", carriage:GetY(), 4, 0.02)
+        CheckNear("distance along z", carriage:GetZ(), 0, 0.02)
+        CheckAtMost("turning speed", TurningSpeed(carriage), 0.05)
+    end
+end

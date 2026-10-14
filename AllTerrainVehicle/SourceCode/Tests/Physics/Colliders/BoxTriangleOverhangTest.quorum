@@ -1,0 +1,34 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.Shapes.Triangle
+
+/*
+A box hanging half over the edge of a triangle that covers x >= 0. The
+contacts on the overhanging side are cut at the triangle's edge, grown
+by its margin, at x = -0.04.
+
+Unless a test says otherwise, the triangle is a large one lying flat
+at height 0, from MakeLargeTriangle, with the usual margin of 0.04, so
+its thickened surface is at 0.04. The box is 0.5 on each side for
+collisions (see RunBox), with no rotation, and the triangle is item A.
+A box whose center is at 0.28 has its bottom at 0.03, so it sinks 0.01
+into the surface.
+*/
+class BoxTriangleOverhangTest is PhysicsTest
+    on create
+        SetName("Box and triangle: hanging over an edge")
+    end
+
+    action Run
+        Triangle triangle
+        triangle:Set(MakeVector(0, 0, 5), MakeVector(0, 0, -5), MakeVector(5, 0, 0))
+        triangle:SetMargin(0.04)
+        LocalCollisionPoints3D points = RunBox(triangle, MakeTransform(0, 0.28, 0, 0, 1, 0, 0), false)
+        CheckWhole("box overhang: four contacts", points:GetPointCount(), 4)
+        CheckAllContacts("box overhang", points, 0, -1, 0, -0.01)
+        CheckWhole("box overhang: inner corner", CountContactsNear(points, 0.25, 0.03, 0.25), 1)
+        CheckWhole("box overhang: cut at the edge", CountContactsNear(points, -0.04, 0.03, 0.25), 1)
+        CheckWhole("box overhang: other cut", CountContactsNear(points, -0.04, 0.03, -0.25), 1)
+    end
+end

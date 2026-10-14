@@ -1,0 +1,36 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.CollisionPoint3D
+
+/*
+Tests LocalCollisionPoints3D:ReplaceCollisionPoint. A replaced point takes
+the new point's position and depth, but keeps the impulses the solver has
+built up and how long it has existed, so the solver can start from them on
+the next step.
+*/
+class ContactPointsReplaceTest is PhysicsTest
+    on create
+        SetName("Contact points: replacing a point")
+    end
+
+    action Run
+        LocalCollisionPoints3D points
+        CollisionPoint3D old = MakeContactPoint(0, 0, 0, -0.01)
+        old:SetAppliedImpulse(3)
+        old:SetAppliedImpulseLateralA(1)
+        old:SetAppliedImpulseLateralB(2)
+        old:SetLifeTime(7)
+        points:AddCollisionPoint(old)
+
+        points:ReplaceCollisionPoint(MakeContactPoint(0.01, 0, 0, -0.04), 0)
+        CollisionPoint3D replaced = points:GetCollisionPoint(0)
+        CheckWhole("still one point", points:GetPointCount(), 1)
+        CheckVector("the new position", replaced:GetLocalPointA(), 0.01, 0, 0)
+        CheckNumber("the new depth", replaced:GetDistance(), -0.04)
+        CheckNumber("keeps the impulse", replaced:GetAppliedImpulse(), 3)
+        CheckNumber("keeps the first friction impulse", replaced:GetAppliedImpulseLateralA(), 1)
+        CheckNumber("keeps the second friction impulse", replaced:GetAppliedImpulseLateralB(), 2)
+        CheckWhole("keeps its life time", replaced:GetLifeTime(), 7)
+    end
+end

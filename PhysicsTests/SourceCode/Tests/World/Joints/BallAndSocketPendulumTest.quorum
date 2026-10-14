@@ -1,0 +1,72 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Game.Physics.Joints.BallAndSocketJoint3D
+
+/*
+Tests a pendulum made with a ball and socket joint. A plank 2 long, with a
+mass of 1, sticks out level from a fixed anchor, joined to it 1.2 from the
+plank's center, just past the plank's end so the two do not touch. It is let
+go and swings down. The joint should keep the plank's center 1.2 from the
+anchor, so at the bottom of its swing the center is 1.2 below the anchor.
+
+The plank turns as it swings, so some of the energy from falling goes into
+turning. It turns about the joint, where the resistance to turning is that
+about its center, 1 * (2 * 2 + 0.2 * 0.2) / 12 = 0.33667, plus 1.2 * 1.2 =
+1.44 for the distance to the joint. Falling 1.2 gives energy 9.8 * 1.2, so
+at the bottom it turns at sqrt(2 * 9.8 * 1.2 / 1.77667) = 3.638 radians a
+second, and its center, 1.2 from the joint, moves at 4.366.
+
+Why a plank and not a small ball: a small ball on a long reach turns far too
+easily compared to how hard it is to move, about 250 times. Bullet's ball and
+socket joint fixes one axis at a time, and on a case like that it does not
+settle in 10 passes, so the joint stretches and loses energy. Bullet behaves
+the same way. The plank is a well behaved case, so this tests the joint
+rather than that limit.
+*/
+class BallAndSocketPendulumTest is PhysicsWorldTest
+    on create
+        SetName("World: a ball and socket pendulum swings and stays attached")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        Item3D anchor = AddFixedBox(layer, 0, 5, 0, 0.2, 0.2, 0.2)
+        Item3D plank = AddMovingBox(layer, 1.2, 5, 0, 2, 0.2, 0.2, 1)
+
+        BallAndSocketJoint3D joint
+        joint:Initialize(anchor, plank, MakeVector(0, 0, 0), MakeVector(-1.2, 0, 0))
+        layer:Add(joint)
+
+        number lowest = plank:GetY()
+        number fastest = 0
+        number stretch = 0
+        number sideways = 0
+        integer steps = StepsIn(1.5)
+        integer i = 0
+        repeat while i < steps
+            Step(layer)
+            if plank:GetY() < lowest
+                lowest = plank:GetY()
+            end
+            if Speed(plank) > fastest
+                fastest = Speed(plank)
+            end
+            number gap = Absolute(Distance(anchor, plank) - 1.2)
+            if gap > stretch
+                stretch = gap
+            end
+            if Absolute(plank:GetZ()) > sideways
+                sideways = Absolute(plank:GetZ())
+            end
+            i = i + 1
+        end
+
+        CheckNear("lowest point of the swing", lowest, 3.8, 0.05)
+        CheckNear("speed at the bottom", fastest, 4.366, 0.1)
+        CheckAtMost("most the joint stretched", stretch, 0.03)
+        CheckAtMost("most the plank moved along z", sideways, 0.001)
+        CheckNear("the anchor did not move", anchor:GetY(), 5, 0.000001)
+    end
+end

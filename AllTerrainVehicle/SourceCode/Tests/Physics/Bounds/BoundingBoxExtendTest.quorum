@@ -1,0 +1,45 @@
+package Physics.Tests
+
+use Libraries.Game.BoundingBox
+
+/*
+Tests growing a BoundingBox with Extend: by a point, by a sphere, and by
+another box. Invalidate empties a box first, so that the first point
+extended by becomes the whole box.
+*/
+class BoundingBoxExtendTest is PhysicsTest
+    on create
+        SetName("Bounding box: extend")
+    end
+
+    action Run
+        BoundingBox box
+        box:Invalidate()
+        box:Extend(MakeVector(1, 2, 3))
+        CheckVector("one point, minimum", box:GetMinimum(), 1, 2, 3)
+        CheckVector("one point, maximum", box:GetMaximum(), 1, 2, 3)
+
+        box:Extend(MakeVector(-1, 5, 0))
+        CheckVector("two points, minimum", box:GetMinimum(), -1, 2, 0)
+        CheckVector("two points, maximum", box:GetMaximum(), 1, 5, 3)
+        CheckVector("two points, center", box:GetCenter(), 0, 3.5, 1.5)
+
+        // A point already inside changes nothing.
+        box:Extend(MakeVector(0, 3, 1))
+        CheckVector("a point inside, minimum", box:GetMinimum(), -1, 2, 0)
+        CheckVector("a point inside, maximum", box:GetMaximum(), 1, 5, 3)
+
+        // A sphere reaching past the box on one side.
+        box:Extend(MakeVector(0, 3, 1), 4)
+        CheckVector("a sphere, minimum", box:GetMinimum(), -4, -1, -3)
+        CheckVector("a sphere, maximum", box:GetMaximum(), 4, 7, 5)
+
+        // Another box.
+        BoundingBox other
+        other:Set(MakeVector(5, 0, 0), MakeVector(6, 1, 1))
+        box:Extend(other)
+        CheckVector("another box, minimum", box:GetMinimum(), -4, -1, -3)
+        CheckVector("another box, maximum", box:GetMaximum(), 6, 7, 5)
+        CheckNumber("another box, width", box:GetWidth(), 10)
+    end
+end

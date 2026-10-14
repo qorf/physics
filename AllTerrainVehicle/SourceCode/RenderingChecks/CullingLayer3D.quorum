@@ -1,0 +1,582 @@
+package RenderingChecks
+
+use Libraries.Game.Layer3D
+use Libraries.Game.GameStateManager
+use Libraries.Game.BoundingBox
+use Libraries.Game.Graphics.Camera
+use Libraries.Game.Graphics.Painter3D
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Graphics.PointLight
+use Libraries.Game.Graphics.GraphicsManager
+use Libraries.Game.Graphics.OpenGL.OpenGLManager
+use Libraries.Game.Graphics.Vulkan.VulkanPainter3D
+use Libraries.Game.Graphics.Vulkan.VulkanGraphics
+use Libraries.Game.Graphics.Trees.RenderTree3D
+use Libraries.Game.Graphics.Trees.DynamicVolumeRenderTree3D
+use Libraries.Game.Graphics.Trees.RenderTreeNode3D
+use Libraries.Compute.Matrix4
+use Libraries.Compute.Vector3
+use Libraries.Compute.Math
+use Libraries.Containers.Array
+use Libraries.Containers.HashTable
+use Libraries.Containers.Iterator
+use Libraries.Interface.Item3D
+
+/*
+CullingLayer3D is a Layer3D that draws only what the camera can see, and, in
+Vulkan, what can cast a shadow into view. It is the first test of render
+tree culling, written so that nothing in the standard library has to change:
+it replaces Layer3D's Draw action and uses only public actions.
+
+Each frame, Draw does the following:
+
+1. It updates the camera and the viewport, as Layer3D does.
+2. It walks every item on the layer and all of their children. An item not
+   yet in the tree is added. An item already in it is reported as moved.
+   Items that have left the layer are removed from the tree.
+3. It asks the tree what the camera can see. In Vulkan, it also asks what
+   could cast a shadow into each cascade of each directional light, and
+   what is within each point light's reach.
+4. It hands each model found to the painter once, if it and its parents are
+   showing. Shadow casters are handed to the normal Render action, so they
+   go through the main pass as well, where the graphics card clips them.
+   This costs some extra work but needs no change to the painter.
+
+Some models are drawn every frame without asking the tree: animated models,
+whose pose can reach outside their resting bounds, and models with no size
+yet, such as ones still loading. Once a model has a size, it is added to the
+tree.
+
+Telling the tree every item moved, every frame, is the simple and slow way.
+It costs a hash table lookup and a bounds calculation per item per frame. A
+library version would instead have Item3D tell the layer when it moves.
+
+Other limits of this first test:
+
+- The directional light cascades are the ones worked out on the previous
+  frame, inside the painter's End action. A shadow caster at the edge of a
+  cascade may be missed for one frame when the camera turns quickly.
+- With no shadow distance set, a directional light's last cascade reaches
+  as far as the camera's far plane, so it usually holds every item, and
+  every item is drawn as a shadow caster. SetShadowDistance limits this.
+- Items whose Draw action has been replaced by a subclass are not drawn
+  through it. The painter is given the models directly.
+- Bounds come from each item's width, height and depth, centered on the
+  item. Items shaped otherwise, such as terrain, need SetRenderBounds.
+
+Attribute: Example
+
+use Libraries.Game.Game
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Color
+use RenderingChecks.CullingLayer3D
+
+class Main is Game
+    action Main
+        StartGame()
+    end
+
+    action CreateGame
+        CullingLayer3D layer
+        SetLayer(0, layer)
+        SetCurrentLayer3D(layer)
+
+        Color color
+        Model box
+        box:LoadBox(1, 1, 1, color:Teal())
+        box:SetPosition(0, 0, 5)
+        Add(box)
+    end
+end
+*/
+class CullingLayer3D is Layer3D
+    // The render tree. A DynamicVolumeRenderTree3D unless SetRenderTree
+    // gives another kind.
+    RenderTree3D tree = undefined
+    DynamicVolumeRenderTree3D defaultTree
+
+    // While this is false, Draw draws everything, as Layer3D does.
+    boolean cullingEnabled = true
+
+    // While this is true, Vulkan also draws the models that could cast a
+    // shadow into view.
+    boolean drawShadowCasters = true
+
+    // Bounds given for items the tree cannot measure, such as terrain.
+    HashTable<Item3D, BoundingBox> givenBounds
+
+    // Every item in the tree, so items that left the layer can be found.
+    Array<Item3D> members
+
+    // Reused every frame. Emptied with Empty(false), which keeps their
+    // storage, so no new arrays are made.
+    Array<Item3D> walkStack
+    Array<Item3D> found
+    Array<Model> alwaysDrawn
+
+    integer frame = 0
+    integer cascadeCount = -1
+
+    // How far from the camera directional light shadows are kept, or 0 for
+    // no limit. See SetShadowDistance.
+    number shadowDistance = 0
+
+    // The column of space, reaching toward a directional light, whose items
+    // can cast a shadow within the shadow distance. Set for each light.
+    Matrix4 shadowColumn
+    Math shadowMath
+
+    // What the last frame did, for reports.
+    integer lastVisibleCount = 0
+    integer lastCasterCount = 0
+    integer lastDrawnCount = 0
+
+    GameStateManager gameState
+
+    on create
+        tree = defaultTree
+    end
+
+    /*
+    This action sets the render tree, such as a QuadTree3D or an Octree3D
+    with its region set. Items already in the old tree are added to the new
+    one on the next frame.
+
+    Attribute: Parameter value The render tree to use.
+    */
+    action SetRenderTree(RenderTree3D value)
+        tree:Empty()
+        members:Empty()
+        tree = value
+    end
+
+    /*
+    This action returns the render tree.
+
+    Attribute: Returns The render tree.
+    */
+    action GetRenderTree returns RenderTree3D
+        return tree
+    end
+
+    /*
+    This action turns culling on or off. With it off, Draw draws every item,
+    as Layer3D does, and the tree is not updated.
+
+    Attribute: Parameter value True to draw only what is needed.
+    */
+    action EnableCulling(boolean value)
+        cullingEnabled = value
+    end
+
+    /*
+    This action returns true if culling is on.
+
+    Attribute: Returns True if culling is on.
+    */
+    action IsCullingEnabled returns boolean
+        return cullingEnabled
+    end
+
+    /*
+    This action sets whether Vulkan also draws models that are out of view
+    but could cast a shadow into it. Turning it off shows what is lost
+    without it.
+
+    Attribute: Parameter value True to draw shadow casters.
+    */
+    action SetDrawShadowCasters(boolean value)
+        drawShadowCasters = value
+    end
+
+    /*
+    This action limits which items are drawn as directional light shadow
+    casters to those that can cast a shadow within the given distance of
+    the camera, as the shadow distance setting in other engines does.
+
+    A directional light reaches everything, but shadows far from the camera
+    are small and rarely noticed. With a distance set, the layer finds a
+    light's casters with one search instead of one per cascade: a square
+    column twice the distance wide, centered on the camera, running from the
+    camera toward the light without end, and the distance past the camera
+    away from it. An item toward the light, such as a tall tower far away,
+    is still found.
+
+    This only changes what the layer hands the painter. The painter's
+    cascades still reach the camera's far plane, so items past the distance
+    that are on screen are still drawn into the shadows, but items that are
+    neither on screen nor near the camera cast none. There is no fade at the
+    edge, since that would need a change to the shaders.
+
+    Attribute: Parameter distance How far from the camera shadows are kept,
+    or 0 for no limit.
+    */
+    action SetShadowDistance(number distance)
+        if distance < 0
+            shadowDistance = 0
+        else
+            shadowDistance = distance
+        end
+    end
+
+    /*
+    This action returns how far from the camera directional light shadows
+    are kept, or 0 for no limit.
+
+    Attribute: Returns The shadow distance.
+    */
+    action GetShadowDistance returns number
+        return shadowDistance
+    end
+
+    /*
+    This action gives the bounds, in the item's own coordinates, for an item
+    whose bounds the tree cannot find from its width, height and depth, such
+    as terrain, whose mesh starts at its corner.
+
+    Attribute: Parameter item The item.
+    Attribute: Parameter localBounds Its bounds in its own coordinates.
+    */
+    action SetRenderBounds(Item3D item, BoundingBox localBounds)
+        givenBounds:Add(item, localBounds)
+        if tree:Has(item)
+            tree:SetLocalBounds(item, localBounds)
+        end
+    end
+
+    /*
+    This action returns how many items the camera could see last frame.
+
+    Attribute: Returns The number of visible items found.
+    */
+    action GetLastVisibleCount returns integer
+        return lastVisibleCount
+    end
+
+    /*
+    This action returns how many shadow casters were found last frame,
+    counting an item once for each light and cascade that found it.
+
+    Attribute: Returns The number of shadow casters found.
+    */
+    action GetLastCasterCount returns integer
+        return lastCasterCount
+    end
+
+    /*
+    This action returns how many models were handed to the painter last
+    frame.
+
+    Attribute: Returns The number of models drawn.
+    */
+    action GetLastDrawnCount returns integer
+        return lastDrawnCount
+    end
+
+    /*
+    This action draws the layer. With culling on, only the models the
+    camera can see, and in Vulkan the ones that could cast a shadow into
+    view, are handed to the painter.
+    */
+    action Draw
+        if not cullingEnabled
+            parent:Layer3D:Draw()
+            return now
+        end
+        if not IsShowing()
+            return now
+        end
+
+        Camera camera = GetCamera()
+        camera:Update()
+        Painter3D painter = GetPainter()
+        SetUpViewport(painter)
+
+        frame = frame + 1
+        UpdateTree()
+
+        painter:Begin()
+        lastDrawnCount = 0
+
+        found:Empty(false)
+        tree:CollectVisible(camera, found)
+        lastVisibleCount = found:GetSize()
+        DrawFound(painter, false)
+
+        lastCasterCount = 0
+        if drawShadowCasters and painter is VulkanPainter3D
+            found:Empty(false)
+            CollectShadowCasters()
+            lastCasterCount = found:GetSize()
+            DrawFound(painter, true)
+        end
+
+        integer i = 0
+        repeat while i < alwaysDrawn:GetSize()
+            Model model = alwaysDrawn:Get(i)
+            if tree:IsShowingWithParents(model)
+                painter:Render(model)
+                lastDrawnCount = lastDrawnCount + 1
+            end
+            i = i + 1
+        end
+
+        painter:End()
+        tree:EndFrame()
+    end
+
+    /*
+    This action sets the graphics system's viewport to the layer's, as
+    Layer3D.Draw does.
+
+    Attribute: Parameter painter The layer's painter.
+    */
+    private action SetUpViewport(Painter3D painter)
+        GraphicsManager graphics = gameState:GetGameGraphics()
+        if graphics is OpenGLManager
+            OpenGLManager openGL = cast(OpenGLManager, graphics)
+            if GetViewportX() not= openGL:GetViewportX() or GetViewportY() not= openGL:GetViewportY() or
+                    GetViewportWidth() not= openGL:GetViewportWidth() or GetViewportHeight() not= openGL:GetViewportHeight()
+                openGL:SetViewport(GetViewportX(), GetViewportY(), GetViewportWidth(), GetViewportHeight())
+            end
+        end
+
+        if painter is VulkanPainter3D
+            VulkanPainter3D vulkan = cast(VulkanPainter3D, painter)
+            if GetViewportX() not= vulkan:GetViewportX() or GetViewportY() not= vulkan:GetViewportY() or
+                    GetViewportWidth() not= vulkan:GetViewportWidth() or GetViewportHeight() not= vulkan:GetViewportHeight()
+                vulkan:SetViewport(GetViewportX(), GetViewportY(), GetViewportWidth(), GetViewportHeight())
+            end
+        end
+    end
+
+    /*
+    This action brings the tree up to date with the layer. Items that left
+    the layer are removed. Every item on the layer, and every child, is then
+    added if it is new, or reported as moved. Animated models, and models
+    the tree cannot take yet, go in the list drawn every frame.
+    */
+    private action UpdateTree
+        // Items that left the layer. Removing from a layer tells every
+        // descendant its layer is now undefined. Quorum only compares objects
+        // of the same type, so this layer is compared as a Layer3D.
+        Layer3D thisLayer = me
+        integer index = 0
+        repeat while index < members:GetSize()
+            Item3D member = members:Get(index)
+            if member:GetLayer() not= thisLayer
+                tree:Remove(member)
+                Item3D last = members:RemoveFromEnd()
+                if index < members:GetSize()
+                    members:Set(index, last)
+                end
+            else
+                index = index + 1
+            end
+        end
+
+        alwaysDrawn:Empty(false)
+        walkStack:Empty(false)
+        integer i = 0
+        repeat while i < GetSize()
+            walkStack:Add(Get(i))
+            i = i + 1
+        end
+
+        repeat while not walkStack:IsEmpty()
+            Item3D item = walkStack:RemoveFromEnd()
+            integer child = 0
+            repeat while child < item:GetItemCount()
+                walkStack:Add(item:GetItem(child))
+                child = child + 1
+            end
+            UpdateItem(item)
+        end
+    end
+
+    /*
+    This action adds one item to the tree, or tells the tree it moved.
+
+    Attribute: Parameter item The item.
+    */
+    private action UpdateItem(Item3D item)
+        if item is Model
+            Model model = cast(Model, item)
+            if model:HasAnimations()
+                if tree:Has(item)
+                    tree:Remove(item)
+                end
+                alwaysDrawn:Add(model)
+                return now
+            end
+        end
+
+        RenderTreeNode3D leaf = tree:GetLeaf(item)
+        if leaf not= undefined
+            tree:Moved(leaf)
+            return now
+        end
+
+        boolean added = false
+        BoundingBox bounds = givenBounds:GetValue(item)
+        if bounds not= undefined
+            added = tree:Add(item, bounds)
+        else
+            added = tree:Add(item)
+        end
+
+        if added
+            members:Add(item)
+        elseif item is Model
+            alwaysDrawn:Add(cast(Model, item))
+        end
+    end
+
+    /*
+    This action adds to the found items every item that could cast a shadow
+    into each cascade of each directional light, and every item within each
+    point light's reach.
+    */
+    private action CollectShadowCasters
+        if cascadeCount < 0
+            GraphicsManager graphics = gameState:GetGameGraphics()
+            if graphics is VulkanGraphics
+                VulkanGraphics vulkan = cast(VulkanGraphics, graphics)
+                cascadeCount = vulkan:GetLightingProperties():GetShadowMapCascadeCount()
+            else
+                cascadeCount = 0
+            end
+        end
+
+        Iterator<DirectionalLight> directionalLights = GetDirectionalLights()
+        repeat while directionalLights:HasNext()
+            DirectionalLight light = directionalLights:Next()
+            if shadowDistance > 0
+                if SetShadowColumn(light)
+                    tree:CollectVisible(shadowColumn, found)
+                end
+            else
+                integer cascade = 0
+                repeat while cascade < cascadeCount
+                    tree:CollectDirectionalShadowCasters(light, cascade, found)
+                    cascade = cascade + 1
+                end
+            end
+        end
+
+        Iterator<PointLight> pointLights = GetPointLights()
+        repeat while pointLights:HasNext()
+            tree:CollectPointShadowCasters(pointLights:Next(), found)
+        end
+    end
+
+    /*
+    This action sets shadowColumn to a matrix whose view is the column of
+    space that can cast a light's shadow within the shadow distance of the
+    camera. The render tree reads planes from it as it would from a camera.
+
+    The matrix turns a point into the light's own directions, measured from
+    the camera: across the light (x and y), each divided by the distance so
+    the column's sides are at -1 and 1, and along the light (z). Along the
+    light, the camera is at 0.5 and the far side, the distance past the
+    camera, is at 1. The render tree leaves out the near side, so the column
+    has no end toward the light. Building the matrix by hand, rather than
+    with a camera projection, means it does not depend on handedness or
+    depth range.
+
+    Attribute: Parameter light The directional light.
+    Attribute: Returns False if the light has no direction.
+    */
+    private action SetShadowColumn(DirectionalLight light) returns boolean
+        Vector3 direction = light:GetDirection()
+        number forwardX = direction:GetX()
+        number forwardY = direction:GetY()
+        number forwardZ = direction:GetZ()
+        number length = shadowMath:SquareRoot(forwardX * forwardX + forwardY * forwardY + forwardZ * forwardZ)
+        if length = 0
+            return false
+        end
+        forwardX = forwardX / length
+        forwardY = forwardY / length
+        forwardZ = forwardZ / length
+
+        // A direction across the light: up crossed with the light's
+        // direction, using z as up if the light points nearly straight up
+        // or down.
+        number upX = 0
+        number upY = 1
+        number upZ = 0
+        if shadowMath:AbsoluteValue(forwardY) > 0.99
+            upY = 0
+            upZ = 1
+        end
+        number rightX = upY * forwardZ - upZ * forwardY
+        number rightY = upZ * forwardX - upX * forwardZ
+        number rightZ = upX * forwardY - upY * forwardX
+        number rightLength = shadowMath:SquareRoot(rightX * rightX + rightY * rightY + rightZ * rightZ)
+        rightX = rightX / rightLength
+        rightY = rightY / rightLength
+        rightZ = rightZ / rightLength
+
+        // The other direction across the light, at right angles to both.
+        number sideX = forwardY * rightZ - forwardZ * rightY
+        number sideY = forwardZ * rightX - forwardX * rightZ
+        number sideZ = forwardX * rightY - forwardY * rightX
+
+        Vector3 center = GetCamera():GetPosition()
+        number cx = center:GetX()
+        number cy = center:GetY()
+        number cz = center:GetZ()
+        number across = 1 / shadowDistance
+        number along = 1 / (2 * shadowDistance)
+
+        shadowColumn:row0column0 = rightX * across
+        shadowColumn:row0column1 = rightY * across
+        shadowColumn:row0column2 = rightZ * across
+        shadowColumn:row0column3 = (0 - (rightX * cx + rightY * cy + rightZ * cz)) * across
+
+        shadowColumn:row1column0 = sideX * across
+        shadowColumn:row1column1 = sideY * across
+        shadowColumn:row1column2 = sideZ * across
+        shadowColumn:row1column3 = (0 - (sideX * cx + sideY * cy + sideZ * cz)) * across
+
+        shadowColumn:row2column0 = forwardX * along
+        shadowColumn:row2column1 = forwardY * along
+        shadowColumn:row2column2 = forwardZ * along
+        shadowColumn:row2column3 = (0 - (forwardX * cx + forwardY * cy + forwardZ * cz)) * along + 0.5
+
+        shadowColumn:row3column0 = 0
+        shadowColumn:row3column1 = 0
+        shadowColumn:row3column2 = 0
+        shadowColumn:row3column3 = 1
+        return true
+    end
+
+    /*
+    This action hands each found model to the painter, once per frame, if
+    it and its parents are showing.
+
+    Attribute: Parameter painter The layer's painter.
+    Attribute: Parameter shadowCastersOnly True to skip models that do not
+    cast shadows.
+    */
+    private action DrawFound(Painter3D painter, boolean shadowCastersOnly)
+        integer i = 0
+        repeat while i < found:GetSize()
+            Item3D item = found:Get(i)
+            if item is Model
+                Model model = cast(Model, item)
+                RenderTreeNode3D leaf = tree:GetLeaf(item)
+                if leaf:GetLastDrawnFrame() not= frame
+                    if (not shadowCastersOnly or model:CastsShadows()) and tree:IsShowingWithParents(item)
+                        leaf:SetLastDrawnFrame(frame)
+                        painter:Render(model)
+                        lastDrawnCount = lastDrawnCount + 1
+                    end
+                end
+            end
+            i = i + 1
+        end
+    end
+end

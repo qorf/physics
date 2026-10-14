@@ -1,0 +1,39 @@
+package Physics.Tests
+
+use Libraries.Game.BoundingBox
+
+/*
+Tests BoundingBox:Intersects and TestOverlap. Both should agree on whether
+two boxes overlap. Boxes that only touch on a face count as overlapping.
+*/
+class BoundingBoxIntersectsTest is PhysicsTest
+    on create
+        SetName("Bounding box: intersects")
+    end
+
+    action Run
+        BoundingBox box
+        box:Set(MakeVector(0, 0, 0), MakeVector(2, 2, 2))
+
+        CheckPair("overlapping", box, MakeBounds(1, 1, 1, 3, 3, 3), true)
+        CheckPair("one inside the other", box, MakeBounds(0.5, 0.5, 0.5, 1, 1, 1), true)
+        CheckPair("touching on a face", box, MakeBounds(2, 0, 0, 3, 2, 2), true)
+        CheckPair("apart along x", box, MakeBounds(2.5, 0, 0, 3, 2, 2), false)
+        CheckPair("apart along y", box, MakeBounds(0, -3, 0, 2, -0.5, 2), false)
+        CheckPair("apart along z", box, MakeBounds(0, 0, 4, 2, 2, 5), false)
+        CheckPair("apart along x only, overlapping in y and z", box, MakeBounds(-3, 1, 1, -1, 3, 3), false)
+    end
+
+    action MakeBounds(number minimumX, number minimumY, number minimumZ, number maximumX, number maximumY,
+            number maximumZ) returns BoundingBox
+        BoundingBox bounds
+        bounds:Set(MakeVector(minimumX, minimumY, minimumZ), MakeVector(maximumX, maximumY, maximumZ))
+        return bounds
+    end
+
+    action CheckPair(text name, BoundingBox first, BoundingBox second, boolean expected)
+        CheckThat(name + ": Intersects", first:Intersects(second) = expected)
+        CheckThat(name + ": Intersects the other way", second:Intersects(first) = expected)
+        CheckThat(name + ": TestOverlap", first:TestOverlap(second) = expected)
+    end
+end

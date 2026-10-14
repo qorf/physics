@@ -1,0 +1,77 @@
+use Libraries.Game.Game
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Collision.PhysicsPosition3D
+use Libraries.Game.Physics.Joints.SliderJoint3D
+
+/*
+This example shows a SliderJoint3D, which lets an item slide along one line
+only, like a drawer or a bead on a wire. A box hangs below a rail that does
+not move. The slider lets the box slide left and right along the rail, but
+not fall, move toward the camera, or turn. Limits stop it 2.5 to either side
+of where it started. The box is pushed to the right, and each time it reaches
+an end of the rail, Update pushes it back the other way, so it slides back
+and forth.
+*/
+class Main is Game
+    Model box
+
+    action Main
+        UseVulkan(true)
+        StartGame()
+    end
+
+    action CreateGame
+        EnablePhysics3D(true)
+        SetGravity3D(0, -9.8, 0)
+        Color color
+
+        // The rail does not move. The box slides beneath it.
+        Model rail
+        rail:LoadBox(6, 0.1, 0.1, color:Gray())
+        rail:SetPosition(0, 2.5, 0)
+        rail:EnablePhysics(true)
+        rail:SetUnmovable()
+        Add(rail)
+
+        box:LoadBox(0.5, 0.5, 0.5, color:Blue())
+        box:SetPosition(0, 2, 0)
+        box:EnablePhysics(true)
+        box:SetResponsive()
+        Add(box)
+
+        // Each item gives a frame, a position and a direction, in its own
+        // coordinates. The slider keeps the two frames lined up, except that
+        // they may move apart along the frame's x axis. The rail's frame is
+        // 0.5 below the rail's center, where the box's center is.
+        PhysicsPosition3D frameOnRail
+        frameOnRail:SetToIdentity()
+        frameOnRail:GetOrigin():Set(0, -0.5, 0)
+        PhysicsPosition3D frameOnBox
+        frameOnBox:SetToIdentity()
+
+        // True measures the slide from the rail's frame.
+        SliderJoint3D slider
+        slider:Initialize(rail, box, frameOnRail, frameOnBox, true)
+        slider:SetLowerLinearLimit(-2.5)
+        slider:SetUpperLinearLimit(2.5)
+        GetCurrentLayer3D():Add(slider)
+
+        box:SetLinearVelocityX(4)
+
+        DirectionalLight light
+        light:SetDirection(0, -2, 1)
+        Add(light)
+        GetCamera3D():SetPosition(0, 2.5, -6)
+    end
+
+    // When the box nears an end of the rail, push it back toward the other.
+    action Update(number seconds)
+        if box:GetX() > 2.4
+            box:SetLinearVelocityX(-4)
+        elseif box:GetX() < -2.4
+            box:SetLinearVelocityX(4)
+        end
+    end
+end

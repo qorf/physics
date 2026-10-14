@@ -1,0 +1,89 @@
+package Physics.Tests
+
+use Libraries.Compute.Math
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.CollisionPoint3D
+use Libraries.Game.Collision.Shapes.Sphere
+use Libraries.Compute.Random
+
+/*
+Compares SphereTriangleCollider with the general collision test on many
+random spheres around the standard triangle, with the usual margin of
+0.04. For every sphere, both must agree on whether there is a contact,
+and when there is one, on its depth, normal and point.
+
+Centers are kept at least 0.05 from the triangle's plane, because the
+general test has to fall back to a slower, rougher method when the
+center is right on the triangle. A sphere whose separation is within
+0.002 of the contact threshold is skipped, since the two may reasonably
+round to different sides of it.
+*/
+class SphereTriangleMatchesGeneralTest is PhysicsTest
+    on create
+        SetName("Sphere and triangle: matches the general test")
+    end
+
+    action Run
+        Math math
+        Random random
+        random:SetSeed(2026)
+        number margin = 0.04
+        number threshold = 0.02
+
+        integer samples = 2000
+        integer touching = 0
+        integer skipped = 0
+        integer mismatches = 0
+
+        integer i = 0
+        repeat while i < samples
+            number x = -0.5 + 2 * random:RandomNumber()
+            number z = -1.5 + 2 * random:RandomNumber()
+            number height = 0.05 + 0.5 * random:RandomNumber()
+            if random:RandomNumber() < 0.5
+                height = -height
+            end
+            number radius = 0.2 + 0.3 * random:RandomNumber()
+
+            LocalCollisionPoints3D fast = RunSphere(x, height, z, radius, margin, false)
+            LocalCollisionPoints3D general = RunGeneral(x, height, z, radius, margin)
+
+            boolean fastTouches = fast:GetPointCount() > 0
+            boolean generalTouches = general:GetPointCount() > 0
+
+            if fastTouches and generalTouches
+                touching = touching + 1
+                CollisionPoint3D a = fast:GetCollisionPoint(0)
+                CollisionPoint3D b = general:GetCollisionPoint(0)
+                boolean depthMatches = math:AbsoluteValue(a:GetDistance() - b:GetDistance()) <= 0.001
+                boolean normalMatches = a:GetWorldNormalOnB():DotProduct(b:GetWorldNormalOnB()) >= 0.999
+                boolean pointMatches = a:GetWorldPositionOnB():Distance(b:GetWorldPositionOnB()) <= 0.002
+                if not (depthMatches and normalMatches and pointMatches)
+                    mismatches = mismatches + 1
+                    ReportSphereMismatch(mismatches, x, height, z, radius, fast, general)
+                end
+            elseif fastTouches not= generalTouches
+                // Find the separation from whichever one reported a contact,
+                // and skip the sphere if it sits on the threshold.
+                number separation = 0
+                if fastTouches
+                    separation = fast:GetCollisionPoint(0):GetDistance()
+                else
+                    separation = general:GetCollisionPoint(0):GetDistance()
+                end
+                if math:AbsoluteValue(separation - threshold) <= 0.002
+                    skipped = skipped + 1
+                else
+                    mismatches = mismatches + 1
+                    ReportSphereMismatch(mismatches, x, height, z, radius, fast, general)
+                end
+            end
+            i = i + 1
+        end
+
+        AddNote("Sphere against the general test: " + samples + " spheres, " + touching + " touching, " +
+            skipped + " on the threshold, " + mismatches + " mismatches.")
+        CheckThat("sphere matches the general test", mismatches = 0)
+        CheckThat("sphere comparison found contacts to compare", touching > 100)
+    end
+end

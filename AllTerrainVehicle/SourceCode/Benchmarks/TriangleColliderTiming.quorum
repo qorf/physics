@@ -1,0 +1,163 @@
+use Libraries.Game.Collision.Narrowphase.ConvexConvexPairSolver
+use Libraries.Game.Collision.CollisionPointsResult3D
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.Narrowphase.BoxTriangleCollider
+use Libraries.Game.Collision.Narrowphase.CylinderTriangleCollider
+use Libraries.Game.Collision.Narrowphase.SphereTriangleCollider
+use Libraries.Game.Collision.PhysicsPosition3D
+use Libraries.Game.Collision.Shapes.Box
+use Libraries.Game.Collision.Shapes.CollisionShape3D
+use Libraries.Game.Collision.Shapes.Cylinder
+use Libraries.Game.Collision.Shapes.Sphere
+use Libraries.Game.Collision.Shapes.Triangle
+use Libraries.Interface.Item3D
+use Libraries.System.DateTime
+use Physics.Tests.PhysicsTest
+
+/*
+TriangleColliderTiming times each triangle collider against the general
+collision test on the same shapes, and writes the times. It is not a test,
+since nothing passes or fails. It is a PhysicsTest only to reuse the helpers
+that build the shapes. To run it, make this file the project's main file.
+*/
+class TriangleColliderTiming is PhysicsTest
+    // The colliders and the general collision test being timed.
+    BoxTriangleCollider timingBoxCollider
+    CylinderTriangleCollider timingCylinderCollider
+    ConvexConvexPairSolver timingSolver
+
+    action Main
+        TimeSphere()
+        TimeBox()
+        TimeCylinder()
+    end
+
+    /*
+    Times SphereTriangleCollider and the general test on the same sphere
+    resting on the triangle. This does not pass or fail. It writes how long
+    each took, after running each a while first so Java has compiled them.
+    */
+    action TimeSphere
+        integer warmup = 20000
+        integer runs = 200000
+
+        Item3D triangleItem
+        Item3D sphereItem
+        LocalCollisionPoints3D points
+        points:Set(triangleItem, sphereItem)
+        CollisionPointsResult3D result
+        result:Initialize(triangleItem, sphereItem)
+
+        Triangle triangle = MakeStandardTriangle(0.04)
+        PhysicsPosition3D triangleTransform
+        Sphere sphere
+        sphere:SetRadius(0.2)
+        PhysicsPosition3D sphereTransform
+        sphereTransform:GetOrigin():Set(0.3, 0.23, -0.3)
+
+        SphereTriangleCollider collider
+        number reach = triangle:GetMargin() + sphere:GetMargin() + points:GetCollisionBreakingThreshold()
+        timingSolver:SetMinkowskiA(triangle)
+        timingSolver:SetMinkowskiB(sphere)
+
+        repeat warmup times
+            collider:Collide(points, triangle, triangleTransform, sphere, sphereTransform, result, false)
+            timingSolver:GetClosestPoints(triangleTransform, sphereTransform, reach * reach, result, false)
+        end
+
+        DateTime clock
+        number start = clock:GetEpochTime()
+        repeat runs times
+            collider:Collide(points, triangle, triangleTransform, sphere, sphereTransform, result, false)
+        end
+        number fastTime = clock:GetEpochTime() - start
+
+        start = clock:GetEpochTime()
+        repeat runs times
+            timingSolver:GetClosestPoints(triangleTransform, sphereTransform, reach * reach, result, false)
+        end
+        number generalTime = clock:GetEpochTime() - start
+
+        output ("Sphere timing, " + runs + " tests each: SphereTriangleCollider " + fastTime +
+            " ms, general test " + generalTime + " ms.")
+    end
+
+    /*
+    Times BoxTriangleCollider and the general test on a box lying flat on
+    the large triangle. This does not pass or fail.
+    */
+    action TimeBox
+        Triangle triangle = MakeLargeTriangle(0.04)
+        PhysicsPosition3D triangleTransform
+        Box box = MakeBox(0.42, 0.42, 0.42)
+        PhysicsPosition3D transform = MakeTransform(0, 0.28, 0, 0, 1, 0, 20)
+        TimeCollider("Box", triangle, triangleTransform, box, transform)
+    end
+
+    /*
+    Times CylinderTriangleCollider and the general test on a standing
+    cylinder. This does not pass or fail.
+    */
+    action TimeCylinder
+        Triangle triangle = MakeLargeTriangle(0.04)
+        PhysicsPosition3D triangleTransform
+        PhysicsPosition3D transform = MakeTransform(0, 0.53, 0, 0, 1, 0, 0)
+        TimeCollider("Cylinder", triangle, triangleTransform, MakeCylinder(), transform)
+    end
+
+    /*
+    Times one of the box or cylinder colliders against the general test on
+    the same shape, after running each a while first so Java has compiled
+    them, and writes the times.
+    */
+    action TimeCollider(text name, Triangle triangle, PhysicsPosition3D triangleTransform, CollisionShape3D shape,
+            PhysicsPosition3D transform)
+        integer warmup = 20000
+        integer runs = 100000
+
+        Item3D triangleItem
+        Item3D shapeItem
+        LocalCollisionPoints3D points
+        points:Set(triangleItem, shapeItem)
+        CollisionPointsResult3D result
+        result:Initialize(triangleItem, shapeItem)
+        result:SetCollisionPoints(points)
+        number reach = triangle:GetMargin() + shape:GetMargin() + points:GetCollisionBreakingThreshold()
+
+        repeat warmup times
+            RunTimedCollider(points, triangle, triangleTransform, shape, transform, result)
+            timingSolver:SetMinkowskiA(triangle)
+            timingSolver:SetMinkowskiB(shape)
+            timingSolver:GetClosestPoints(triangleTransform, transform, reach * reach, result, false)
+        end
+
+        DateTime clock
+        number start = clock:GetEpochTime()
+        repeat runs times
+            RunTimedCollider(points, triangle, triangleTransform, shape, transform, result)
+        end
+        number fastTime = clock:GetEpochTime() - start
+
+        start = clock:GetEpochTime()
+        repeat runs times
+            timingSolver:SetMinkowskiA(triangle)
+            timingSolver:SetMinkowskiB(shape)
+            timingSolver:GetClosestPoints(triangleTransform, transform, reach * reach, result, false)
+        end
+        number generalTime = clock:GetEpochTime() - start
+
+        output (name + " timing, " + runs + " tests each: collider " + fastTime + " ms, general test " + generalTime + " ms.")
+    end
+
+    /*
+    Used by "action TimeCollider" to run the collider that matches the shape.
+    */
+    action RunTimedCollider(LocalCollisionPoints3D points, Triangle triangle, PhysicsPosition3D triangleTransform,
+            CollisionShape3D shape, PhysicsPosition3D transform, CollisionPointsResult3D result)
+        if shape:GetType() = shape:BOX
+            timingBoxCollider:Collide(points, triangle, triangleTransform, cast(Box, shape), transform, result, false)
+        else
+            timingCylinderCollider:Collide(points, triangle, triangleTransform, cast(Cylinder, shape), transform, result, false)
+        end
+    end
+end

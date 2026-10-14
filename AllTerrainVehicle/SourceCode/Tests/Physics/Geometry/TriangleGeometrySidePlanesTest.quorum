@@ -1,0 +1,39 @@
+package Physics.Tests
+
+use Libraries.Compute.Vector3
+use Libraries.Game.Collision.Narrowphase.TriangleGeometry3D
+
+/*
+The side planes are unit length, lie in the triangle's plane, and point
+into the triangle.
+*/
+class TriangleGeometrySidePlanesTest is PhysicsTest
+    on create
+        SetName("Triangle geometry: side planes")
+    end
+
+    action Run
+        TriangleGeometry3D geometry = MakeStandardGeometry()
+        Vector3 center = MakeVector(1.0 / 3.0, 0, -1.0 / 3.0)
+
+        integer i = 0
+        repeat while i < 3
+            Vector3 side = geometry:GetSideNormal(i)
+            CheckNumber("sides: normal " + i + " is unit length", side:Length(), 1)
+            CheckNumber("sides: normal " + i + " lies in the plane", side:DotProduct(geometry:GetNormal()), 0)
+            CheckNumber("sides: normal " + i + " is at a right angle to its edge", side:DotProduct(geometry:GetEdge(i)), 0)
+            CheckThat("sides: center is inside side " + i, geometry:SideDistance(i, center) > 0)
+            CheckNumber("sides: corner " + i + " is on side " + i, geometry:SideDistance(i, geometry:GetCorner(i)), 0)
+            i = i + 1
+        end
+
+        // Points just outside each edge are outside that edge's side plane only.
+        CheckNumber("sides: outside edge 0", geometry:SideDistance(0, MakeVector(0.5, 0, 0.5)), -0.5)
+        CheckThat("sides: outside edge 0 is inside edge 2", geometry:SideDistance(2, MakeVector(0.5, 0, 0.5)) > 0)
+        CheckNumber("sides: outside edge 2", geometry:SideDistance(2, MakeVector(-0.25, 0, -0.5)), -0.25)
+        CheckThat("sides: outside edge 1", geometry:SideDistance(1, MakeVector(1, 0, -1)) < 0)
+
+        // Height off the plane does not change a side distance.
+        CheckNumber("sides: height does not matter", geometry:SideDistance(0, MakeVector(0.5, 7, 0.5)), -0.5)
+    end
+end

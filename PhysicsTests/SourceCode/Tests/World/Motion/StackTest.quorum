@@ -1,0 +1,31 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+
+/*
+Tests that a stack of three boxes, each 1 on each side, stands. The boxes
+start with small gaps between them, settle, and should end with their centers
+at 0.5, 1.5 and 2.5, without sliding sideways.
+*/
+class StackTest is PhysicsWorldTest
+    on create
+        SetName("World: a stack of three boxes stands")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        AddGround(layer)
+        Item3D bottom = AddBox(layer, 0, 0.51, 0, 1, 1)
+        Item3D middle = AddBox(layer, 0, 1.53, 0, 1, 1)
+        Item3D top = AddBox(layer, 0, 2.55, 0, 1, 1)
+
+        Advance(layer, 4)
+
+        CheckNear("bottom box height", bottom:GetY(), 0.5, 0.03)
+        CheckNear("middle box height", middle:GetY(), 1.5, 0.05)
+        CheckNear("top box height", top:GetY(), 2.5, 0.07)
+        CheckAtMost("top box drift", Absolute(top:GetX()) + Absolute(top:GetZ()), 0.02)
+        CheckNear("top box upright", GetUp(top):GetY(), 1, 0.001)
+    end
+end

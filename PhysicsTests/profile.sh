@@ -1,0 +1,2 @@
+#!/bin/sh
+/Applications/QuorumStudio.app/Contents/MacOS/Java/jdk/Contents/Home/bin/java -XstartOnFirstThread -agentpath:/Applications/YourKit-Java-Profiler-2022.9.app/Contents/Resources/bin/mac/libyjpagent.dylib=alloc_object_counting -jar Run/Default.jar

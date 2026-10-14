@@ -1,0 +1,40 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Compute.Matrix3
+
+/*
+Tests that friction holds a box still on a slope that is not too steep. Two
+items use the product of their frictions, here 1 * 0.9 = 0.9. A box stays put
+on a slope while the friction is more than the slope's rise over its run,
+which for 30 degrees is tan(30) = 0.577, so this box should not move.
+
+The test also checks that the slope's physics shape is tilted, since the
+slope is turned before it is added to the world. If it is not, the box lands
+on a flat floor on one corner, and the other checks fail for that reason.
+*/
+class SlopeHoldsTest is PhysicsWorldTest
+    on create
+        SetName("World: friction holds a box on a gentle slope")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        Item3D slope = AddSlope(layer, 30)
+        slope:SetFriction(1)
+        Item3D box = AddBoxOnSlope(layer, slope, 30)
+        box:SetFriction(0.9)
+
+        Matrix3 tilt = slope:GetCollisionTransform():GetBasis()
+        CheckNear("the slope's physics shape is tilted", tilt:row1column1, 0.86603, 0.001)
+
+        number startX = box:GetX()
+        number startY = box:GetY()
+        Advance(layer, 2)
+
+        CheckAtMost("distance moved along x", Absolute(box:GetX() - startX), 0.05)
+        CheckAtMost("distance moved along y", Absolute(box:GetY() - startY), 0.05)
+        CheckAtMost("speed", Speed(box), 0.05)
+    end
+end

@@ -1,0 +1,60 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.CollisionPoint3D
+
+/*
+Tests what happens when a fifth point is added to a collision that already
+stores four, the most it can hold. One stored point is replaced, chosen the
+way Bullet's sortCachedPoints chooses it: the deepest stored point is never
+replaced, unless the new point is deeper still, and of the others, the one
+whose replacement leaves the largest area is.
+
+The four stored points are the corners of a square in the x z plane:
+(1, 0, 1), (-1, 0, 1), (-1, 0, -1) and (1, 0, -1), and the third is the
+deepest.
+*/
+class ContactPointsSortTest is PhysicsTest
+    on create
+        SetName("Contact points: choosing which point a fifth replaces")
+    end
+
+    action Run
+        // A new point out past the right side of the square replaces the
+        // corner at (1, 0, -1), and the deepest corner stays.
+        LocalCollisionPoints3D points = MakeSquare()
+        points:AddCollisionPoint(MakeContactPoint(3, 0, 0, -0.02))
+        CheckWhole("still four points", points:GetPointCount(), 4)
+        CheckThat("the deepest corner stays", HasLocalPoint(points, -1, 0, -1))
+        CheckThat("the new point is stored", HasLocalPoint(points, 3, 0, 0))
+        CheckThat("the corner at (1, 0, -1) is replaced", not HasLocalPoint(points, 1, 0, -1))
+        CheckThat("the corner at (1, 0, 1) stays", HasLocalPoint(points, 1, 0, 1))
+
+        // A new point deeper than every stored point can replace any of them,
+        // and here replaces the deepest corner.
+        points = MakeSquare()
+        points:AddCollisionPoint(MakeContactPoint(0, 0, 0, -0.5))
+        CheckThat("a deeper new point is stored", HasLocalPoint(points, 0, 0, 0))
+        CheckThat("and replaces the corner at (-1, 0, -1)", not HasLocalPoint(points, -1, 0, -1))
+    end
+
+    action MakeSquare returns LocalCollisionPoints3D
+        LocalCollisionPoints3D points
+        points:AddCollisionPoint(MakeContactPoint(1, 0, 1, -0.01))
+        points:AddCollisionPoint(MakeContactPoint(-1, 0, 1, -0.01))
+        points:AddCollisionPoint(MakeContactPoint(-1, 0, -1, -0.05))
+        points:AddCollisionPoint(MakeContactPoint(1, 0, -1, -0.01))
+        return points
+    end
+
+    action HasLocalPoint(LocalCollisionPoints3D points, number x, number y, number z) returns boolean
+        integer i = 0
+        repeat while i < points:GetPointCount()
+            if points:GetCollisionPoint(i):GetLocalPointA():Distance(MakeVector(x, y, z)) <= 0.001
+                return true
+            end
+            i = i + 1
+        end
+        return false
+    end
+end

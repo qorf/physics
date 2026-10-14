@@ -1,0 +1,625 @@
+package Rendering2D
+
+use Libraries.Containers.Array
+use Libraries.Containers.HashTable
+use Libraries.Containers.Iterator
+use Libraries.Interface.Item2D
+use Libraries.Game.Shapes.Rectangle
+
+/*
+QuadTree2D is a 2D render tree that divides a region of the world into
+squares, each split into four smaller squares as needed. It is the 2D
+partner of QuadTree3D, and works the same way. It is a good choice for a
+large world whose items are spread out fairly evenly, such as a tile map,
+and for items that move a lot.
+
+Each item is placed in one square, chosen from its size and its center: the
+smallest square at least as big as the item, among those containing its
+center. Because squares are tested with a rectangle twice their size (they
+are "loose"), the item always fits in that rectangle. Placing an item takes
+the same few steps however many items there are, and moving an item only
+changes the tree if its center moves to another square or it changes size a
+lot.
+
+Items outside the region are kept in a separate list and tested one by one,
+so they are still found. The region is set with SetRegion, ideally before
+any items are added.
+
+Everything else, such as how answers are given and when to call Moved, is
+the same for every 2D render tree, and is described in RenderTree2D.
+
+Attribute: Example
+
+use Rendering2D.QuadTree2D
+use Libraries.Interface.Item2D
+use Libraries.Containers.Array
+
+QuadTree2D tree
+Item2D item
+item:SetSize(10, 10)
+tree:Add(item)
+Array<Item2D> found
+tree:CollectAtPoint(5, 5, found)
+output found:GetSize()
+*/
+class QuadTree2D is RenderTree2D
+    // The deepest a square can be below the top square. Each level halves
+    // the square's size.
+    integer maximumDepth = 8
+
+    // The region the squares cover.
+    number regionMinimumX = -8192
+    number regionMinimumY = -8192
+    number regionMaximumX = 8192
+    number regionMaximumY = 8192
+
+    QuadTreeCell2D root = undefined
+
+    // The leaf for each item in the tree.
+    HashTable<Item2D, RenderTreeNode2D> leaves
+
+    // The leaves of items that do not fit in the region.
+    Array<RenderTreeNode2D> outsideLeaves
+
+    integer leafCount = 0
+
+    // The deepest level any square has been made at.
+    integer deepest = -1
+
+    // Reused by the searches, as stacks of squares still to visit.
+    Array<QuadTreeCell2D> stack
+    Array<QuadTreeCell2D> subtreeStack
+
+    // Reused when every leaf has to be placed again.
+    Array<RenderTreeNode2D> replaceLeaves
+
+    // The rectangle of the current search, so the private actions can read it.
+    number searchMinimumX = 0
+    number searchMinimumY = 0
+    number searchMaximumX = 0
+    number searchMaximumY = 0
+
+    /*
+    This action adds an item.
+
+    Attribute: Parameter item The item to add.
+    Attribute: Returns True if the item was added. False if it was already in
+    the tree, or has no size.
+    */
+    action Add(Item2D item) returns boolean
+        if item = undefined or Has(item)
+            return false
+        end
+        Rectangle box = item:GetBoundingRectangle()
+        if box:GetWidth() <= 0 and box:GetHeight() <= 0
+            return false
+        end
+
+        RenderTreeNode2D leaf
+        leaf:SetItem(item)
+        leaf:SetBounds(box:GetX(), box:GetY(), box:GetX() + box:GetWidth(), box:GetY() + box:GetHeight())
+        Place(leaf)
+        leaves:Add(item, leaf)
+        leafCount = leafCount + 1
+        return true
+    end
+
+    /*
+    This action removes an item.
+
+    Attribute: Parameter item The item to remove.
+    Attribute: Returns True if the item was in the tree.
+    */
+    action Remove(Item2D item) returns boolean
+        RenderTreeNode2D leaf = leaves:RemoveKey(item)
+        if leaf = undefined
+            return false
+        end
+        Unplace(leaf)
+        leaf:Reset()
+        leafCount = leafCount - 1
+        return true
+    end
+
+    /*
+    This action removes every item.
+    */
+    action Empty
+        Iterator<RenderTreeNode2D> iterator = leaves:GetValueIterator()
+        repeat while iterator:HasNext()
+            iterator:Next():Reset()
+        end
+        leaves:Empty()
+        outsideLeaves:Empty()
+        root = undefined
+        leafCount = 0
+        deepest = -1
+    end
+
+    /*
+    This action returns true if the item is in the tree.
+
+    Attribute: Parameter item The item to look for.
+    Attribute: Returns True if the item is in the tree.
+    */
+    action Has(Item2D item) returns boolean
+        return leaves:HasKey(item)
+    end
+
+    /*
+    This action returns the leaf that holds an item, or undefined if the item
+    is not in the tree. See RenderTree2D for how to use it.
+
+    Attribute: Parameter item The item to find.
+    Attribute: Returns The item's leaf, or undefined if it is not in the tree.
+    */
+    action GetLeaf(Item2D item) returns RenderTreeNode2D
+        return leaves:GetValue(item)
+    end
+
+    /*
+    This action tells the tree an item's position, rotation, scale or size has
+    changed. It looks up the item's leaf each time. Moved(leaf) does not.
+
+    Attribute: Parameter item The item that moved.
+    */
+    action Moved(Item2D item)
+        RenderTreeNode2D leaf = leaves:GetValue(item)
+        if leaf = undefined
+            return now
+        end
+        Moved(leaf)
+    end
+
+    /*
+    This action does the same as Moved(item), for the leaf GetLeaf returned
+    for that item, without looking it up. The leaf moves to another square
+    only if its new rectangle belongs in one. A leaf whose item has been
+    removed is ignored.
+
+    Attribute: Parameter leaf The leaf GetLeaf returned for the item.
+    */
+    action Moved(RenderTreeNode2D leaf)
+        if leaf:GetItem() = undefined
+            return now
+        end
+
+        Rectangle box = leaf:GetItem():GetBoundingRectangle()
+        number minX = box:GetX()
+        number minY = box:GetY()
+        number maxX = box:GetX() + box:GetWidth()
+        number maxY = box:GetY() + box:GetHeight()
+        if leaf:HasBounds(minX, minY, maxX, maxY)
+            return now
+        end
+
+        QuadTreeCell2D current = leaf:GetCell()
+        leaf:SetBounds(minX, minY, maxX, maxY)
+        QuadTreeCell2D target = FindCell(leaf)
+        if target = current and current not= undefined
+            return now
+        end
+
+        // Unplace uses the leaf's recorded place, which the new bounds do not
+        // change, so it can be taken out and placed again.
+        Unplace(leaf)
+        PlaceIn(leaf, target)
+    end
+
+    /*
+    This action adds the items overlapping a rectangle to the results.
+
+    Attribute: Parameter x The x coordinate of the rectangle's left edge.
+    Attribute: Parameter y The y coordinate of the rectangle's bottom edge.
+    Attribute: Parameter width The rectangle's width.
+    Attribute: Parameter height The rectangle's height.
+    Attribute: Parameter results The array to add the items to.
+    */
+    action CollectInRectangle(number x, number y, number width, number height, Array<Item2D> results)
+        searchMinimumX = x
+        searchMinimumY = y
+        searchMaximumX = x + width
+        searchMaximumY = y + height
+        CollectInSearch(results)
+    end
+
+    /*
+    This action adds the items whose rectangles overlap a circle to the
+    results.
+
+    Attribute: Parameter x The x coordinate of the circle's center.
+    Attribute: Parameter y The y coordinate of the circle's center.
+    Attribute: Parameter radius The circle's radius.
+    Attribute: Parameter results The array to add the items to.
+    */
+    action CollectInCircle(number x, number y, number radius, Array<Item2D> results)
+        number radiusSquared = radius * radius
+        integer i = 0
+        repeat while i < outsideLeaves:GetSize()
+            RenderTreeNode2D leaf = outsideLeaves:Get(i)
+            if leaf:DistanceSquared(x, y) <= radiusSquared
+                results:Add(leaf:GetItem())
+            end
+            i = i + 1
+        end
+
+        if root = undefined
+            return now
+        end
+        stack:Empty(false)
+        stack:Add(root)
+        repeat while not stack:IsEmpty()
+            QuadTreeCell2D cell = stack:RemoveFromEnd()
+            if cell:GetCount() > 0 and cell:DistanceSquared(x, y) <= radiusSquared
+                i = 0
+                repeat while i < cell:GetLeafCount()
+                    RenderTreeNode2D leaf = cell:GetLeaf(i)
+                    if leaf:DistanceSquared(x, y) <= radiusSquared
+                        results:Add(leaf:GetItem())
+                    end
+                    i = i + 1
+                end
+                PushChildren(cell)
+            end
+        end
+    end
+
+    /*
+    This action returns how many items are in the tree.
+
+    Attribute: Returns The number of items.
+    */
+    action GetSize returns integer
+        return leafCount
+    end
+
+    /*
+    This action returns the deepest level any square has been made at, or -1
+    when the tree is empty.
+
+    Attribute: Returns The deepest level made.
+    */
+    action GetHeight returns integer
+        if leafCount = 0
+            return -1
+        end
+        return deepest
+    end
+
+    /*
+    This action sets the region of the world the squares cover. The top
+    square is as wide as the region's wider side, centered on the region.
+    Items outside the region still work, but are tested one by one. Items
+    already in the tree are placed again.
+
+    Attribute: Parameter minimumX The smallest x of the region.
+    Attribute: Parameter minimumY The smallest y of the region.
+    Attribute: Parameter maximumX The largest x of the region.
+    Attribute: Parameter maximumY The largest y of the region.
+    */
+    action SetRegion(number minimumX, number minimumY, number maximumX, number maximumY)
+        regionMinimumX = minimumX
+        regionMinimumY = minimumY
+        regionMaximumX = maximumX
+        regionMaximumY = maximumY
+        Rebuild()
+    end
+
+    /*
+    This action sets how many times a square can be divided. Deeper squares
+    fit small items more tightly, but searches visit more squares. The
+    default is 8. Items already in the tree are placed again.
+
+    Attribute: Parameter depth The deepest level, at least 0.
+    */
+    action SetMaximumDepth(integer depth)
+        if depth < 0
+            maximumDepth = 0
+        else
+            maximumDepth = depth
+        end
+        Rebuild()
+    end
+
+    /*
+    This action returns how many times a square can be divided.
+
+    Attribute: Returns The deepest level a square can be at.
+    */
+    action GetMaximumDepth returns integer
+        return maximumDepth
+    end
+
+    /*
+    This action adds to the results every item whose rectangle overlaps the
+    search rectangle. A square inside the search rectangle adds all of its
+    items without testing them.
+
+    Attribute: Parameter results The array to add the items to.
+    */
+    private action CollectInSearch(Array<Item2D> results)
+        integer i = 0
+        repeat while i < outsideLeaves:GetSize()
+            RenderTreeNode2D leaf = outsideLeaves:Get(i)
+            if leaf:Overlaps(searchMinimumX, searchMinimumY, searchMaximumX, searchMaximumY)
+                results:Add(leaf:GetItem())
+            end
+            i = i + 1
+        end
+
+        if root = undefined
+            return now
+        end
+        stack:Empty(false)
+        stack:Add(root)
+        repeat while not stack:IsEmpty()
+            QuadTreeCell2D cell = stack:RemoveFromEnd()
+            if cell:GetCount() > 0
+                number minX = cell:GetLooseMinimumX()
+                number minY = cell:GetLooseMinimumY()
+                number maxX = cell:GetLooseMaximumX()
+                number maxY = cell:GetLooseMaximumY()
+                if minX >= searchMinimumX and maxX <= searchMaximumX and minY >= searchMinimumY and maxY <= searchMaximumY
+                    AddAll(cell, results)
+                elseif minX <= searchMaximumX and maxX >= searchMinimumX and minY <= searchMaximumY and maxY >= searchMinimumY
+                    i = 0
+                    repeat while i < cell:GetLeafCount()
+                        RenderTreeNode2D leaf = cell:GetLeaf(i)
+                        if leaf:Overlaps(searchMinimumX, searchMinimumY, searchMaximumX, searchMaximumY)
+                            results:Add(leaf:GetItem())
+                        end
+                        i = i + 1
+                    end
+                    PushChildren(cell)
+                end
+            end
+        end
+    end
+
+    /*
+    This action adds to the search stack the children of a square that hold
+    leaves.
+
+    Attribute: Parameter cell The square whose children to add.
+    */
+    private action PushChildren(QuadTreeCell2D cell)
+        integer c = 0
+        repeat while c < cell:GetChildCount()
+            QuadTreeCell2D child = cell:GetChild(c)
+            if child:GetCount() > 0
+                stack:Add(child)
+            end
+            c = c + 1
+        end
+    end
+
+    /*
+    This action adds every item in a square and its children to the results,
+    without testing them.
+
+    Attribute: Parameter start The square to start from.
+    Attribute: Parameter results The array to add the items to.
+    */
+    private action AddAll(QuadTreeCell2D start, Array<Item2D> results)
+        subtreeStack:Empty(false)
+        subtreeStack:Add(start)
+        repeat while not subtreeStack:IsEmpty()
+            QuadTreeCell2D cell = subtreeStack:RemoveFromEnd()
+            integer i = 0
+            repeat while i < cell:GetLeafCount()
+                results:Add(cell:GetLeaf(i):GetItem())
+                i = i + 1
+            end
+            integer c = 0
+            repeat while c < cell:GetChildCount()
+                QuadTreeCell2D child = cell:GetChild(c)
+                if child:GetCount() > 0
+                    subtreeStack:Add(child)
+                end
+                c = c + 1
+            end
+        end
+    end
+
+    /*
+    This action places a leaf by its rectangle: in a square, or in the list of
+    leaves outside the region.
+
+    Attribute: Parameter leaf The leaf to place. Its rectangle must already be
+    set.
+    */
+    private action Place(RenderTreeNode2D leaf)
+        PlaceIn(leaf, FindCell(leaf))
+    end
+
+    /*
+    This action puts a leaf in the given square, or in the list of leaves
+    outside the region if the square is undefined.
+
+    Attribute: Parameter leaf The leaf to put somewhere.
+    Attribute: Parameter cell The square to put it in, or undefined for the
+    list of leaves outside the region.
+    */
+    private action PlaceIn(RenderTreeNode2D leaf, QuadTreeCell2D cell)
+        if cell = undefined
+            leaf:SetCell(undefined)
+            leaf:SetCellIndex(outsideLeaves:GetSize())
+            outsideLeaves:Add(leaf)
+        else
+            cell:AddLeaf(leaf)
+            cell:AddToCount(1)
+        end
+    end
+
+    /*
+    This action takes a leaf out of its square, or out of the list of leaves
+    outside the region.
+
+    Attribute: Parameter leaf The leaf to take out.
+    */
+    private action Unplace(RenderTreeNode2D leaf)
+        QuadTreeCell2D cell = leaf:GetCell()
+        if cell not= undefined
+            cell:RemoveLeaf(leaf)
+            cell:AddToCount(-1)
+            return now
+        end
+
+        integer index = leaf:GetCellIndex()
+        if index < 0
+            return now
+        end
+        RenderTreeNode2D last = outsideLeaves:RemoveFromEnd()
+        if last not= leaf
+            outsideLeaves:Set(index, last)
+            last:SetCellIndex(index)
+        end
+        leaf:SetCellIndex(-1)
+    end
+
+    /*
+    This action returns the square a leaf belongs in, making squares as
+    needed, or undefined if the leaf does not fit in the region. Starting from
+    the top square, it goes down into the child holding the leaf's center while
+    that child is at least as big as the leaf.
+
+    Attribute: Parameter leaf The leaf to find a square for.
+    Attribute: Returns The square, or undefined if the leaf is outside the
+    region.
+    */
+    private action FindCell(RenderTreeNode2D leaf) returns QuadTreeCell2D
+        number x = (leaf:GetMinimumX() + leaf:GetMaximumX()) / 2
+        number y = (leaf:GetMinimumY() + leaf:GetMaximumY()) / 2
+        number extent = leaf:GetMaximumX() - leaf:GetMinimumX()
+        if leaf:GetMaximumY() - leaf:GetMinimumY() > extent
+            extent = leaf:GetMaximumY() - leaf:GetMinimumY()
+        end
+
+        QuadTreeCell2D cell = GetRoot()
+        number half = cell:GetSize() / 2
+        if extent > cell:GetSize() or
+                x < cell:GetCenterX() - half or x > cell:GetCenterX() + half or
+                y < cell:GetCenterY() - half or y > cell:GetCenterY() + half
+            return undefined
+        end
+
+        repeat while cell:GetDepth() < maximumDepth and extent <= cell:GetSize() / 2
+            if not cell:HasChildren()
+                Split(cell)
+            end
+            integer index = 0
+            if x >= cell:GetCenterX()
+                index = index + 1
+            end
+            if y >= cell:GetCenterY()
+                index = index + 2
+            end
+            cell = cell:GetChild(index)
+        end
+        return cell
+    end
+
+    /*
+    This action splits a square into 4 children, each half its size, numbered
+    with 1 for the larger x and 2 for the larger y.
+
+    Attribute: Parameter cell The square to split.
+    */
+    private action Split(QuadTreeCell2D cell)
+        number childSize = cell:GetSize() / 2
+        number quarter = cell:GetSize() / 4
+        integer i = 0
+        repeat while i < 4
+            number x = cell:GetCenterX() - quarter
+            if i mod 2 = 1
+                x = cell:GetCenterX() + quarter
+            end
+            number y = cell:GetCenterY() - quarter
+            if i >= 2
+                y = cell:GetCenterY() + quarter
+            end
+
+            QuadTreeCell2D child
+            child:SetPlace(x, y, childSize)
+            child:SetDepth(cell:GetDepth() + 1)
+            child:SetParentCell(cell)
+            cell:AddChild(child)
+            i = i + 1
+        end
+
+        if cell:GetDepth() + 1 > deepest
+            deepest = cell:GetDepth() + 1
+        end
+    end
+
+    /*
+    This action returns the top square, making it if needed. It is centered on
+    the region and as wide as the region's wider side.
+
+    Attribute: Returns The top square.
+    */
+    private action GetRoot returns QuadTreeCell2D
+        if root = undefined
+            number sideLength = regionMaximumX - regionMinimumX
+            if regionMaximumY - regionMinimumY > sideLength
+                sideLength = regionMaximumY - regionMinimumY
+            end
+            QuadTreeCell2D cell
+            cell:SetPlace((regionMinimumX + regionMaximumX) / 2, (regionMinimumY + regionMaximumY) / 2, sideLength)
+            root = cell
+            if deepest < 0
+                deepest = 0
+            end
+        end
+        return root
+    end
+
+    /*
+    This action places every leaf again, after the region or the maximum
+    depth changes. The leaves keep their rectangles.
+    */
+    private action Rebuild
+        if leafCount = 0
+            root = undefined
+            deepest = -1
+            return now
+        end
+
+        replaceLeaves:Empty(false)
+        integer i = 0
+        repeat while i < outsideLeaves:GetSize()
+            replaceLeaves:Add(outsideLeaves:Get(i))
+            i = i + 1
+        end
+        if root not= undefined
+            subtreeStack:Empty(false)
+            subtreeStack:Add(root)
+            repeat while not subtreeStack:IsEmpty()
+                QuadTreeCell2D cell = subtreeStack:RemoveFromEnd()
+                i = 0
+                repeat while i < cell:GetLeafCount()
+                    replaceLeaves:Add(cell:GetLeaf(i))
+                    i = i + 1
+                end
+                integer c = 0
+                repeat while c < cell:GetChildCount()
+                    subtreeStack:Add(cell:GetChild(c))
+                    c = c + 1
+                end
+            end
+        end
+
+        root = undefined
+        deepest = -1
+        outsideLeaves:Empty()
+        i = 0
+        repeat while i < replaceLeaves:GetSize()
+            RenderTreeNode2D leaf = replaceLeaves:Get(i)
+            leaf:SetCell(undefined)
+            leaf:SetCellIndex(-1)
+            Place(leaf)
+            i = i + 1
+        end
+        replaceLeaves:Empty()
+    end
+end

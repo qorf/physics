@@ -1,0 +1,57 @@
+package Physics.Tests
+
+use Libraries.Compute.Vector3
+use Libraries.Game.BoundingBox
+use Libraries.Game.Collision.Shapes.Triangle
+use Libraries.Game.Collision.Shapes.CollisionShape3D
+
+/*
+Tests the Triangle shape on the standard triangle: its supporting corner,
+bounding box, edges, IsInside, inertia and Copy.
+
+Like Bullet, the triangle's bounding box takes its supporting points with
+the margin and then adds the margin again, so each side reaches twice the
+margin past the corners.
+*/
+class TriangleShapeTest is PhysicsTest
+    on create
+        SetName("Triangle shape")
+    end
+
+    action Run
+        Triangle triangle = MakeStandardTriangle(0.04)
+
+        CheckVector("supporting corner along x",
+            triangle:LocalGetSupportingVertexWithoutMargin(MakeVector(1, 0, 0)), 1, 0, 0)
+        CheckVector("supporting corner along -x, -y, -z",
+            triangle:LocalGetSupportingVertexWithoutMargin(MakeVector(-1, -1, -1)), 0, 0, -1)
+        CheckVector("a tie goes to the lower corner",
+            triangle:LocalGetSupportingVertexWithoutMargin(MakeVector(0, 1, 0)), 0, 0, 0)
+
+        BoundingBox bounds
+        triangle:ComputeBoundingBox(bounds, MakeTransform(5, 0, 0, 0, 1, 0, 0))
+        CheckVector("bounding box minimum", bounds:GetMinimum(), 4.92, -0.08, -1.08)
+        CheckVector("bounding box maximum", bounds:GetMaximum(), 6.08, 0.08, 0.08)
+
+        Vector3 start
+        Vector3 finish
+        triangle:GetEdge(1, start, finish)
+        CheckVector("edge 1 starts at corner 1", start, 1, 0, 0)
+        CheckVector("edge 1 ends at corner 2", finish, 0, 0, -1)
+
+        CheckThat("a point on the face is inside", triangle:IsInside(MakeVector(0.25, 0, -0.25), 0.01))
+        CheckThat("a point just above, within tolerance, is inside", triangle:IsInside(MakeVector(0.25, 0.005, -0.25), 0.01))
+        CheckThat("a point too far above is not inside", not triangle:IsInside(MakeVector(0.25, 0.5, -0.25), 0.01))
+        CheckThat("a point past an edge is not inside", not triangle:IsInside(MakeVector(1, 0, -1), 0.01))
+
+        Vector3 inertia
+        triangle:CalculateLocalInertia(5, inertia)
+        CheckVector("a triangle has no inertia", inertia, 0, 0, 0)
+
+        CollisionShape3D shape = triangle:Copy()
+        Triangle copy = cast(Triangle, shape)
+        CheckVector("the copy has the same corner 1", copy:GetVertex(1), 1, 0, 0)
+        CheckVector("the copy has the same corner 2", copy:GetVertex(2), 0, 0, -1)
+        CheckNumber("the copy has the same margin", copy:GetMargin(), 0.04)
+    end
+end

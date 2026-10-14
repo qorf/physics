@@ -1,0 +1,50 @@
+package Physics.Tests
+
+use Libraries.Compute.Vector3
+use Libraries.Compute.Matrix4
+use Libraries.Compute.Matrix3
+use Libraries.Game.Collision.PhysicsPosition3D
+
+/*
+Tests moving a PhysicsPosition3D to and from a Matrix4, with GetMatrix and
+Set(Matrix4). The turn goes into the matrix's upper left three by three
+part, the move into its last column, and the bottom row is 0, 0, 0, 1.
+*/
+class PhysicsPositionMatrixTest is PhysicsTest
+    on create
+        SetName("Physics position: to and from a Matrix4")
+    end
+
+    action Run
+        PhysicsPosition3D general = MakeTransform(0.5, -2, 3, 1, 2, 3, 37)
+        Matrix4 matrix
+        general:GetMatrix(matrix)
+        CheckNumber("the move is in the last column, x", matrix:row0column3, 0.5)
+        CheckNumber("the move is in the last column, y", matrix:row1column3, -2)
+        CheckNumber("the move is in the last column, z", matrix:row2column3, 3)
+
+        // Every entry of the turn is in the upper left three by three part.
+        Matrix3 basis = general:GetBasis()
+        integer row = 0
+        repeat while row < 3
+            integer column = 0
+            repeat while column < 3
+                CheckNumber("the turn, element " + row + ", " + column, matrix:GetElement(row, column), basis:GetElement(row, column))
+                column = column + 1
+            end
+            row = row + 1
+        end
+
+        // The bottom row is 0, 0, 0, 1, as for any position.
+        CheckNumber("bottom row, column 0", matrix:row3column0, 0)
+        CheckNumber("bottom row, column 1", matrix:row3column1, 0)
+        CheckNumber("bottom row, column 2", matrix:row3column2, 0)
+        CheckNumber("bottom row, column 3", matrix:row3column3, 1)
+
+        PhysicsPosition3D copy
+        copy:Set(matrix)
+        Vector3 point = MakeVector(1.5, 0.25, -4)
+        copy:Transform(point)
+        CheckVector("the same transform after a round trip", point, 0.146755, -0.720849, -1.068352)
+    end
+end

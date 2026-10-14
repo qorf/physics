@@ -1,0 +1,41 @@
+use Libraries.Game.Game
+use Libraries.Testing.Tester
+use Libraries.Testing.Test
+use Libraries.Containers.Iterator
+use Physics.Tests.PhysicsWorldTester
+
+/*
+Main runs the physics world tests. These tests build small worlds, step them,
+and check how the items move, so they need what a Layer3D needs, which is a
+running game. Main starts the game, runs every test once the window exists,
+writes which tests failed, and closes the game.
+
+Each test builds its own Layer3D, separate from the game's, and steps it
+directly, 1/60 of a second at a time. Nothing is drawn, so the window stays
+blank while the tests run.
+*/
+class Main is Game
+    action Main
+        StartGame()
+    end
+
+    action CreateGame
+        Tester tester
+        PhysicsWorldTester world
+        world:SetTester(tester)
+        world:Test()
+
+        output world:GetName() + ": " + tester:GetPassingSize() + " of " + tester:GetSize() + " passed."
+
+        Iterator<Test> failures = tester:GetFailedTestsIterator()
+        repeat while failures:HasNext()
+            Test test = failures:Next()
+            output "FAILED: " + test:GetName()
+            if test:GetMessage() not= ""
+                output "    " + test:GetMessage()
+            end
+        end
+
+        Exit()
+    end
+end

@@ -1,0 +1,56 @@
+package Physics.Tests
+
+use Libraries.Interface.Item3D
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.CollisionPointsResult3D
+use Libraries.Game.Collision.CollisionPoint3D
+use Libraries.Game.Collision.Narrowphase.TriangleCollider3D
+
+/*
+The same contact with the shape as item A. The normal now points from the
+triangle (B) toward the shape (A), which is up, and the point on B is on
+the triangle. The points on A and B swap places, and the depth is the same.
+*/
+class TriangleColliderShapeIsItemATest is PhysicsTest
+    on create
+        SetName("Triangle collider: shape as item A")
+    end
+
+    action Run
+        Item3D shapeItem
+        Item3D triangleItem
+        LocalCollisionPoints3D points
+        points:Set(shapeItem, triangleItem)
+        CollisionPointsResult3D result
+        result:Initialize(shapeItem, triangleItem)
+
+        TriangleCollider3D collider
+        collider:Begin(points, result, true)
+        CheckThat("item B: swapped", collider:IsSwapped())
+        collider:AddContact(MakeVector(0, 1, 0), MakeVector(0, 0.5, 0), -0.1)
+
+        CheckWhole("item B: one point", points:GetPointCount(), 1)
+        if points:GetPointCount() = 1
+            CollisionPoint3D point = points:GetCollisionPoint(0)
+            CheckVector("item B: normal from triangle to shape", point:GetWorldNormalOnB(), 0, 1, 0)
+            CheckVector("item B: point on B is on the triangle", point:GetWorldPositionOnB(), 0, 0.6, 0)
+            CheckVector("item B: point on A is on the shape", point:GetWorldPositionOnA(), 0, 0.5, 0)
+            CheckNumber("item B: depth", point:GetDistance(), -0.1)
+        end
+
+        // A gap rather than an overlap: the shape is 0.01 above the triangle.
+        LocalCollisionPoints3D gapPoints
+        gapPoints:Set(shapeItem, triangleItem)
+        CollisionPointsResult3D gapResult
+        gapResult:Initialize(shapeItem, triangleItem)
+        collider:Begin(gapPoints, gapResult, true)
+        collider:AddContact(MakeVector(0, 1, 0), MakeVector(0, 0.51, 0), 0.01)
+        if gapPoints:GetPointCount() = 1
+            CollisionPoint3D gap = gapPoints:GetCollisionPoint(0)
+            CheckVector("item B gap: point on the triangle", gap:GetWorldPositionOnB(), 0, 0.5, 0)
+            CheckVector("item B gap: point on the shape", gap:GetWorldPositionOnA(), 0, 0.51, 0)
+        else
+            CheckThat("item B gap: one point", false)
+        end
+    end
+end

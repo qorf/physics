@@ -1,0 +1,40 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Game.Physics.Joints.CustomizableJoint3D
+
+/*
+Tests a customizable joint with every axis locked. A customizable joint has
+a limit for moving along, and turning about, each of its frame's three axes.
+By default the three moving limits are 0 to 0, which locks them, and the
+three turning limits are free. Here the turning limits are also set to 0 to
+0, which in Bullet locks an axis. A box held 1 below a fixed anchor this way
+should neither fall under gravity nor keep turning after it is set spinning.
+*/
+class CustomizableLockedTest is PhysicsWorldTest
+    on create
+        SetName("World: a customizable joint with every axis locked holds still")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        Item3D anchor = AddFixedBox(layer, 0, 5, 0, 0.2, 0.2, 0.2)
+        Item3D box = AddBox(layer, 0, 4, 0, 0.4, 1)
+
+        CustomizableJoint3D joint
+        joint:Initialize(anchor, box, MakeFrame(0, -1, 0), MakeFrame(0, 0, 0), true)
+        joint:SetAngularLowerLimit(MakeVector(0, 0, 0))
+        joint:SetAngularUpperLimit(MakeVector(0, 0, 0))
+        layer:Add(joint)
+
+        box:SetAngularVelocity(MakeVector(0, 3, 0))
+        Advance(layer, 2)
+
+        CheckNear("height", box:GetY(), 4, 0.03)
+        CheckNear("drift along x", box:GetX(), 0, 0.01)
+        CheckNear("drift along z", box:GetZ(), 0, 0.01)
+        CheckAtMost("turning speed", TurningSpeed(box), 0.1)
+        CheckNear("still facing the same way", GetUp(box):GetY(), 1, 0.01)
+    end
+end

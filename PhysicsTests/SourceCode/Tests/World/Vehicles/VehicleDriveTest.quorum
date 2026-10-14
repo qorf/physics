@@ -1,0 +1,49 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Game.Physics.Vehicles.Vehicle
+
+/*
+Tests that a vehicle's engine speeds it up at the right rate, straight ahead.
+After the test vehicle settles, each of its four wheels is given an engine
+force of 1000. Together they push the 800 kilogram vehicle with 4000, so it
+speeds up by 5 each second. After 2 seconds it should be moving at 10, which
+is 36 kilometers per hour, and have gone 10. The wheels can grip with far
+more than 1000 each, so they should not spin.
+
+Which way a positive engine force drives depends on the vehicle, so the test
+only checks how far it went, along its length, z.
+
+The chassis is woken before driving, as VehicleMovementBehavior does, in
+case it fell asleep while settling.
+*/
+class VehicleDriveTest is PhysicsWorldTest
+    on create
+        SetName("World: a vehicle's engine speeds it up")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        AddGround(layer)
+        Vehicle vehicle
+        Item3D chassis = AddVehicle(layer, vehicle, 1.0)
+        Advance(layer, 1.5)
+
+        number startZ = chassis:GetZ()
+        number startX = chassis:GetX()
+        integer i = 0
+        repeat while i < 4
+            vehicle:SetEngineForce(1000, i)
+            i = i + 1
+        end
+        chassis:Simulate(true)
+
+        Advance(layer, 2)
+
+        CheckNear("speed in kilometers per hour", vehicle:GetSpeedKilometersPerHour(), 36, 2)
+        CheckNear("distance along z", Absolute(chassis:GetZ() - startZ), 10, 1)
+        CheckAtMost("drift along x", Absolute(chassis:GetX() - startX), 0.1)
+        CheckNear("chassis level", GetUp(chassis):GetY(), 1, 0.01)
+    end
+end

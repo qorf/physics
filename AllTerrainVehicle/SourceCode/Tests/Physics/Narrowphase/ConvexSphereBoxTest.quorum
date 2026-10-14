@@ -1,0 +1,52 @@
+package Physics.Tests
+
+use Libraries.Compute.Math
+use Libraries.Game.Collision.Shapes.Sphere
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+Tests the general collision test, ConvexConvexCollider, on a sphere and a
+box, a pair with no collider of its own. The box is 1 on each side for
+collisions. The general test sees it as a box 0.92 on each side, rounded by
+its margin of 0.04, so near an edge it is round.
+
+A sphere of radius 0.5 sitting 0.02 into the top touches it at (0, 0.5, 0).
+A sphere near the edge along z, at (0.8, 0.8, 0), is 0.48083 from the edge
+of the inner box, so it reaches 0.05917 into the rounded box, along the
+direction halfway between x and y.
+*/
+class ConvexSphereBoxTest is PhysicsTest
+    on create
+        SetName("General test: sphere and box")
+    end
+
+    action Run
+        Math math
+        Sphere sphere
+        sphere:SetRadius(0.5)
+
+        LocalCollisionPoints3D points = RunConvexConvex(sphere, MakeTransform(0, 0.98, 0, 0, 1, 0, 0),
+            MakeCollisionBox(1), MakeTransform(0, 0, 0, 0, 1, 0, 0))
+        CheckContact("on top", points, 0, 1, 0, 0, 0.5, 0, -0.02)
+
+        points = RunConvexConvex(sphere, MakeTransform(0.8, 0.8, 0, 0, 1, 0, 0),
+            MakeCollisionBox(1), MakeTransform(0, 0, 0, 0, 1, 0, 0))
+        CheckWhole("near the edge: one contact", points:GetPointCount(), 1)
+        if points:GetPointCount() = 1
+            number half = 0.5 * math:SquareRoot(2)
+            CheckNumberWithin("near the edge: depth", points:GetCollisionPoint(0):GetDistance(), -0.059167, 0.001)
+            CheckNumberWithin("near the edge: normal x", points:GetCollisionPoint(0):GetWorldNormalOnB():GetX(), half, 0.001)
+            CheckNumberWithin("near the edge: normal y", points:GetCollisionPoint(0):GetWorldNormalOnB():GetY(), half, 0.001)
+        end
+
+        // A gap within the contact threshold still gives a contact, with a
+        // positive depth, unlike box against box.
+        points = RunConvexConvex(sphere, MakeTransform(0, 1.01, 0, 0, 1, 0, 0),
+            MakeCollisionBox(1), MakeTransform(0, 0, 0, 0, 1, 0, 0))
+        CheckContact("a small gap", points, 0, 1, 0, 0, 0.5, 0, 0.01)
+
+        points = RunConvexConvex(sphere, MakeTransform(0, 1.07, 0, 0, 1, 0, 0),
+            MakeCollisionBox(1), MakeTransform(0, 0, 0, 0, 1, 0, 0))
+        CheckWhole("past the threshold gives nothing", points:GetPointCount(), 0)
+    end
+end

@@ -1,0 +1,33 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+
+/*
+Tests that a box slides down a slope that is too steep for its friction, and
+speeds up at the right rate. Two items use the product of their frictions,
+here 1 * 0.2 = 0.2. On a 30 degree slope, gravity pulls the box along the
+slope with g sin(30) and friction holds it back with 0.2 g cos(30), so it
+speeds up by 9.8 * (0.5 - 0.2 * 0.86603) = 3.2026 each second.
+*/
+class SlopeSlidesTest is PhysicsWorldTest
+    on create
+        SetName("World: a box slides down a steep slope at the right rate")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        Item3D slope = AddSlope(layer, 30)
+        slope:SetFriction(1)
+        Item3D box = AddBoxOnSlope(layer, slope, 30)
+        box:SetFriction(0.2)
+
+        number startY = box:GetY()
+        Advance(layer, 1)
+
+        CheckNear("speed after 1 second", Speed(box), 3.2026, 0.25)
+        CheckThat("the box moved down the slope", box:GetY() < startY - 0.5)
+        CheckNear("no drift along z", box:GetZ(), 0, 0.01)
+        CheckAtMost("the box slides without tumbling", TurningSpeed(box), 0.1)
+    end
+end

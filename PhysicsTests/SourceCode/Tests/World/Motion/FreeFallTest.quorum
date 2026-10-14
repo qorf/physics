@@ -1,0 +1,34 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+
+/*
+Tests that a box with nothing under it falls the way the physics steps say it
+should. Each step first adds gravity times the step to the speed, and then
+moves the box by its new speed times the step, as Bullet does. After n steps
+of h seconds the box is falling at g n h, and has fallen g h h n (n + 1) / 2.
+
+After 60 steps, 1 second, that is a speed of 9.8 and a drop of
+9.8 * 1830 / 3600 = 4.98167, so a box dropped from 10 is at 5.01833. If the
+steps moved the box before speeding it up, it would be at 5.18167 instead.
+*/
+class FreeFallTest is PhysicsWorldTest
+    on create
+        SetName("World: a box falls freely under gravity")
+    end
+
+    action Run
+        Layer3D layer = MakeWorld()
+        Item3D box = AddBox(layer, 0, 10, 0, 1, 1)
+
+        Advance(layer, 1)
+
+        CheckNear("falling speed after 1 second", box:GetLinearVelocity():GetY(), -9.8, 0.001)
+        CheckNear("height after 1 second", box:GetY(), 5.01833, 0.001)
+        CheckNear("no drift along x", box:GetX(), 0, 0.0001)
+        CheckNear("no drift along z", box:GetZ(), 0, 0.0001)
+        CheckNear("no turning", TurningSpeed(box), 0, 0.0001)
+        CheckThat("still awake while falling", box:IsSimulated())
+    end
+end

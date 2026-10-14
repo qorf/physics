@@ -1,0 +1,39 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.Shapes.Triangle
+
+/*
+A standing cylinder half over the edge of a triangle that covers x >= 0.
+The rim is cut at the triangle's edge, grown by its margin, so no
+contact is past x = -0.04.
+
+Unless a test says otherwise, the triangle is the large flat one with
+a margin of 0.04, and the cylinder has radius 0.3 and height 1, made
+by Cylinder:Set(0.6, 1, 0.6), standing along y. Standing with its
+center at 0.53, its bottom is at 0.03, 0.01 into the surface.
+*/
+class CylinderTriangleOverEdgeTest is PhysicsTest
+    on create
+        SetName("Cylinder and triangle: standing over an edge")
+    end
+
+    action Run
+        Triangle triangle
+        triangle:Set(MakeVector(0, 0, 5), MakeVector(0, 0, -5), MakeVector(5, 0, 0))
+        triangle:SetMargin(0.04)
+        LocalCollisionPoints3D points = RunCylinder(triangle, MakeCylinder(), MakeTransform(0, 0.53, 0, 0, 1, 0, 0), false)
+        CheckThat("cylinder over edge: at least two contacts", points:GetPointCount() >= 2)
+        CheckAllContacts("cylinder over edge", points, 0, -1, 0, -0.01)
+        boolean inside = true
+        integer i = 0
+        repeat while i < points:GetPointCount()
+            if points:GetCollisionPoint(i):GetWorldPositionOnB():GetX() < -0.04 - GetTolerance()
+                inside = false
+            end
+            i = i + 1
+        end
+        CheckThat("cylinder over edge: cut at the edge", inside)
+        CheckThat("cylinder over edge: did not use the general test", not CylinderUsedGeneralTest())
+    end
+end

@@ -1,0 +1,80 @@
+package Physics.Tests
+
+use Libraries.Compute.Vector3
+use Libraries.Containers.Array
+use Libraries.Game.Collision.Narrowphase.TriangleGeometry3D
+use Libraries.Game.Collision.Narrowphase.ContactClipper3D
+
+/*
+Cutting polygons down to the area over a triangle.
+*/
+class ClipToTriangleTest is PhysicsTest
+    on create
+        SetName("Contact clipper: cutting to a triangle")
+    end
+
+    action Run
+        ContactClipper3D clipper
+        TriangleGeometry3D geometry = MakeStandardGeometry()
+        Array<Vector3> clipped = clipper:CreatePointArray()
+
+        // A square larger than the triangle is cut down to the triangle.
+        Array<Vector3> big = MakeSquare(clipper, 2)
+        integer count = clipper:ClipToTriangle(big, 4, clipped, geometry, 0)
+        CheckWhole("to triangle: big square becomes the triangle", count, 3)
+        CheckNumber("to triangle: big square area", AreaInXZ(clipped, count), 0.5)
+
+        // Growing the triangle by a margin grows the area kept.
+        count = clipper:ClipToTriangle(big, 4, clipped, geometry, 0.1)
+        number grownArea = AreaInXZ(clipped, count)
+        CheckThat("to triangle: margin grows the area", grownArea > 0.5 + GetTolerance())
+        // Every kept point is within the margin of the triangle.
+        integer i = 0
+        Vector3 closest
+        boolean allNear = true
+        repeat while i < count
+            geometry:ClosestPoint(clipped:Get(i), closest)
+            // The grown triangle has sharp corners, so its corners are up to
+            // margin / sin(half the corner angle) away. 0.1 / sin(22.5 degrees)
+            // is about 0.27.
+            if closest:Distance(clipped:Get(i)) > 0.27
+                allNear = false
+            end
+            i = i + 1
+        end
+        CheckThat("to triangle: margin points stay near", allNear)
+
+        // A small square well inside the triangle is unchanged.
+        Array<Vector3> small = clipper:CreatePointArray()
+        small:Get(0):Set(0.1, 0, -0.1)
+        small:Get(1):Set(0.2, 0, -0.1)
+        small:Get(2):Set(0.2, 0, -0.2)
+        small:Get(3):Set(0.1, 0, -0.2)
+        count = clipper:ClipToTriangle(small, 4, clipped, geometry, 0)
+        CheckWhole("to triangle: inside square keeps its corners", count, 4)
+        CheckNumber("to triangle: inside square area", AreaInXZ(clipped, count), 0.01)
+
+        // A polygon raised above the triangle is cut the same way, since the
+        // side planes stand straight up.
+        Array<Vector3> raised = clipper:CreatePointArray()
+        raised:Get(0):Set(-2, 5, 2)
+        raised:Get(1):Set(2, 5, 2)
+        raised:Get(2):Set(2, 5, -2)
+        raised:Get(3):Set(-2, 5, -2)
+        count = clipper:ClipToTriangle(raised, 4, clipped, geometry, 0)
+        CheckNumber("to triangle: raised square area", AreaInXZ(clipped, count), 0.5)
+
+        // A square off to the side is removed.
+        Array<Vector3> away = clipper:CreatePointArray()
+        away:Get(0):Set(3, 0, 3)
+        away:Get(1):Set(4, 0, 3)
+        away:Get(2):Set(4, 0, 4)
+        away:Get(3):Set(3, 0, 4)
+        CheckWhole("to triangle: square off to the side", clipper:ClipToTriangle(away, 4, clipped, geometry, 0), 0)
+
+        // A degenerate triangle keeps nothing.
+        TriangleGeometry3D line
+        line:Load(MakeVector(0, 0, 0), MakeVector(1, 0, 0), MakeVector(2, 0, 0))
+        CheckWhole("to triangle: degenerate keeps nothing", clipper:ClipToTriangle(big, 4, clipped, line, 0), 0)
+    end
+end

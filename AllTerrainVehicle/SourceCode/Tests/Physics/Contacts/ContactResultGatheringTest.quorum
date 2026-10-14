@@ -1,0 +1,82 @@
+package Physics.Tests
+
+use Libraries.Interface.Item3D
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.CollisionPointsResult3D
+
+/*
+Tests gathering in CollisionPointsResult3D, which terrain uses to consider
+the contacts from all of its triangles together. Between BeginGathering and
+FinishGathering, contacts are held back. FinishGathering stores them all if
+there are four or fewer. Otherwise it stores four: the deepest, the one
+farthest from it, the one making the largest triangle with those two, and the
+one reaching farthest outside that triangle.
+
+The six contacts gathered here are the corners of a square, (1, 0, 1),
+(-1, 0, 1), (-1, 0, -1) and (1, 0, -1), a deeper one at its center, and one
+almost on top of the first corner.
+*/
+class ContactResultGatheringTest is PhysicsTest
+    on create
+        SetName("Contact result: gathering")
+    end
+
+    action Run
+        Item3D itemA
+        Item3D itemB
+
+        // Three contacts are held back, then all stored.
+        LocalCollisionPoints3D points
+        points:Set(itemA, itemB)
+        CollisionPointsResult3D result
+        result:Initialize(itemA, itemB)
+        result:SetCollisionPoints(points)
+
+        result:BeginGathering()
+        result:AddCollisionPoint(MakeVector(0, 1, 0), MakeVector(0, 0, 0), -0.01)
+        result:AddCollisionPoint(MakeVector(0, 1, 0), MakeVector(1, 0, 0), -0.01)
+        result:AddCollisionPoint(MakeVector(0, 1, 0), MakeVector(2, 0, 0), -0.01)
+        CheckWhole("nothing is stored while gathering", points:GetPointCount(), 0)
+        result:FinishGathering()
+        CheckWhole("three are stored when gathering finishes", points:GetPointCount(), 3)
+
+        // Contacts past the threshold are dropped even while gathering.
+        LocalCollisionPoints3D farPoints
+        farPoints:Set(itemA, itemB)
+        result:Initialize(itemA, itemB)
+        result:SetCollisionPoints(farPoints)
+        result:BeginGathering()
+        result:AddCollisionPoint(MakeVector(0, 1, 0), MakeVector(0, 0, 0), 0.05)
+        result:FinishGathering()
+        CheckWhole("a contact past the threshold is dropped", farPoints:GetPointCount(), 0)
+
+        // Six contacts become four.
+        LocalCollisionPoints3D manyPoints
+        manyPoints:Set(itemA, itemB)
+        result:Initialize(itemA, itemB)
+        result:SetCollisionPoints(manyPoints)
+        result:BeginGathering()
+        result:AddCollisionPoint(MakeVector(0, 1, 0), MakeVector(1, 0, 1), -0.01)
+        result:AddCollisionPoint(MakeVector(0, 1, 0), MakeVector(-1, 0, 1), -0.01)
+        result:AddCollisionPoint(MakeVector(0, 1, 0), MakeVector(0, 0, 0), -0.05)
+        result:AddCollisionPoint(MakeVector(0, 1, 0), MakeVector(-1, 0, -1), -0.01)
+        result:AddCollisionPoint(MakeVector(0, 1, 0), MakeVector(1, 0, -1), -0.01)
+        result:AddCollisionPoint(MakeVector(0, 1, 0), MakeVector(0.99, 0, 0.99), -0.01)
+        result:FinishGathering()
+
+        CheckWhole("six become four", manyPoints:GetPointCount(), 4)
+        CheckWhole("the deepest is kept", CountContactsNear(manyPoints, 0, 0, 0), 1)
+        CheckWhole("the first corner, farthest from the deepest, is kept", CountContactsNear(manyPoints, 1, 0, 1), 1)
+        CheckWhole("the second corner is kept", CountContactsNear(manyPoints, -1, 0, 1), 1)
+        CheckWhole("the third corner is kept", CountContactsNear(manyPoints, -1, 0, -1), 1)
+        CheckWhole("the near duplicate is not kept", CountContactsNear(manyPoints, 0.99, 0, 0.99), 0)
+
+        // Without gathering, a contact is stored right away.
+        LocalCollisionPoints3D directPoints
+        directPoints:Set(itemA, itemB)
+        result:Initialize(itemA, itemB)
+        result:SetCollisionPoints(directPoints)
+        result:AddCollisionPoint(MakeVector(0, 1, 0), MakeVector(0, 0, 0), -0.01)
+        CheckWhole("without gathering, a contact is stored right away", directPoints:GetPointCount(), 1)
+    end
+end

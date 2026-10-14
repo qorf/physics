@@ -1,0 +1,142 @@
+package Physics.Tests
+
+use Libraries.Testing.Tester
+
+/*
+PhysicsWorldTester runs the physics world tests, in the same way
+ScienceTester runs the statistics tests. The test classes are in Tests/World,
+one test to a file. Unlike the tests in AllTerrainVehicle, these need a
+running game, so they are run from Main's CreateGame.
+
+A Tester marks a test that stops with an error as failed but does not say
+why. Since these tests go through more of the engine, an error is more
+likely, so this tester runs each test itself and, if it stops with an error,
+adds the error to the test's message before handing the test to the Tester.
+*/
+class PhysicsWorldTester
+    Tester tester = undefined
+
+    action GetName returns text
+        return "Physics World Tests"
+    end
+
+    action SetTester(Tester tester)
+        me:tester = tester
+    end
+
+    action Test
+        TestMotion()
+        TestJoints()
+        TestVehicles()
+        TestRayCasts()
+        TestDrawing()
+    end
+
+    /*
+    This action runs a test, and if it stops with an error, marks it failed
+    and adds the error to its message.
+    */
+    action Run(PhysicsWorldTest test)
+        check
+            test:Run()
+        detect e
+            test:SetPassed(false)
+            test:AddNote("stopped with an error: " + e:GetErrorMessage())
+        end
+        tester:Add(test)
+    end
+
+    action TestMotion
+        FreeFallTest test1
+        Run(test1)
+
+        BoxRestsTest test2
+        Run(test2)
+
+        BoxSleepsTest test3
+        Run(test3)
+
+        SleepingBoxWakesTest test4
+        Run(test4)
+
+        BounceTest test5
+        Run(test5)
+
+        NoBounceTest test6
+        Run(test6)
+
+        SlopeHoldsTest test7
+        Run(test7)
+
+        SlopeSlidesTest test8
+        Run(test8)
+
+        StackTest test9
+        Run(test9)
+    end
+
+    action TestJoints
+        JointLinkingTest test1
+        Run(test1)
+
+        BallAndSocketPendulumTest test2
+        Run(test2)
+
+        HingeSwingTest test3
+        Run(test3)
+
+        HingeLimitTest test4
+        Run(test4)
+
+        HingeMotorTest test5
+        Run(test5)
+
+        SliderAxisTest test6
+        Run(test6)
+
+        SliderLimitTest test7
+        Run(test7)
+
+        ConeTwistLimitTest test8
+        Run(test8)
+
+        CustomizableLockedTest test9
+        Run(test9)
+
+        CustomizableFreeAxisTest test10
+        Run(test10)
+    end
+
+    action TestVehicles
+        VehicleRestTest test1
+        Run(test1)
+
+        VehicleDriveTest test2
+        Run(test2)
+
+        VehicleBrakeTest test3
+        Run(test3)
+    end
+
+    action TestRayCasts
+        RayCastHitTest test1
+        Run(test1)
+
+        RayCastNearestTest test2
+        Run(test2)
+
+        RayCastIgnoreTest test3
+        Run(test3)
+
+        RayCastMissTest test4
+        Run(test4)
+
+        RayCastMovedItemTest test5
+        Run(test5)
+    end
+
+    action TestDrawing
+        DrawnRotationMatchesPhysicsTest test1
+        Run(test1)
+    end
+end

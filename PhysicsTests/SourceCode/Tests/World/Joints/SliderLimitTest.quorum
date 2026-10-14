@@ -1,0 +1,51 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Game.Physics.Joints.SliderJoint3D
+
+/*
+Tests a slider with limits. The slider from SliderAxisTest is limited to
+0.5 either side of where it starts, and the box is pushed along x at 2. It
+should reach the limit at 0.5 within about a quarter of a second and go no
+further. The limit may bounce the box back, so the test only checks that it
+reached the limit and never passed either end by much.
+*/
+class SliderLimitTest is PhysicsWorldTest
+    on create
+        SetName("World: a slider stops at its limits")
+    end
+
+    action Run
+        Layer3D layer = MakeWorldWithoutGravity()
+        Item3D rail = AddFixedBox(layer, 0, 5, 0, 0.4, 0.4, 0.4)
+        Item3D carriage = AddBox(layer, 0, 4, 0, 0.4, 1)
+
+        SliderJoint3D slider
+        slider:Initialize(rail, carriage, MakeFrame(0, -1, 0), MakeFrame(0, 0, 0), true)
+        slider:SetLowerLinearLimit(-0.5)
+        slider:SetUpperLinearLimit(0.5)
+        layer:Add(slider)
+
+        carriage:SetLinearVelocity(MakeVector(2, 0, 0))
+        number farthest = 0
+        number farthestBack = 0
+        integer steps = StepsIn(1.5)
+        integer i = 0
+        repeat while i < steps
+            Step(layer)
+            if carriage:GetX() > farthest
+                farthest = carriage:GetX()
+            end
+            if carriage:GetX() < farthestBack
+                farthestBack = carriage:GetX()
+            end
+            i = i + 1
+        end
+
+        CheckAtLeast("farthest along x", farthest, 0.45)
+        CheckAtMost("farthest along x", farthest, 0.55)
+        CheckAtLeast("farthest back along x", farthestBack, -0.55)
+        CheckNear("height", carriage:GetY(), 4, 0.02)
+    end
+end

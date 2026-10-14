@@ -1,0 +1,772 @@
+package RenderingChecks
+
+use Libraries.Game.Graphics.Trees.RenderTree3D
+use Libraries.Game.Graphics.Trees.DynamicVolumeRenderTree3D
+use Libraries.Game.Graphics.Trees.QuadTree3D
+use Libraries.Game.Graphics.Trees.Octree3D
+use Libraries.Game.Graphics.Trees.RenderTreeNode3D
+use Libraries.Game.Graphics.Trees.CullingVolume3D
+use Libraries.Containers.Array
+use Libraries.Containers.HashTable
+use Libraries.Interface.Item3D
+use Libraries.Game.BoundingBox
+use Libraries.Game.Graphics.Camera
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Graphics.PointLight
+use Libraries.Game.Graphics.CascadeShadowData
+use Libraries.Compute.Matrix4
+use Libraries.Compute.Vector3
+use Libraries.Compute.Math
+
+/*
+RenderTreeCheck runs a RenderTree3D alongside a game, to test it. The game
+adds each drawn item both to itself and to this class, and calls Update once
+per frame, after everything has moved and before drawing. Drawing does not
+change. The tree is only asked questions, so its answers can be checked and
+its cost measured.
+
+Each frame, Update tells the tree which items moved, then asks it what the
+camera can see and what can cast a shadow into each of the sun's shadow
+cascades, and, if there is one, what is within a point light's reach.
+
+Every snapshotInterval frames, it writes a snapshot to the console: how many
+items are in the tree and how many would be drawn from where the camera is
+at that moment, overall, by half and by item name. Turning the camera
+between snapshots shows how much culling would leave out from different
+views.
+
+Every few frames, each answer is checked by testing every item by hand,
+without the tree. The item's box in the world is worked out a different way
+than the tree does it, by moving all eight corners, so a mistake in either
+way shows up. The check counts:
+
+- Missed: an item the hand test can see, but the tree did not return. This
+  must never happen. An item missed by the camera would not be drawn.
+- Static extras: an item in the static half that the tree returned, but the
+  hand test cannot see. Static boxes fit their items exactly, so this should
+  not happen either, apart from an item lying exactly on an edge.
+- Dynamic extras: the same for the dynamic half. These are expected, since
+  dynamic boxes are a little bigger than their items.
+- Duplicates: an item returned more than once. This must never happen.
+- Unknown: an item returned that was never added. This must never happen.
+*/
+class RenderTreeCheck
+    // Which items Update tells the tree have moved. MOVED_ALL tells it about
+    // every item, every frame. MOVED_AWAKE tells it only about items whose
+    // physics is awake, and items marked as always moving, which is what a
+    // layer would really do.
+    public constant integer MOVED_ALL = 0
+    public constant integer MOVED_AWAKE = 1
+
+    // The render tree being tested. A DynamicVolumeRenderTree3D unless SetTree
+    // gives another kind.
+    RenderTree3D tree = undefined
+    DynamicVolumeRenderTree3D defaultTree
+    integer movedChoice = MOVED_AWAKE
+
+    // How often, in frames, the answers are checked by hand. 0 turns the
+    // check off.
+    integer checkInterval = 10
+
+    // How often, in frames, a snapshot is written to the console: how many
+    // items are in the tree, and how many would be drawn from where the
+    // camera is at that moment. 0 turns snapshots off.
+    integer snapshotInterval = 200
+    integer totalFrames = 0
+
+    // The number of shadow casters the tree found for each of the sun's
+    // cascades this frame, for the snapshot.
+    Array<integer> cascadeCasters
+
+    // Items grouped by name for the snapshot, with how many there are and
+    // how many would be drawn.
+    Array<text> groupNames
+    Array<integer> groupTotals
+    Array<integer> groupDrawn
+
+    // How many mismatches are written to the console, so a bug does not
+    // flood it.
+    integer mismatchesToShow = 10
+    integer mismatchesShown = 0
+
+    // Every item in the tree, and its bounds in its own coordinates, kept
+    // here so the hand test does not rely on the tree.
+    Array<Item3D> items
+    HashTable<Item3D, BoundingBox> localBounds
+
+    // Each item's leaf in the tree, in the same order as items, so telling
+    // the tree an item moved needs no lookup.
+    Array<RenderTreeNode3D> itemLeaves
+
+    // The leaves of items that move without physics, such as a vehicle's
+    // wheels.
+    Array<RenderTreeNode3D> alwaysMovingLeaves
+
+    // The names of items the tree would not take. The game draws these
+    // without asking the tree.
+    Array<text> refused
+
+    // Reused each frame for the tree's answers.
+    Array<Item3D> visible
+    Array<Item3D> casters
+    Array<Item3D> lit
+
+    // Used by the hand test.
+    HashTable<Item3D, Item3D> returned
+    CullingVolume3D volume
+    BoundingBox exact
+    Vector3 minimum
+    Vector3 maximum
+    Math math
+
+    // Totals since the last report.
+    integer frames = 0
+    integer checks = 0
+    integer itemSum = 0
+    integer visibleSum = 0
+    integer fewestVisible = -1
+    integer mostVisible = 0
+    integer cascadeCount = 0
+    integer casterSum = 0
+    integer litSum = 0
+    integer movedSum = 0
+    integer staticVersionAtReport = 0
+
+    // Mismatch totals, never reset, since any is a bug.
+    integer missed = 0
+    integer staticExtras = 0
+    integer dynamicExtras = 0
+    integer duplicates = 0
+    integer unknown = 0
+    integer sizeMismatches = 0
+
+    on create
+        tree = defaultTree
+    end
+
+    action SetMovedChoice(integer choice)
+        movedChoice = choice
+    end
+
+    action SetCheckInterval(integer interval)
+        checkInterval = interval
+    end
+
+    action SetSnapshotInterval(integer interval)
+        snapshotInterval = interval
+    end
+
+    action GetTree returns RenderTree3D
+        return tree
+    end
+
+    /*
+    This action sets which render tree to test, such as a QuadTree3D or an
+    Octree3D. Call it before adding any items.
+
+    Attribute: Parameter value The render tree to test.
+    */
+    action SetTree(RenderTree3D value)
+        tree = value
+    end
+
+    /*
+    This action adds an item to the tree, with bounds the tree finds for it.
+    The hand test uses a box of the item's width, height and depth, centered
+    on it, worked out here rather than taken from the tree.
+
+    Attribute: Parameter item The item, already added to the game.
+    Attribute: Parameter isStatic True if the item is not expected to move.
+    Attribute: Parameter alwaysMoves True if the item moves without physics,
+    so Update always tells the tree it has moved.
+    Attribute: Returns True if the tree took the item.
+    */
+    action Add(Item3D item, boolean isStatic, boolean alwaysMoves) returns boolean
+        if not tree:Add(item, isStatic)
+            refused:Add(item:GetName())
+            return false
+        end
+        BoundingBox local
+        minimum:Set(-item:GetWidth() / 2, -item:GetHeight() / 2, -item:GetDepth() / 2)
+        maximum:Set(item:GetWidth() / 2, item:GetHeight() / 2, item:GetDepth() / 2)
+        local:Set(minimum, maximum)
+        Track(item, local, alwaysMoves)
+        return true
+    end
+
+    /*
+    This action adds an item to the tree with the given bounds in its own
+    coordinates, such as terrain, whose shape starts at a corner rather than
+    its center.
+    */
+    action Add(Item3D item, BoundingBox local, boolean isStatic, boolean alwaysMoves) returns boolean
+        if not tree:Add(item, local, isStatic)
+            refused:Add(item:GetName())
+            return false
+        end
+        BoundingBox copy
+        copy:Set(local:GetMinimum(), local:GetMaximum())
+        Track(item, copy, alwaysMoves)
+        return true
+    end
+
+    private action Track(Item3D item, BoundingBox local, boolean alwaysMoves)
+        RenderTreeNode3D leaf = tree:GetLeaf(item)
+        items:Add(item)
+        itemLeaves:Add(leaf)
+        localBounds:Add(item, local)
+        if alwaysMoves
+            alwaysMovingLeaves:Add(leaf)
+        end
+    end
+
+    /*
+    This action removes an item from the tree, for when the game removes it.
+    */
+    action Remove(Item3D item)
+        RenderTreeNode3D leaf = tree:GetLeaf(item)
+        if tree:Remove(item)
+            integer index = items:GetFirstLocation(item)
+            items:RemoveAt(index)
+            itemLeaves:RemoveAt(index)
+            localBounds:RemoveKey(item)
+            alwaysMovingLeaves:Remove(leaf)
+        end
+    end
+
+    /*
+    This action does one frame's work. Call it after everything has moved
+    and the camera has been placed, and before drawing.
+
+    Attribute: Parameter camera The camera the game draws with.
+    Attribute: Parameter sun The light whose shadow cascades are asked
+    about, or undefined.
+    Attribute: Parameter light A point light whose reach is asked about, or
+    undefined.
+    */
+    action Update(Camera camera, DirectionalLight sun, PointLight light)
+        TellTreeWhatMoved()
+
+        // The camera's matrix is normally brought up to date when the layer
+        // draws, which comes after this. Bring it up to date now, so the
+        // tree is asked about this frame's view and not the last one's.
+        camera:Update()
+
+        boolean checking = checkInterval > 0 and frames mod checkInterval = 0
+
+        visible:Empty(false)
+        tree:CollectVisible(camera, visible)
+        integer count = visible:GetSize()
+        visibleSum = visibleSum + count
+        if fewestVisible < 0 or count < fewestVisible
+            fewestVisible = count
+        end
+        if count > mostVisible
+            mostVisible = count
+        end
+        if checking
+            volume:Set(camera:GetCombinedMatrix())
+            CompareWithVolume("camera", visible)
+        end
+
+        // The cascades' matrices are set by the environment while drawing,
+        // so these are the last frame's. The tree and the hand test use the
+        // same ones, so the comparison is still fair.
+        if sun not= undefined
+            integer cascade = 0
+            repeat while sun:GetShadowData(cascade) not= undefined
+                casters:Empty(false)
+                tree:CollectDirectionalShadowCasters(sun, cascade, casters)
+                casterSum = casterSum + casters:GetSize()
+                if cascade < cascadeCasters:GetSize()
+                    cascadeCasters:Set(cascade, casters:GetSize())
+                else
+                    cascadeCasters:Add(casters:GetSize())
+                end
+                if checking
+                    CascadeShadowData data = sun:GetShadowData(cascade)
+                    volume:Set(data:GetProjectionMatrix(0))
+                    CompareWithVolume("sun cascade " + cascade, casters)
+                end
+                cascade = cascade + 1
+            end
+            cascadeCount = cascade
+        end
+
+        if light not= undefined
+            lit:Empty(false)
+            tree:CollectPointShadowCasters(light, lit)
+            litSum = litSum + lit:GetSize()
+            if checking
+                CompareWithSphere(light, lit)
+            end
+        end
+
+        if checking
+            if tree:GetSize() not= items:GetSize()
+                sizeMismatches = sizeMismatches + 1
+            end
+            checks = checks + 1
+        end
+
+        if snapshotInterval > 0 and totalFrames mod snapshotInterval = 0
+            Snapshot(camera)
+        end
+
+        itemSum = itemSum + tree:GetSize()
+        frames = frames + 1
+        totalFrames = totalFrames + 1
+        tree:EndFrame()
+    end
+
+    /*
+    This action writes what culling would do from where the camera is right
+    now: how many items are in the tree, how many the tree says the camera
+    can see and are showing, so would be drawn, and how many would be left
+    out. It also counts how many a test of each item's exact box would
+    draw. The tree draws a few more than that, because dynamic boxes are a
+    little bigger than their items. Fewer would mean the tree missed some.
+    */
+    private action Snapshot(Camera camera)
+        integer inTree = tree:GetSize()
+
+        // Start each group at zero, and count the items in each.
+        integer g = 0
+        repeat while g < groupTotals:GetSize()
+            groupTotals:Set(g, 0)
+            groupDrawn:Set(g, 0)
+            g = g + 1
+        end
+        integer i = 0
+        repeat while i < items:GetSize()
+            g = GetGroup(items:Get(i))
+            groupTotals:Set(g, groupTotals:Get(g) + 1)
+            i = i + 1
+        end
+
+        // Count what the tree returned that is showing, so would be drawn.
+        integer drawn = 0
+        integer staticDrawn = 0
+        integer hidden = 0
+        i = 0
+        repeat while i < visible:GetSize()
+            Item3D item = visible:Get(i)
+            if tree:IsShowingWithParents(item)
+                drawn = drawn + 1
+                if tree:IsStatic(item)
+                    staticDrawn = staticDrawn + 1
+                end
+                g = GetGroup(item)
+                groupDrawn:Set(g, groupDrawn:Get(g) + 1)
+            else
+                hidden = hidden + 1
+            end
+            i = i + 1
+        end
+
+        // Count what testing each item's exact box would draw.
+        volume:Set(camera:GetCombinedMatrix())
+        integer outside = volume:OUTSIDE
+        integer exactDrawn = 0
+        i = 0
+        repeat while i < items:GetSize()
+            Item3D item = items:Get(i)
+            CalculateExactBounds(item, exact)
+            if volume:Test(exact) not= outside and tree:IsShowingWithParents(item)
+                exactDrawn = exactDrawn + 1
+            end
+            i = i + 1
+        end
+
+        // A check that uses neither the planes, the bounds nor the tree: move
+        // each item's center by the camera's matrix, the way the graphics
+        // card moves every vertex, and count the centers that land on the
+        // screen. Items whose center is just off screen are not counted, so
+        // this is a little lower than the true number, but it should never
+        // be far above the number the tree says would be drawn.
+        Matrix4 m = camera:GetCombinedMatrix()
+        integer centersOnScreen = 0
+        i = 0
+        repeat while i < items:GetSize()
+            Item3D item = items:Get(i)
+            Matrix4 t = item:GetTransform()
+            BoundingBox local = localBounds:GetValue(item)
+            number lx = local:GetCenterX()
+            number ly = local:GetCenterY()
+            number lz = local:GetCenterZ()
+            number wx = t:row0column0 * lx + t:row0column1 * ly + t:row0column2 * lz + t:row0column3
+            number wy = t:row1column0 * lx + t:row1column1 * ly + t:row1column2 * lz + t:row1column3
+            number wz = t:row2column0 * lx + t:row2column1 * ly + t:row2column2 * lz + t:row2column3
+            number cx = m:row0column0 * wx + m:row0column1 * wy + m:row0column2 * wz + m:row0column3
+            number cy = m:row1column0 * wx + m:row1column1 * wy + m:row1column2 * wz + m:row1column3
+            number cz = m:row2column0 * wx + m:row2column1 * wy + m:row2column2 * wz + m:row2column3
+            number cw = m:row3column0 * wx + m:row3column1 * wy + m:row3column2 * wz + m:row3column3
+            if cw > 0 and cx >= -cw and cx <= cw and cy >= -cw and cy <= cw and cz <= cw and
+                    tree:IsShowingWithParents(item)
+                centersOnScreen = centersOnScreen + 1
+            end
+            i = i + 1
+        end
+
+        Vector3 position = camera:GetPosition()
+        Vector3 direction = camera:GetDirection()
+        output "Frame " + totalFrames + ", camera at (" + math:Round(position:GetX(), 1) + ", " +
+            math:Round(position:GetY(), 1) + ", " + math:Round(position:GetZ(), 1) + ") looking (" +
+            math:Round(direction:GetX(), 2) + ", " + math:Round(direction:GetY(), 2) + ", " +
+            math:Round(direction:GetZ(), 2) + "):"
+        output "  In the tree: " + inTree + " (static " + tree:GetStaticSize() + ", dynamic " +
+            tree:GetDynamicSize() + "). Not in the tree, always drawn: " + refused:GetSize()
+        output "  Would be drawn: " + drawn + " (" + Percent(drawn, inTree) + "), culled: " +
+            (inTree - drawn) + " (" + Percent(inTree - drawn, inTree) + ")"
+        output "  Centers on screen, by the camera matrix alone: " + centersOnScreen
+        output "  Camera matrix row 3 (" + math:Round(m:row3column0, 3) + ", " + math:Round(m:row3column1, 3) + ", " +
+            math:Round(m:row3column2, 3) + ", " + math:Round(m:row3column3, 3) + "), frame " + totalFrames
+        if hidden > 0
+            output "  In view but hidden, so not drawn: " + hidden
+        end
+        output "  Static: " + staticDrawn + " of " + tree:GetStaticSize() + " drawn. Dynamic: " +
+            (drawn - staticDrawn) + " of " + tree:GetDynamicSize() + " drawn."
+        if drawn >= exactDrawn
+            output "  An exact test of each item would draw " + exactDrawn + ", so the dynamic margin adds " +
+                (drawn - exactDrawn)
+        else
+            output "  An exact test of each item would draw " + exactDrawn + ", so the tree missed " +
+                (exactDrawn - drawn) + ". This is a bug."
+        end
+
+        text groups = ""
+        g = 0
+        repeat while g < groupNames:GetSize()
+            if groupTotals:Get(g) > 0
+                if groups not= ""
+                    groups = groups + ", "
+                end
+                groups = groups + groupNames:Get(g) + " " + groupDrawn:Get(g) + " of " + groupTotals:Get(g)
+            end
+            g = g + 1
+        end
+        output "  By name: " + groups
+
+        if cascadeCount > 0
+            text counts = ""
+            integer c = 0
+            repeat while c < cascadeCount
+                if c > 0
+                    counts = counts + ", "
+                end
+                counts = counts + cascadeCasters:Get(c)
+                c = c + 1
+            end
+            output "  Sun shadow casters, by cascade: " + counts + " of " + inTree
+        end
+
+        if missed + staticExtras + duplicates + unknown + sizeMismatches > 0
+            output "  Mismatches so far: missed " + missed + ", static extras " + staticExtras +
+                ", duplicates " + duplicates + ", unknown " + unknown + ", size " + sizeMismatches
+        end
+    end
+
+    /*
+    This action returns which name group an item is in, adding a new group
+    the first time a name is seen. Items with no name share one group.
+    */
+    private action GetGroup(Item3D item) returns integer
+        text name = item:GetName()
+        if name = ""
+            name = "Unnamed"
+        end
+        integer g = 0
+        repeat while g < groupNames:GetSize()
+            if groupNames:Get(g) = name
+                return g
+            end
+            g = g + 1
+        end
+        groupNames:Add(name)
+        groupTotals:Add(0)
+        groupDrawn:Add(0)
+        return groupNames:GetSize() - 1
+    end
+
+    /*
+    This action returns part of a whole as a percentage, as text.
+    */
+    private action Percent(integer part, integer whole) returns text
+        if whole = 0
+            return "0%"
+        end
+        return "" + math:Round(100.0 * part / whole, 1) + "%"
+    end
+
+    /*
+    This action tells the tree which items have moved, as chosen by
+    movedChoice.
+    */
+    private action TellTreeWhatMoved
+        integer i = 0
+        repeat while i < items:GetSize()
+            Item3D item = items:Get(i)
+            boolean moved = movedChoice = MOVED_ALL
+            if not moved and item:IsPhysicsEnabled()
+                moved = item:IsSimulated()
+            end
+            if moved
+                tree:Moved(itemLeaves:Get(i))
+                movedSum = movedSum + 1
+            end
+            i = i + 1
+        end
+
+        // Items that move without physics, such as the wheels. With
+        // MOVED_ALL they were already told about above.
+        if movedChoice not= MOVED_ALL
+            i = 0
+            repeat while i < alwaysMovingLeaves:GetSize()
+                tree:Moved(alwaysMovingLeaves:Get(i))
+                movedSum = movedSum + 1
+                i = i + 1
+            end
+        end
+    end
+
+    /*
+    This action checks the tree's answer against testing every item by hand
+    against the volume.
+    */
+    private action CompareWithVolume(text question, Array<Item3D> found)
+        MarkReturned(question, found)
+        integer outside = volume:OUTSIDE
+        integer i = 0
+        repeat while i < items:GetSize()
+            Item3D item = items:Get(i)
+            CalculateExactBounds(item, exact)
+            boolean expected = volume:Test(exact) not= outside
+            CompareItem(question, item, expected)
+            i = i + 1
+        end
+    end
+
+    /*
+    This action checks the tree's answer for a point light against testing
+    every item by hand against the light's reach.
+    */
+    private action CompareWithSphere(PointLight light, Array<Item3D> found)
+        MarkReturned("point light", found)
+        number x = light:GetGlobalX()
+        number y = light:GetGlobalY()
+        number z = light:GetGlobalZ()
+        number range = light:GetRange()
+        integer i = 0
+        repeat while i < items:GetSize()
+            Item3D item = items:Get(i)
+            CalculateExactBounds(item, exact)
+            boolean expected = DistanceSquared(exact, x, y, z) <= range * range
+            CompareItem("point light", item, expected)
+            i = i + 1
+        end
+    end
+
+    /*
+    This action records which items the tree returned, counting any returned
+    twice or never added.
+    */
+    private action MarkReturned(text question, Array<Item3D> found)
+        returned:Empty()
+        integer i = 0
+        repeat while i < found:GetSize()
+            Item3D item = found:Get(i)
+            if returned:HasKey(item)
+                duplicates = duplicates + 1
+                Show("Duplicate from " + question, item)
+            else
+                returned:Add(item, item)
+            end
+            if not localBounds:HasKey(item)
+                unknown = unknown + 1
+                Show("Unknown item from " + question, item)
+            end
+            i = i + 1
+        end
+    end
+
+    /*
+    This action compares what the hand test expected for one item with
+    whether the tree returned it.
+    */
+    private action CompareItem(text question, Item3D item, boolean expected)
+        boolean got = returned:HasKey(item)
+        if expected and not got
+            missed = missed + 1
+            Show("Missed by " + question, item)
+        elseif got and not expected
+            if tree:IsStatic(item)
+                staticExtras = staticExtras + 1
+                Show("Static extra from " + question, item)
+            else
+                dynamicExtras = dynamicExtras + 1
+            end
+        end
+    end
+
+    /*
+    This action writes a mismatch to the console, until mismatchesToShow
+    have been written.
+    */
+    private action Show(text problem, Item3D item)
+        if mismatchesShown >= mismatchesToShow
+            return now
+        end
+        mismatchesShown = mismatchesShown + 1
+        output "RenderTreeCheck: " + problem + ": " + item:GetName() + " at (" +
+            math:Round(item:GetGlobalX(), 2) + ", " + math:Round(item:GetGlobalY(), 2) + ", " +
+            math:Round(item:GetGlobalZ(), 2) + "), static " + tree:IsStatic(item)
+    end
+
+    /*
+    This action puts an item's box in the world into the given box, by
+    moving each of the eight corners of its box in its own coordinates and
+    keeping the smallest and largest values. The tree does this a quicker
+    way, so this is a check on it.
+    */
+    private action CalculateExactBounds(Item3D item, BoundingBox out)
+        BoundingBox local = localBounds:GetValue(item)
+        Matrix4 m = item:GetTransform()
+        number lowX = 0
+        number lowY = 0
+        number lowZ = 0
+        number highX = 0
+        number highY = 0
+        number highZ = 0
+
+        integer corner = 0
+        repeat while corner < 8
+            number x = local:GetMinimum():GetX()
+            if corner mod 2 = 1
+                x = local:GetMaximum():GetX()
+            end
+            number y = local:GetMinimum():GetY()
+            if corner mod 4 >= 2
+                y = local:GetMaximum():GetY()
+            end
+            number z = local:GetMinimum():GetZ()
+            if corner >= 4
+                z = local:GetMaximum():GetZ()
+            end
+
+            number worldX = m:row0column0 * x + m:row0column1 * y + m:row0column2 * z + m:row0column3
+            number worldY = m:row1column0 * x + m:row1column1 * y + m:row1column2 * z + m:row1column3
+            number worldZ = m:row2column0 * x + m:row2column1 * y + m:row2column2 * z + m:row2column3
+
+            if corner = 0 or worldX < lowX
+                lowX = worldX
+            end
+            if corner = 0 or worldY < lowY
+                lowY = worldY
+            end
+            if corner = 0 or worldZ < lowZ
+                lowZ = worldZ
+            end
+            if corner = 0 or worldX > highX
+                highX = worldX
+            end
+            if corner = 0 or worldY > highY
+                highY = worldY
+            end
+            if corner = 0 or worldZ > highZ
+                highZ = worldZ
+            end
+            corner = corner + 1
+        end
+
+        minimum:Set(lowX, lowY, lowZ)
+        maximum:Set(highX, highY, highZ)
+        out:Set(minimum, maximum)
+    end
+
+    /*
+    This action returns the squared distance from a point to the nearest
+    point of a box, which is 0 when the point is inside it.
+    */
+    private action DistanceSquared(BoundingBox box, number x, number y, number z) returns number
+        number dx = 0
+        number dy = 0
+        number dz = 0
+        if x < box:GetMinimum():GetX()
+            dx = box:GetMinimum():GetX() - x
+        elseif x > box:GetMaximum():GetX()
+            dx = x - box:GetMaximum():GetX()
+        end
+        if y < box:GetMinimum():GetY()
+            dy = box:GetMinimum():GetY() - y
+        elseif y > box:GetMaximum():GetY()
+            dy = y - box:GetMaximum():GetY()
+        end
+        if z < box:GetMinimum():GetZ()
+            dz = box:GetMinimum():GetZ() - z
+        elseif z > box:GetMaximum():GetZ()
+            dz = z - box:GetMaximum():GetZ()
+        end
+        return dx * dx + dy * dy + dz * dz
+    end
+
+    /*
+    This action writes a summary of the frames since the last report to the
+    console, and starts counting again. The mismatch totals are kept for
+    the whole run.
+    */
+    action Report
+        if frames = 0
+            return now
+        end
+
+        number averageItems = itemSum / (frames * 1.0)
+        number averageVisible = visibleSum / (frames * 1.0)
+        number percent = 0
+        if averageItems > 0
+            percent = 100 * averageVisible / averageItems
+        end
+
+        output "Render tree, " + frames + " frames, " + checks + " checked:"
+        output "  Items: " + tree:GetSize() + " (static " + tree:GetStaticSize() + ", dynamic " +
+            tree:GetDynamicSize() + "), not taken: " + refused:GetSize()
+        output "  Levels: static " + tree:GetStaticHeight() + ", dynamic " + tree:GetDynamicHeight()
+        output "  Visible: average " + math:Round(averageVisible, 1) + " (" + math:Round(percent, 1) +
+            "%), fewest " + fewestVisible + ", most " + mostVisible
+        output "  Moved calls: average " + math:Round(movedSum / (frames * 1.0), 1) + " per frame"
+        output "  Static half changes: " + (tree:GetStaticVersion() - staticVersionAtReport)
+        if cascadeCount > 0
+            output "  Sun shadow casters: average " + math:Round(casterSum / (frames * 1.0 * cascadeCount), 1) +
+                " per cascade, " + cascadeCount + " cascades"
+        end
+        if litSum > 0
+            output "  Point light casters: average " + math:Round(litSum / (frames * 1.0), 1)
+        end
+        output "  Mismatches so far: missed " + missed + ", static extras " + staticExtras +
+            ", dynamic extras " + dynamicExtras + ", duplicates " + duplicates + ", unknown " + unknown +
+            ", size " + sizeMismatches
+
+        if refused:GetSize() > 0
+            text names = ""
+            integer i = 0
+            repeat while i < refused:GetSize()
+                if i > 0
+                    names = names + ", "
+                end
+                names = names + refused:Get(i)
+                i = i + 1
+            end
+            output "  Not taken by the tree: " + names
+        end
+
+        frames = 0
+        checks = 0
+        itemSum = 0
+        visibleSum = 0
+        fewestVisible = -1
+        mostVisible = 0
+        casterSum = 0
+        litSum = 0
+        movedSum = 0
+        staticVersionAtReport = tree:GetStaticVersion()
+    end
+end

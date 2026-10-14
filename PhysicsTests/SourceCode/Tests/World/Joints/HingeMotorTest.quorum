@@ -1,0 +1,36 @@
+package Physics.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Game.Physics.Joints.HingeJoint3D
+
+/*
+Tests a hinge's motor. With no gravity, the plank from HingeSwingTest starts
+still, and the motor is asked to turn it at 2 radians a second, with up to 10
+units of push each step. Turning the plank at that speed takes about 3.6
+units, so the motor reaches its speed in the first step or so, and the plank
+should then keep turning at 2 about the z axis. Which way it turns depends
+on how the hinge was set up, so only the speed is compared.
+*/
+class HingeMotorTest is PhysicsWorldTest
+    on create
+        SetName("World: a hinge motor turns the plank at its speed")
+    end
+
+    action Run
+        Layer3D layer = MakeWorldWithoutGravity()
+        Item3D anchor = AddFixedBox(layer, 0, 5, 0, 0.2, 0.2, 0.2)
+        Item3D plank = AddMovingBox(layer, 1.2, 5, 0, 2, 0.2, 0.2, 1)
+
+        HingeJoint3D hinge
+        hinge:Initialize(anchor, plank, MakeVector(0, 0, 0), MakeVector(-1.2, 0, 0), MakeVector(0, 0, 1), MakeVector(0, 0, 1))
+        hinge:EnableAngularMotor(true, 2, 10)
+        layer:Add(hinge)
+
+        Advance(layer, 1)
+
+        CheckNear("turning speed about z", Absolute(plank:GetAngularVelocity():GetZ()), 2, 0.1)
+        CheckNear("the plank stays 1.2 from the hinge", Distance(anchor, plank), 1.2, 0.05)
+        CheckNear("the plank stays in the xy plane", plank:GetZ(), 0, 0.01)
+    end
+end

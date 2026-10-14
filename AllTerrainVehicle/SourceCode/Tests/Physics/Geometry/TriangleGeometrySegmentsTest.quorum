@@ -1,0 +1,55 @@
+package Physics.Tests
+
+use Libraries.Compute.Vector3
+use Libraries.Game.Collision.Narrowphase.TriangleGeometry3D
+
+/*
+The segment actions find the right points for crossing, parallel and
+separate segments, and for segments that are only points.
+*/
+class TriangleGeometrySegmentsTest is PhysicsTest
+    on create
+        SetName("Triangle geometry: closest points on segments")
+    end
+
+    action Run
+        TriangleGeometry3D geometry
+        Vector3 closest1
+        Vector3 closest2
+
+        number fraction = geometry:ClosestPointOnSegment(MakeVector(0.25, 5, 0), MakeVector(0, 0, 0), MakeVector(1, 0, 0), closest1)
+        CheckNumber("segment: fraction along", fraction, 0.25)
+        CheckVector("segment: point along", closest1, 0.25, 0, 0)
+
+        fraction = geometry:ClosestPointOnSegment(MakeVector(-2, 0, 0), MakeVector(0, 0, 0), MakeVector(1, 0, 0), closest1)
+        CheckNumber("segment: before the start", fraction, 0)
+        fraction = geometry:ClosestPointOnSegment(MakeVector(9, 0, 0), MakeVector(0, 0, 0), MakeVector(1, 0, 0), closest1)
+        CheckNumber("segment: after the end", fraction, 1)
+
+        // Two segments crossing at a right angle, one above the other.
+        number distance = geometry:ClosestPointsOnSegments(MakeVector(-1, 0, 0), MakeVector(1, 0, 0),
+            MakeVector(0, 1, -1), MakeVector(0, 1, 1), closest1, closest2)
+        CheckNumber("segments: crossing distance", distance, 1)
+        CheckVector("segments: crossing point on the first", closest1, 0, 0, 0)
+        CheckVector("segments: crossing point on the second", closest2, 0, 1, 0)
+
+        // Two parallel segments side by side.
+        distance = geometry:ClosestPointsOnSegments(MakeVector(0, 0, 0), MakeVector(1, 0, 0),
+            MakeVector(0, 1, 0), MakeVector(1, 1, 0), closest1, closest2)
+        CheckNumber("segments: parallel distance", distance, 1)
+        CheckNumber("segments: parallel points line up", closest1:GetX(), closest2:GetX())
+
+        // Two segments that do not overlap, so the closest points are ends.
+        distance = geometry:ClosestPointsOnSegments(MakeVector(0, 0, 0), MakeVector(1, 0, 0),
+            MakeVector(2, 1, 0), MakeVector(3, 1, 0), closest1, closest2)
+        CheckNumber("segments: separate distance", distance, 2)
+        CheckVector("segments: separate end of the first", closest1, 1, 0, 0)
+        CheckVector("segments: separate end of the second", closest2, 2, 1, 0)
+
+        // A point against a segment.
+        distance = geometry:ClosestPointsOnSegments(MakeVector(0.5, 2, 0), MakeVector(0.5, 2, 0),
+            MakeVector(0, 0, 0), MakeVector(1, 0, 0), closest1, closest2)
+        CheckNumber("segments: point against segment", distance, 4)
+        CheckVector("segments: point against segment, closest", closest2, 0.5, 0, 0)
+    end
+end

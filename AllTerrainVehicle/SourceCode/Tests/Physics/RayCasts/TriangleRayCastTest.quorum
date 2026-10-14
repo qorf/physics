@@ -1,0 +1,45 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.Shapes.Triangle
+use Libraries.Game.Collision.RayCastResult3D
+
+/*
+Tests Triangle:RayCast on the standard triangle. A ray through the face
+hits it, with the normal turned to face the ray, whichever side it comes
+from. A ray that lands exactly on an edge still counts. Rays past an edge,
+along the plane, or stopping short miss.
+*/
+class TriangleRayCastTest is PhysicsTest
+    on create
+        SetName("Triangle ray cast")
+    end
+
+    action Run
+        Triangle triangle = MakeStandardTriangle(0)
+        RayCastResult3D result
+
+        result:SetToDefault()
+        triangle:RayCast(MakeVector(0.25, 1, -0.25), MakeVector(0.25, -1, -0.25), MakeTransform(0, 0, 0, 0, 1, 0, 0), result)
+        CheckNumber("from above: fraction", result:GetFraction(), 0.5)
+        CheckVector("from above: point", result:GetHitPointWorldSpace(), 0.25, 0, -0.25)
+        CheckVector("from above: normal", result:GetHitNormalWorldSpace(), 0, 1, 0)
+
+        result:SetToDefault()
+        triangle:RayCast(MakeVector(0.25, -1, -0.25), MakeVector(0.25, 1, -0.25), MakeTransform(0, 0, 0, 0, 1, 0, 0), result)
+        CheckVector("from below: the normal faces the ray", result:GetHitNormalWorldSpace(), 0, -1, 0)
+
+        result:SetToDefault()
+        CheckThat("exactly on an edge hits", triangle:RayCast(MakeVector(0.5, 1, 0), MakeVector(0.5, -1, 0), MakeTransform(0, 0, 0, 0, 1, 0, 0), result))
+
+        result:SetToDefault()
+        CheckThat("past an edge misses", not triangle:RayCast(MakeVector(1, 1, -1), MakeVector(1, -1, -1), MakeTransform(0, 0, 0, 0, 1, 0, 0), result))
+        CheckThat("along the plane misses", not triangle:RayCast(MakeVector(-1, 0, -0.25), MakeVector(2, 0, -0.25), MakeTransform(0, 0, 0, 0, 1, 0, 0), result))
+        CheckThat("stopping short misses", not triangle:RayCast(MakeVector(0.25, 1, -0.25), MakeVector(0.25, 0.5, -0.25), MakeTransform(0, 0, 0, 0, 1, 0, 0), result))
+
+        // A moved triangle.
+        result:SetToDefault()
+        triangle:RayCast(MakeVector(5.25, 2, -0.25), MakeVector(5.25, 0, -0.25), MakeTransform(5, 1, 0, 0, 1, 0, 0), result)
+        CheckNumber("moved: fraction", result:GetFraction(), 0.5)
+        CheckVector("moved: point", result:GetHitPointWorldSpace(), 5.25, 1, -0.25)
+    end
+end

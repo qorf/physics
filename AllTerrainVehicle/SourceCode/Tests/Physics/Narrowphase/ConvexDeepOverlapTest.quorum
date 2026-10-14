@@ -1,0 +1,32 @@
+package Physics.Tests
+
+use Libraries.Game.Collision.Shapes.Sphere
+use Libraries.Game.Collision.LocalCollisionPoints3D
+
+/*
+Tests the general collision test when two shapes overlap deeply, so that
+even their inner shapes, without margins, overlap. The fast method cannot
+find a separation then, and the penetration depth solver takes over.
+
+A sphere of radius 0.5 whose center is 0.2 above the middle of a box 1 on
+each side is shortest to push out through the top: its center must rise
+0.3 to the top and 0.5 more, so it reaches 0.8 into the box, along (0, 1, 0).
+The result is approximate, so it is checked loosely.
+*/
+class ConvexDeepOverlapTest is PhysicsTest
+    on create
+        SetName("General test: deep overlap")
+    end
+
+    action Run
+        Sphere sphere
+        sphere:SetRadius(0.5)
+        LocalCollisionPoints3D points = RunConvexConvex(sphere, MakeTransform(0, 0.2, 0, 0, 1, 0, 0),
+            MakeCollisionBox(1), MakeTransform(0, 0, 0, 0, 1, 0, 0))
+        CheckWhole("one contact", points:GetPointCount(), 1)
+        if points:GetPointCount() = 1
+            CheckNumberWithin("depth", points:GetCollisionPoint(0):GetDistance(), -0.8, 0.01)
+            CheckNumberWithin("normal points up", points:GetCollisionPoint(0):GetWorldNormalOnB():GetY(), 1, 0.01)
+        end
+    end
+end

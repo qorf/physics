@@ -1,0 +1,52 @@
+package Physics.Tests
+
+use Libraries.Compute.Vector3
+use Libraries.Compute.Matrix3
+
+/*
+Tests reading a Matrix3 by element, row and column, and IdentityMatrix and
+Transpose, all of which the physics code uses.
+
+    | 1  2  3 |
+    | 4  5  6 |
+    | 7  8 10 |
+*/
+class Matrix3ElementsTest is PhysicsTest
+    on create
+        SetName("Matrix3: elements, rows and columns")
+    end
+
+    action Run
+        Matrix3 matrix
+        matrix:Set(1, 2, 3, 4, 5, 6, 7, 8, 10)
+
+        CheckNumber("element 0, 0", matrix:GetElement(0, 0), 1)
+        CheckNumber("element 0, 2", matrix:GetElement(0, 2), 3)
+        CheckNumber("element 1, 0", matrix:GetElement(1, 0), 4)
+        CheckNumber("element 1, 1", matrix:GetElement(1, 1), 5)
+        CheckNumber("element 2, 1", matrix:GetElement(2, 1), 8)
+        CheckNumber("element 2, 2", matrix:GetElement(2, 2), 10)
+        CheckNumber("element 1, 2 matches its field", matrix:GetElement(1, 2), matrix:row1column2)
+
+        CheckVector("row 0", matrix:GetRow(0), 1, 2, 3)
+        CheckVector("row 2", matrix:GetRow(2), 7, 8, 10)
+        CheckVector("column 0", matrix:GetColumn(0), 1, 4, 7)
+        CheckVector("column 2", matrix:GetColumn(2), 3, 6, 10)
+
+        // A row returned is a copy, so changing it leaves the matrix alone.
+        Vector3 row = matrix:GetRow(1)
+        row:Set(0, 0, 0)
+        CheckNumber("a returned row is a copy", matrix:row1column1, 5)
+
+        Matrix3 transposed
+        transposed:Set(matrix)
+        transposed:Transpose()
+        CheckVector("transposing turns columns into rows", transposed:GetRow(0), 1, 4, 7)
+        CheckNumber("the diagonal stays put", transposed:row2column2, 10)
+
+        matrix:IdentityMatrix()
+        CheckVector("identity, row 0", matrix:GetRow(0), 1, 0, 0)
+        CheckVector("identity, row 1", matrix:GetRow(1), 0, 1, 0)
+        CheckVector("identity, row 2", matrix:GetRow(2), 0, 0, 1)
+    end
+end

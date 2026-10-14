@@ -1,0 +1,42 @@
+package Physics.Tests
+
+use Libraries.Interface.Item3D
+use Libraries.Game.Collision.LocalCollisionPoints3D
+use Libraries.Game.Collision.CollisionPointsResult3D
+use Libraries.Game.Collision.CollisionPoint3D
+use Libraries.Game.Collision.Narrowphase.TriangleCollider3D
+
+/*
+The usual case, as terrain calls it: the triangle is item A. The shape's
+lowest point is at height 0.5 and the triangle's surface is at 0.6, so
+they overlap by 0.1. The stored normal points from the shape (B) toward
+the triangle (A), which is down, and the point on B is on the shape.
+*/
+class TriangleColliderTriangleIsItemATest is PhysicsTest
+    on create
+        SetName("Triangle collider: triangle as item A")
+    end
+
+    action Run
+        Item3D triangleItem
+        Item3D shapeItem
+        LocalCollisionPoints3D points
+        points:Set(triangleItem, shapeItem)
+        CollisionPointsResult3D result
+        result:Initialize(triangleItem, shapeItem)
+
+        TriangleCollider3D collider
+        collider:Begin(points, result, false)
+        CheckThat("item A: not swapped", not collider:IsSwapped())
+        collider:AddContact(MakeVector(0, 1, 0), MakeVector(0, 0.5, 0), -0.1)
+
+        CheckWhole("item A: one point", points:GetPointCount(), 1)
+        if points:GetPointCount() = 1
+            CollisionPoint3D point = points:GetCollisionPoint(0)
+            CheckVector("item A: normal from shape to triangle", point:GetWorldNormalOnB(), 0, -1, 0)
+            CheckVector("item A: point on B is on the shape", point:GetWorldPositionOnB(), 0, 0.5, 0)
+            CheckVector("item A: point on A is on the triangle", point:GetWorldPositionOnA(), 0, 0.6, 0)
+            CheckNumber("item A: depth", point:GetDistance(), -0.1)
+        end
+    end
+end
