@@ -1,0 +1,61 @@
+package Frustrum.Tests
+
+use Libraries.Game.Graphics.Trees.RenderTree3D
+use Libraries.Interface.Item3D
+
+/*
+Tests how items move between a tree's static and dynamic parts. A static
+item that really moves becomes dynamic. A dynamic item that stays still for
+120 frames becomes static again; the tree checks every 30 frames, so after a
+move at frame 0 it is static after the 120th EndFrame and not before. The
+static version changes whenever the static part changes.
+
+Attribute: Example
+use Frustrum.Tests.TreeStaticDynamicTest
+use Libraries.Testing.Tester
+
+Tester tester
+TreeStaticDynamicTest test
+test:SetKind(test:QUAD_TREE)
+tester:Run(test)
+*/
+class TreeStaticDynamicTest is RenderTreeTest
+    on create
+        SetTestName("static and dynamic items")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        RenderTree3D tree = MakeTree()
+        Item3D item = MakeItem(0, 0, 0, 1, 1, 1)
+        tree:Add(item)
+        CheckThat("added as static", tree:IsStatic(item))
+
+        integer version = tree:GetStaticVersion()
+        tree:Moved(item)
+        CheckThat("still static after Moved with no real move", tree:IsStatic(item))
+        CheckWhole("static version after Moved with no real move", tree:GetStaticVersion(), version)
+
+        item:SetPosition(5, 0, 0)
+        tree:Moved(item)
+        CheckThat("dynamic after a real move", not tree:IsStatic(item))
+        CheckWhole("static size after the move", tree:GetStaticSize(), 0)
+        CheckWhole("dynamic size after the move", tree:GetDynamicSize(), 1)
+        CheckThat("static version changed by the move", tree:GetStaticVersion() not= version)
+
+        version = tree:GetStaticVersion()
+        integer frames = 0
+        repeat while frames < 119
+            tree:EndFrame()
+            frames = frames + 1
+        end
+        CheckThat("still dynamic after 119 frames", not tree:IsStatic(item))
+
+        tree:EndFrame()
+        CheckThat("static again after 120 frames", tree:IsStatic(item))
+        CheckWhole("static size after 120 frames", tree:GetStaticSize(), 1)
+        CheckThat("static version changed when it became static", tree:GetStaticVersion() not= version)
+    end
+end

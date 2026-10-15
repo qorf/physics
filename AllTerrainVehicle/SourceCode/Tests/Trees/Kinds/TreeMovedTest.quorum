@@ -1,0 +1,65 @@
+package Frustrum.Tests
+
+use Libraries.Game.Graphics.Trees.RenderTree3D
+use Libraries.Game.Graphics.Trees.RenderTreeNode3D
+use Libraries.Interface.Item3D
+use Libraries.Containers.Array
+use Libraries.Compute.Matrix4
+
+/*
+Tests that a tree finds an item at its new place after Moved is called,
+both with the item and with the item's leaf. The camera is at the origin
+looking along positive z, so an item at z 10 is in view and one at z -10
+is behind it.
+
+Attribute: Example
+use Frustrum.Tests.TreeMovedTest
+use Libraries.Testing.Tester
+
+Tester tester
+TreeMovedTest test
+test:SetKind(test:VOLUME_TREE)
+tester:Run(test)
+*/
+class TreeMovedTest is RenderTreeTest
+    on create
+        SetTestName("moved items")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        RenderTree3D tree = MakeTree()
+        Matrix4 view = MakeView(0, 0, 0, 0, 0, 10)
+        Item3D still = MakeItem(0, 0, 10, 1, 1, 1)
+        Item3D moving = MakeItem(0, 0, 10, 1, 1, 1)
+        tree:Add(still)
+        tree:Add(moving)
+
+        Array<Item3D> found
+        tree:CollectVisible(view, found)
+        CheckFoundOnce("an item in view, before moving", found, moving)
+
+        moving:SetPosition(0, 0, -10)
+        tree:Moved(moving)
+        found:Empty()
+        tree:CollectVisible(view, found)
+        CheckNotFound("an item moved behind the camera, with Moved(item)", found, moving)
+        CheckFoundOnce("an item that did not move", found, still)
+        found:Empty()
+        tree:CollectInSphere(0, 0, -10, 1, found)
+        CheckFoundOnce("the moved item, at its new place", found, moving)
+
+        RenderTreeNode3D leaf = tree:GetLeaf(moving)
+        CheckThat("the item has a leaf", leaf not= undefined)
+        moving:SetPosition(2, 0, 20)
+        tree:Moved(leaf)
+        found:Empty()
+        tree:CollectVisible(view, found)
+        CheckFoundOnce("an item moved back into view, with Moved(leaf)", found, moving)
+        found:Empty()
+        tree:CollectInSphere(0, 0, -10, 1, found)
+        CheckNotFound("the item, at its old place", found, moving)
+    end
+end

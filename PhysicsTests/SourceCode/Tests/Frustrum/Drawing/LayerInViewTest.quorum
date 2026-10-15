@@ -1,0 +1,50 @@
+package Frustrum.Tests
+
+use Libraries.Game.Layer3D
+
+/*
+Tests that a layer draws the items in front of its camera, once each, and
+not the items behind it or past its sides. There are no lights, so no item
+is drawn for its shadow.
+
+Attribute: Example
+use Frustrum.Tests.LayerInViewTest
+use Libraries.Testing.Tester
+
+// Run from a game's CreateGame, since a Layer3D needs a running game.
+Tester tester
+LayerInViewTest test
+tester:Run(test)
+*/
+class LayerInViewTest is LayerCullingTest
+    on create
+        SetName("Layer culling: items in view and out of view")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        Layer3D layer = MakeLayer()
+        DrawLog log
+        CountingItem3D front = AddCounting(layer, log, 0, 0, 10)
+        CountingItem3D farFront = AddCounting(layer, log, 0, 0, 90)
+        CountingItem3D behind = AddCounting(layer, log, 0, 0, -10)
+        CountingItem3D side = AddCounting(layer, log, 100, 0, 10)
+        CountingItem3D above = AddCounting(layer, log, 0, 100, 10)
+        CountingItem3D pastFar = AddCounting(layer, log, 0, 0, 150)
+
+        DrawLayer(layer, log)
+        CheckDrawn("an item in front", log, front, 1)
+        CheckDrawn("an item 90 in front, within the far plane at 100", log, farFront, 1)
+        CheckDrawn("an item behind", log, behind, 0)
+        CheckDrawn("an item past the side", log, side, 0)
+        CheckDrawn("an item above the view", log, above, 0)
+        CheckDrawn("an item 150 in front, past the far plane at 100", log, pastFar, 0)
+
+        PlaceCamera(layer, 0, 0, 0, 0, 0, -10)
+        DrawLayer(layer, log)
+        CheckDrawn("after turning around, the item now in front", log, behind, 1)
+        CheckDrawn("after turning around, the item now behind", log, front, 0)
+    end
+end

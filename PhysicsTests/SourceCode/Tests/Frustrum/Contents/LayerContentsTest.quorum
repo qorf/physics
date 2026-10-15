@@ -1,0 +1,100 @@
+package Frustrum.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Containers.Iterator
+
+/*
+Tests what a layer holds now that its items are kept in a render tree:
+Add, Remove, Has, GetSize, IsEmpty, Empty and GetIterator, with items
+without physics and with a physics body.
+
+Attribute: Example
+use Frustrum.Tests.LayerContentsTest
+use Libraries.Testing.Tester
+
+// Run from a game's CreateGame, since a Layer3D needs a running game.
+Tester tester
+LayerContentsTest test
+tester:Run(test)
+*/
+class LayerContentsTest is LayerCullingTest
+    on create
+        SetName("Layer culling: add, remove, has, size, empty and walking")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        Layer3D layer = MakeLayer()
+        DrawLog log
+        CheckThat("a new layer is empty", layer:IsEmpty())
+        CheckWhole("a new layer's size", layer:GetSize(), 0)
+
+        CountingItem3D first = AddCounting(layer, log, 0, 0, 10)
+        CountingItem3D second = AddCounting(layer, log, 5, 0, 10)
+        CountingItem3D third = AddCounting(layer, log, -5, 0, 10)
+        CheckWhole("size after adding three", layer:GetSize(), 3)
+        CheckThat("not empty after adding", not layer:IsEmpty())
+        CheckThat("has the first item", layer:Has(first))
+        CheckThat("has the second item", layer:Has(second))
+        CheckThat("has the third item", layer:Has(third))
+
+        integer firstSeen = 0
+        integer secondSeen = 0
+        integer thirdSeen = 0
+        integer total = 0
+        // Quorum only compares items declared as the same class, so the
+        // counting items are copied into Item3D variables first.
+        Item3D firstItem = first
+        Item3D secondItem = second
+        Item3D thirdItem = third
+        Iterator<Item3D> iterator = layer:GetIterator()
+        repeat while iterator:HasNext()
+            Item3D item = iterator:Next()
+            if item = firstItem
+                firstSeen = firstSeen + 1
+            elseif item = secondItem
+                secondSeen = secondSeen + 1
+            elseif item = thirdItem
+                thirdSeen = thirdSeen + 1
+            end
+            total = total + 1
+        end
+        CheckWhole("items the iterator gives", total, 3)
+        CheckWhole("times the iterator gives the first item", firstSeen, 1)
+        CheckWhole("times the iterator gives the second item", secondSeen, 1)
+        CheckWhole("times the iterator gives the third item", thirdSeen, 1)
+
+        layer:Remove(second)
+        CheckWhole("size after removing one", layer:GetSize(), 2)
+        CheckThat("does not have the removed item", not layer:Has(second))
+        CheckThat("the removed item has no layer", second:GetLayer() = undefined)
+        layer:Add(second)
+        CheckWhole("size after adding it back", layer:GetSize(), 3)
+
+        layer:Empty()
+        CheckWhole("size after emptying", layer:GetSize(), 0)
+        CheckThat("empty after emptying", layer:IsEmpty())
+        CheckThat("does not have an item after emptying", not layer:Has(first))
+
+        Layer3D world = MakeLayer()
+        world:EnablePhysics(true)
+        world:SetGravity(0, -9.8, 0)
+        Item3D body
+        body:SetShape(MakeCollisionBox(1, 1, 1))
+        body:SetPosition(0, 5, 0)
+        body:EnablePhysics(true)
+        body:SetResponsive()
+        body:SetMass(1)
+        world:Add(body)
+        CheckWhole("size of a layer with a body", world:GetSize(), 1)
+        CheckThat("has the body", world:Has(body))
+        world:TestForCollisions(1.0 / 60.0)
+        world:Remove(body)
+        CheckWhole("size after removing the body", world:GetSize(), 0)
+        CheckThat("does not have the removed body", not world:Has(body))
+        world:TestForCollisions(1.0 / 60.0)
+    end
+end

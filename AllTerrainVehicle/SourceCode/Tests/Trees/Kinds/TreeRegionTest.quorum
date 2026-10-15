@@ -1,0 +1,75 @@
+package Frustrum.Tests
+
+use Libraries.Game.Graphics.Trees.RenderTree3D
+use Libraries.Interface.Item3D
+use Libraries.Containers.Array
+use Libraries.Compute.Matrix4
+
+/*
+Tests items outside a quadtree's or octree's region, which MakeTree sets to
+-200 to 200 on every axis. The cell trees keep such items in a separate list
+and test them one by one, so they must still be found, by every kind of
+search, and when they move in and out of the region. A volume tree has no
+region, so for it this checks items far from the others.
+
+Attribute: Example
+use Frustrum.Tests.TreeRegionTest
+use Libraries.Testing.Tester
+
+Tester tester
+TreeRegionTest test
+test:SetKind(test:QUAD_TREE)
+tester:Run(test)
+*/
+class TreeRegionTest is RenderTreeTest
+    on create
+        SetTestName("items outside the region")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        RenderTree3D tree = MakeTree()
+        Item3D inside = MakeItem(0, 0, 0, 1, 1, 1)
+        Item3D far = MakeItem(1000, 0, 0, 1, 1, 1)
+        Item3D high = MakeItem(0, 500, 0, 1, 1, 1)
+        Item3D huge = MakeItem(0, 0, 0, 900, 1, 900)
+        tree:Add(inside)
+        tree:Add(far)
+        tree:Add(high, false)
+        tree:Add(huge)
+
+        Array<Item3D> found
+        tree:CollectInSphere(1000, 0, 0, 2, found)
+        CheckFoundOnce("an item past the region along x, by a sphere", found, far)
+        found:Empty()
+        tree:CollectInBox(MakeCube(0, 500, 0, 2), found)
+        CheckFoundOnce("an item above the region, by a box", found, high)
+        found:Empty()
+        tree:CollectInBox(MakeCube(400, 0, 400, 2), found)
+        CheckFoundOnce("an item larger than the region, near its corner", found, huge)
+
+        Matrix4 view = MakeView(900, 0, 0, 1000, 0, 0)
+        found:Empty()
+        tree:CollectVisible(view, found)
+        CheckFoundOnce("an item past the region, by a camera looking at it", found, far)
+        CheckNotFound("an item at the center, behind that camera", found, inside)
+
+        high:SetPosition(0, 10, 0)
+        tree:Moved(high)
+        found:Empty()
+        tree:CollectInBox(MakeCube(0, 10, 0, 2), found)
+        CheckFoundOnce("an item moved from outside the region to inside", found, high)
+        found:Empty()
+        tree:CollectInBox(MakeCube(0, 500, 0, 2), found)
+        CheckNotFound("that item, at its old place", found, high)
+
+        high:SetPosition(0, -700, 0)
+        tree:Moved(high)
+        found:Empty()
+        tree:CollectInBox(MakeCube(0, -700, 0, 2), found)
+        CheckFoundOnce("an item moved from inside the region to outside", found, high)
+        CheckWhole("size", tree:GetSize(), 4)
+    end
+end

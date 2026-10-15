@@ -1,0 +1,634 @@
+package Frustrum.Tests
+
+use Libraries.Testing.Test
+use Libraries.Interface.Item3D
+use Libraries.Game.BoundingBox
+use Libraries.Game.Graphics.CameraMatrix4
+use Libraries.Game.Graphics.DeviceCoordinates
+use Libraries.Game.Graphics.Trees.RenderTree3D
+use Libraries.Game.Graphics.Trees.DynamicVolumeRenderTree3D
+use Libraries.Game.Graphics.Trees.QuadTree3D
+use Libraries.Game.Graphics.Trees.Octree3D
+use Libraries.Game.Graphics.Trees.CullingVolume3D
+use Libraries.Compute.Matrix4
+use Libraries.Compute.Vector3
+use Libraries.Compute.Math
+use Libraries.Compute.Random
+use Libraries.Containers.Array
+
+/*
+RenderTreeTest is the parent of the render tree tests. These tests need no
+game window: they build items, trees, camera matrices and lights directly,
+and check what the trees find.
+
+Many tests are run once for each kind of render tree. The tester calls
+SetKind before running such a test, and MakeTree then makes a tree of that
+kind, so each test is written once. The test's name says which kind it ran
+with, so a failure says which kind failed.
+
+Many checks compare a tree's answer with testing every item by hand: each
+item's box in the world is worked out from its eight corners, and tested on
+its own against the view, box or sphere. A tree may find a few more items
+than the hand count, such as dynamic items whose boxes have a margin, but
+never fewer, and never the same item twice.
+
+Attribute: Example
+use Frustrum.Tests.TreeAddRemoveTest
+use Libraries.Testing.Tester
+
+Tester tester
+TreeAddRemoveTest test
+test:SetKind(test:QUAD_TREE)
+tester:Run(test)
+output test:GetName() + ": " + tester:GetPassingSize() + " of 1 passed"
+*/
+class RenderTreeTest is Test
+    // The kinds of render tree a test can be run with.
+    public constant integer VOLUME_TREE = 0
+    public constant integer QUAD_TREE = 1
+    public constant integer OCTREE = 2
+
+    // How far apart two numbers may be and still count as equal.
+    constant number TOLERANCE = 0.0001
+
+    // How many missing items are described in the message, so a broken tree
+    // does not make a very long message.
+    constant integer MISSES_TO_DESCRIBE = 3
+
+    integer kind = VOLUME_TREE
+    text testName = ""
+    text notes = ""
+    Math helperMath
+    Random random
+
+    /*
+    This action sets what the test is called, without the kind of tree. A
+    test that is run for each kind of tree has the kind added by SetKind.
+
+    Attribute: Parameter name What the test checks, such as "add and remove".
+    */
+    action SetTestName(text name)
+        testName = name
+        SetName("Render tree: " + name)
+    end
+
+    /*
+    This action sets which kind of render tree MakeTree makes, and puts the
+    kind in the test's name.
+
+    Attribute: Parameter value VOLUME_TREE, QUAD_TREE or OCTREE.
+    */
+    action SetKind(integer value)
+        kind = value
+        SetName("Render tree, " + GetKindName() + ": " + testName)
+    end
+
+    /*
+    This action returns which kind of render tree MakeTree makes.
+
+    Attribute: Returns VOLUME_TREE, QUAD_TREE or OCTREE.
+    */
+    action GetKind returns integer
+        return kind
+    end
+
+    /*
+    This action returns the name of the kind of render tree MakeTree makes.
+
+    Attribute: Returns The kind's class name.
+    */
+    action GetKindName returns text
+        if kind = QUAD_TREE
+            return "QuadTree3D"
+        elseif kind = OCTREE
+            return "Octree3D"
+        end
+        return "DynamicVolumeRenderTree3D"
+    end
+
+    /*
+    This action makes an empty render tree of the kind set by SetKind. A
+    quadtree or octree covers the region from -200 to 200 on every axis,
+    which holds the items the tests make, apart from those placed outside
+    it on purpose.
+
+    Attribute: Returns The new tree.
+    */
+    action MakeTree returns RenderTree3D
+        if kind = QUAD_TREE
+            QuadTree3D quadTree
+            quadTree:SetRegion(-200, -200, -200, 200, 200, 200)
+            return quadTree
+        elseif kind = OCTREE
+            Octree3D octree
+            octree:SetRegion(-200, -200, -200, 200, 200, 200)
+            return octree
+        end
+        DynamicVolumeRenderTree3D volumeTree
+        return volumeTree
+    end
+
+    /*
+    This action returns the random number maker the tests share. Each test
+    that uses it sets its seed first, so every run makes the same numbers.
+
+    Attribute: Returns The random number maker.
+    */
+    action GetRandom returns Random
+        return random
+    end
+
+    /*
+    This action adds a line to the test's message.
+
+    Attribute: Parameter note The line to add.
+    */
+    action AddNote(text note)
+        if notes = ""
+            notes = note
+        else
+            notes = notes + "; " + note
+        end
+        SetMessage(notes)
+    end
+
+    /*
+    This action checks that a condition is true.
+
+    Attribute: Parameter name What is being checked, for the message.
+    Attribute: Parameter condition The condition that should be true.
+    */
+    action CheckThat(text name, boolean condition)
+        if not Check(condition, true)
+            AddNote("failed: " + name)
+        end
+    end
+
+    /*
+    This action checks that an integer is exactly what was expected.
+
+    Attribute: Parameter name What is being checked, for the message.
+    Attribute: Parameter actual The value found.
+    Attribute: Parameter expected The value expected.
+    */
+    action CheckWhole(text name, integer actual, integer expected)
+        if not Check(actual = expected, true)
+            AddNote("failed: " + name + " (expected " + expected + ", got " + actual + ")")
+        end
+    end
+
+    /*
+    This action checks that a number is within TOLERANCE of what was
+    expected.
+
+    Attribute: Parameter name What is being checked, for the message.
+    Attribute: Parameter actual The value found.
+    Attribute: Parameter expected The value expected.
+    */
+    action CheckNumber(text name, number actual, number expected)
+        if not Check(actual, expected, TOLERANCE)
+            AddNote("failed: " + name + " (expected " + expected + ", got " + actual + ")")
+        end
+    end
+
+    /*
+    This action checks that a CullingVolume3D test gave the expected answer.
+
+    Attribute: Parameter name What is being checked, for the message.
+    Attribute: Parameter actual The answer found: OUTSIDE, INTERSECTING or
+    INSIDE.
+    Attribute: Parameter expected The answer expected.
+    */
+    action CheckTestResult(text name, integer actual, integer expected)
+        if not Check(actual = expected, true)
+            AddNote("failed: " + name + " (expected " + DescribeResult(expected) + ", got " +
+                DescribeResult(actual) + ")")
+        end
+    end
+
+    /*
+    This action returns the name of a CullingVolume3D test answer.
+
+    Attribute: Parameter result OUTSIDE, INTERSECTING or INSIDE.
+    Attribute: Returns The answer's name.
+    */
+    action DescribeResult(integer result) returns text
+        if result = 0
+            return "outside"
+        elseif result = 1
+            return "intersecting"
+        elseif result = 2
+            return "inside"
+        end
+        return "unknown (" + result + ")"
+    end
+
+    /*
+    This action makes a vector.
+
+    Attribute: Parameter x The x component.
+    Attribute: Parameter y The y component.
+    Attribute: Parameter z The z component.
+    Attribute: Returns The new vector.
+    */
+    action MakeVector(number x, number y, number z) returns Vector3
+        Vector3 result
+        result:Set(x, y, z)
+        return result
+    end
+
+    /*
+    This action makes a box from its smallest and largest corners.
+
+    Attribute: Parameter minimumX The smallest x.
+    Attribute: Parameter minimumY The smallest y.
+    Attribute: Parameter minimumZ The smallest z.
+    Attribute: Parameter maximumX The largest x.
+    Attribute: Parameter maximumY The largest y.
+    Attribute: Parameter maximumZ The largest z.
+    Attribute: Returns The new box.
+    */
+    action MakeBox(number minimumX, number minimumY, number minimumZ, number maximumX, number maximumY, number maximumZ) returns BoundingBox
+        BoundingBox box
+        box:Set(MakeVector(minimumX, minimumY, minimumZ), MakeVector(maximumX, maximumY, maximumZ))
+        return box
+    end
+
+    /*
+    This action makes a box of the given size, centered on a point.
+
+    Attribute: Parameter x The x coordinate of the center.
+    Attribute: Parameter y The y coordinate of the center.
+    Attribute: Parameter z The z coordinate of the center.
+    Attribute: Parameter size The length of each side.
+    Attribute: Returns The new box.
+    */
+    action MakeCube(number x, number y, number z, number size) returns BoundingBox
+        number half = size / 2
+        return MakeBox(x - half, y - half, z - half, x + half, y + half, z + half)
+    end
+
+    /*
+    This action makes an item with the given size, at the given position.
+
+    Attribute: Parameter x The item's x position.
+    Attribute: Parameter y The item's y position.
+    Attribute: Parameter z The item's z position.
+    Attribute: Parameter width The item's width.
+    Attribute: Parameter height The item's height.
+    Attribute: Parameter depth The item's depth.
+    Attribute: Returns The new item.
+    */
+    action MakeItem(number x, number y, number z, number width, number height, number depth) returns Item3D
+        Item3D item
+        item:SetDimensions(width, height, depth)
+        item:SetPosition(x, y, z)
+        return item
+    end
+
+    /*
+    This action makes the view-projection matrix of a camera at one point
+    looking at another, with up along y, a field of view of 60 degrees, a
+    square view, and a near and far plane at 0.1 and 1000. It is the same
+    matrix a PerspectiveCamera makes with OpenGL, without needing a game.
+
+    The projection is made with the PerspectiveProjection action that is
+    given the coordinate system and depth range. The shorter one, without
+    them, does nothing when no game is running, so it would leave the
+    identity matrix.
+
+    Attribute: Parameter eyeX The x coordinate of the camera.
+    Attribute: Parameter eyeY The y coordinate of the camera.
+    Attribute: Parameter eyeZ The z coordinate of the camera.
+    Attribute: Parameter targetX The x coordinate of the point looked at.
+    Attribute: Parameter targetY The y coordinate of the point looked at.
+    Attribute: Parameter targetZ The z coordinate of the point looked at.
+    Attribute: Returns The view-projection matrix.
+    */
+    action MakeView(number eyeX, number eyeY, number eyeZ, number targetX, number targetY, number targetZ) returns Matrix4
+        DeviceCoordinates coordinates
+        CameraMatrix4 projection
+        projection:PerspectiveProjection(0.1, 1000, 60, 1, coordinates:LEFT_HANDED, coordinates:DEPTH_NEGATIVE_ONE_TO_ONE)
+        CameraMatrix4 view
+        view:SetToLookAt(MakeVector(eyeX, eyeY, eyeZ), MakeVector(targetX, targetY, targetZ), MakeVector(0, 1, 0))
+        CameraMatrix4 combined
+        combined:Set(projection)
+        combined:Multiply(view)
+        return combined
+    end
+
+    /*
+    This action works out an item's box in the world by moving each of the
+    eight corners of its box in its own coordinates and keeping the smallest
+    and largest values. The trees do this a quicker way, so this checks
+    them.
+
+    Attribute: Parameter item The item.
+    Attribute: Parameter local The item's box in its own coordinates.
+    Attribute: Parameter out The box to fill in.
+    */
+    action WorldBox(Item3D item, BoundingBox local, BoundingBox out)
+        Matrix4 m = item:GetTransform()
+        number lowX = 0
+        number lowY = 0
+        number lowZ = 0
+        number highX = 0
+        number highY = 0
+        number highZ = 0
+        integer corner = 0
+        repeat while corner < 8
+            number x = local:GetMinimum():GetX()
+            if corner mod 2 = 1
+                x = local:GetMaximum():GetX()
+            end
+            number y = local:GetMinimum():GetY()
+            if corner mod 4 >= 2
+                y = local:GetMaximum():GetY()
+            end
+            number z = local:GetMinimum():GetZ()
+            if corner >= 4
+                z = local:GetMaximum():GetZ()
+            end
+
+            number worldX = m:row0column0 * x + m:row0column1 * y + m:row0column2 * z + m:row0column3
+            number worldY = m:row1column0 * x + m:row1column1 * y + m:row1column2 * z + m:row1column3
+            number worldZ = m:row2column0 * x + m:row2column1 * y + m:row2column2 * z + m:row2column3
+
+            if corner = 0 or worldX < lowX
+                lowX = worldX
+            end
+            if corner = 0 or worldY < lowY
+                lowY = worldY
+            end
+            if corner = 0 or worldZ < lowZ
+                lowZ = worldZ
+            end
+            if corner = 0 or worldX > highX
+                highX = worldX
+            end
+            if corner = 0 or worldY > highY
+                highY = worldY
+            end
+            if corner = 0 or worldZ > highZ
+                highZ = worldZ
+            end
+            corner = corner + 1
+        end
+        out:Set(MakeVector(lowX, lowY, lowZ), MakeVector(highX, highY, highZ))
+    end
+
+    /*
+    This action adds to the results every item whose world box is at least
+    partly inside the view of a view-projection matrix, testing each item
+    on its own.
+
+    Attribute: Parameter items The items.
+    Attribute: Parameter locals Each item's box in its own coordinates, in
+    the same order.
+    Attribute: Parameter view The view-projection matrix.
+    Attribute: Parameter results The array to add the items to.
+    */
+    action HandVisible(Array<Item3D> items, Array<BoundingBox> locals, Matrix4 view, Array<Item3D> results)
+        CullingVolume3D volume
+        volume:Set(view)
+        integer outside = volume:OUTSIDE
+        BoundingBox world
+        integer i = 0
+        repeat while i < items:GetSize()
+            WorldBox(items:Get(i), locals:Get(i), world)
+            if volume:Test(world) not= outside
+                results:Add(items:Get(i))
+            end
+            i = i + 1
+        end
+    end
+
+    /*
+    This action adds to the results every item whose world box overlaps a
+    box, testing each item on its own.
+
+    Attribute: Parameter items The items.
+    Attribute: Parameter locals Each item's box in its own coordinates, in
+    the same order.
+    Attribute: Parameter box The box, in world coordinates.
+    Attribute: Parameter results The array to add the items to.
+    */
+    action HandInBox(Array<Item3D> items, Array<BoundingBox> locals, BoundingBox box, Array<Item3D> results)
+        BoundingBox world
+        integer i = 0
+        repeat while i < items:GetSize()
+            WorldBox(items:Get(i), locals:Get(i), world)
+            if world:TestOverlap(box)
+                results:Add(items:Get(i))
+            end
+            i = i + 1
+        end
+    end
+
+    /*
+    This action adds to the results every item whose world box overlaps a
+    sphere, testing each item on its own.
+
+    Attribute: Parameter items The items.
+    Attribute: Parameter locals Each item's box in its own coordinates, in
+    the same order.
+    Attribute: Parameter x The x coordinate of the sphere's center.
+    Attribute: Parameter y The y coordinate of the sphere's center.
+    Attribute: Parameter z The z coordinate of the sphere's center.
+    Attribute: Parameter radius The sphere's radius.
+    Attribute: Parameter results The array to add the items to.
+    */
+    action HandInSphere(Array<Item3D> items, Array<BoundingBox> locals, number x, number y, number z, number radius,
+            Array<Item3D> results)
+        BoundingBox world
+        integer i = 0
+        repeat while i < items:GetSize()
+            WorldBox(items:Get(i), locals:Get(i), world)
+            if DistanceSquared(world, x, y, z) <= radius * radius
+                results:Add(items:Get(i))
+            end
+            i = i + 1
+        end
+    end
+
+    /*
+    This action returns the squared distance from a point to the nearest
+    point of a box, which is 0 when the point is inside it.
+
+    Attribute: Parameter box The box.
+    Attribute: Parameter x The point's x coordinate.
+    Attribute: Parameter y The point's y coordinate.
+    Attribute: Parameter z The point's z coordinate.
+    Attribute: Returns The squared distance.
+    */
+    action DistanceSquared(BoundingBox box, number x, number y, number z) returns number
+        number dx = 0
+        number dy = 0
+        number dz = 0
+        if x < box:GetMinimum():GetX()
+            dx = box:GetMinimum():GetX() - x
+        elseif x > box:GetMaximum():GetX()
+            dx = x - box:GetMaximum():GetX()
+        end
+        if y < box:GetMinimum():GetY()
+            dy = box:GetMinimum():GetY() - y
+        elseif y > box:GetMaximum():GetY()
+            dy = y - box:GetMaximum():GetY()
+        end
+        if z < box:GetMinimum():GetZ()
+            dz = box:GetMinimum():GetZ() - z
+        elseif z > box:GetMaximum():GetZ()
+            dz = z - box:GetMaximum():GetZ()
+        end
+        return dx * dx + dy * dy + dz * dz
+    end
+
+    /*
+    This action returns how many times an item appears in an array.
+
+    Attribute: Parameter list The array.
+    Attribute: Parameter item The item.
+    Attribute: Returns How many times it appears.
+    */
+    action CountIn(Array<Item3D> list, Item3D item) returns integer
+        integer count = 0
+        integer i = 0
+        repeat while i < list:GetSize()
+            if list:Get(i) = item
+                count = count + 1
+            end
+            i = i + 1
+        end
+        return count
+    end
+
+    /*
+    This action checks that an item was found exactly once.
+
+    Attribute: Parameter name What is being checked, for the message.
+    Attribute: Parameter found What the search found.
+    Attribute: Parameter item The item that should have been found.
+    */
+    action CheckFoundOnce(text name, Array<Item3D> found, Item3D item)
+        CheckWhole(name + ", times found", CountIn(found, item), 1)
+    end
+
+    /*
+    This action checks that an item was not found.
+
+    Attribute: Parameter name What is being checked, for the message.
+    Attribute: Parameter found What the search found.
+    Attribute: Parameter item The item that should not have been found.
+    */
+    action CheckNotFound(text name, Array<Item3D> found, Item3D item)
+        CheckWhole(name + ", times found", CountIn(found, item), 0)
+    end
+
+    /*
+    This action checks that a search found every item the hand count found,
+    and found no item twice. It may find more than the hand count.
+
+    Attribute: Parameter name What is being checked, for the message.
+    Attribute: Parameter expected What the hand count found.
+    Attribute: Parameter found What the tree found.
+    */
+    action CheckIncludesAll(text name, Array<Item3D> expected, Array<Item3D> found)
+        integer missing = 0
+        integer i = 0
+        repeat while i < expected:GetSize()
+            Item3D item = expected:Get(i)
+            if CountIn(found, item) = 0
+                if missing < MISSES_TO_DESCRIBE
+                    AddNote(name + ": missed the item at (" + item:GetGlobalX() + ", " + item:GetGlobalY() + ", " +
+                        item:GetGlobalZ() + ")")
+                end
+                missing = missing + 1
+            end
+            i = i + 1
+        end
+        CheckWhole(name + ", items missed", missing, 0)
+
+        integer twice = 0
+        i = 0
+        repeat while i < found:GetSize()
+            if CountIn(found, found:Get(i)) > 1
+                twice = twice + 1
+            end
+            i = i + 1
+        end
+        CheckWhole(name + ", results that appear more than once", twice, 0)
+    end
+
+    /*
+    This action fills a tree and two matching arrays with items at seeded
+    random places, with random sizes and turns. Every second item is added
+    as dynamic, the rest as static.
+
+    Attribute: Parameter tree The tree to add the items to.
+    Attribute: Parameter count How many items to make.
+    Attribute: Parameter seed The seed for the random numbers.
+    Attribute: Parameter items The array to add the items to.
+    Attribute: Parameter locals The array to add each item's box in its own
+    coordinates to, in the same order.
+    */
+    action AddRandomItems(RenderTree3D tree, integer count, number seed, Array<Item3D> items, Array<BoundingBox> locals)
+        random:SetSeed(seed)
+        integer i = 0
+        repeat while i < count
+            Item3D item = MakeItem(RandomBetween(-100, 100), RandomBetween(-100, 100), RandomBetween(-100, 100),
+                RandomBetween(0.5, 5), RandomBetween(0.5, 5), RandomBetween(0.5, 5))
+            TurnRandomly(item)
+            BoundingBox local
+            item:GetRenderBounds(local)
+            tree:Add(item, local, i mod 2 = 0)
+            items:Add(item)
+            locals:Add(local)
+            i = i + 1
+        end
+    end
+
+    /*
+    This action moves every second item to a new random place, and tells
+    the tree each one moved.
+
+    Attribute: Parameter tree The tree the items are in.
+    Attribute: Parameter items The items.
+    */
+    action MoveHalfRandomly(RenderTree3D tree, Array<Item3D> items)
+        integer i = 1
+        repeat while i < items:GetSize()
+            Item3D item = items:Get(i)
+            item:SetPosition(RandomBetween(-100, 100), RandomBetween(-100, 100), RandomBetween(-100, 100))
+            tree:Moved(item)
+            i = i + 2
+        end
+    end
+
+    /*
+    This action turns an item a random amount around the x, y or z axis.
+
+    Attribute: Parameter item The item to turn.
+    */
+    action TurnRandomly(Item3D item)
+        number which = random:RandomNumber()
+        number degrees = RandomBetween(0, 360)
+        if which < 0.33
+            item:Rotate(1, 0, 0, degrees)
+        elseif which < 0.66
+            item:Rotate(0, 1, 0, degrees)
+        else
+            item:Rotate(0, 0, 1, degrees)
+        end
+    end
+
+    /*
+    This action returns a random number between two limits.
+
+    Attribute: Parameter low The smallest number it can return.
+    Attribute: Parameter high The largest number it can return.
+    Attribute: Returns The random number.
+    */
+    action RandomBetween(number low, number high) returns number
+        return low + (high - low) * random:RandomNumber()
+    end
+end

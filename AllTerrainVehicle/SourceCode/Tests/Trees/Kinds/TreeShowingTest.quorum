@@ -1,0 +1,45 @@
+package Frustrum.Tests
+
+use Libraries.Game.Graphics.Trees.RenderTree3D
+use Libraries.Interface.Item3D
+
+/*
+Tests IsShowing and IsShowingWithParents. A hidden item is not showing. A
+child of a hidden item still counts as showing by itself, but not with its
+parents, since a layer would not draw it.
+
+Attribute: Example
+use Frustrum.Tests.TreeShowingTest
+use Libraries.Testing.Tester
+
+Tester tester
+TreeShowingTest test
+test:SetKind(test:OCTREE)
+tester:Run(test)
+*/
+class TreeShowingTest is RenderTreeTest
+    on create
+        SetTestName("showing and hidden items")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        RenderTree3D tree = MakeTree()
+        Item3D shown = MakeItem(0, 0, 0, 1, 1, 1)
+        Item3D hidden = MakeItem(2, 0, 0, 1, 1, 1)
+        hidden:Hide()
+        Item3D parentItem = MakeItem(4, 0, 0, 1, 1, 1)
+        Item3D child = MakeItem(0, 2, 0, 1, 1, 1)
+        parentItem:Add(child)
+        parentItem:Hide()
+
+        CheckThat("a shown item is showing", tree:IsShowing(shown))
+        CheckThat("a shown item is showing with its parents", tree:IsShowingWithParents(shown))
+        CheckThat("a hidden item is not showing", not tree:IsShowing(hidden))
+        CheckThat("a hidden item is not showing with its parents", not tree:IsShowingWithParents(hidden))
+        CheckThat("a child of a hidden item is showing by itself", tree:IsShowing(child))
+        CheckThat("a child of a hidden item is not showing with its parents", not tree:IsShowingWithParents(child))
+    end
+end

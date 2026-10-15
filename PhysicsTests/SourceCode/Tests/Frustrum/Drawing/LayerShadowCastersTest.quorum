@@ -1,0 +1,79 @@
+package Frustrum.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Graphics.PointLight
+
+/*
+Tests which items out of view a layer draws for their shadows. Only a
+Vulkan layer does this, so with OpenGL the test checks instead that nothing
+out of view is drawn.
+
+With Vulkan:
+- A sun shining straight down, with its shadow distance of 50, keeps items
+  within 50 of the camera across the light. An item 10 behind the camera is
+  drawn; one 80 behind is not.
+- A model that casts no shadow is not drawn, even 12 behind the camera.
+- With the sun's distance at 0, the layer uses the sun's cascades instead.
+  The stand-in painter never draws, so the cascades are never worked out,
+  and nothing out of view is drawn. The test records this.
+- A point light reaching 10 draws an item 2 from it, behind the camera, and
+  not one 30 from it.
+
+Attribute: Example
+use Frustrum.Tests.LayerShadowCastersTest
+use Libraries.Testing.Tester
+
+// Run from a game's CreateGame, since a Layer3D needs a running game.
+Tester tester
+LayerShadowCastersTest test
+tester:Run(test)
+*/
+class LayerShadowCastersTest is LayerCullingTest
+    on create
+        SetName("Layer culling: shadow casters out of view")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        Layer3D layer = MakeLayer()
+        DrawLog log
+        DirectionalLight sun
+        sun:SetDirection(0, -1, 0)
+        layer:Add(sun)
+
+        CountingItem3D nearBehind = AddCounting(layer, log, 0, 0, -10)
+        CountingItem3D farBehind = AddCounting(layer, log, 0, 0, -80)
+        CountingModel noShadow = AddCountingModel(layer, log, 2, 0, -12)
+        noShadow:SetCastsShadows(false)
+
+        DrawLayer(layer, log)
+        if not IsVulkan()
+            AddNote("OpenGL: only checked that nothing out of view is drawn")
+            CheckDrawn("OpenGL, an item behind the camera", log, nearBehind, 0)
+            CheckDrawn("OpenGL, an item far behind the camera", log, farBehind, 0)
+            CheckDrawn("OpenGL, a model behind the camera", log, noShadow, 0)
+            return now
+        end
+
+        CheckDrawn("an item 10 behind, within the sun's shadow distance", log, nearBehind, 1)
+        CheckDrawn("an item 80 behind, past the sun's shadow distance", log, farBehind, 0)
+        CheckDrawn("a model that casts no shadow, 12 behind", log, noShadow, 0)
+
+        sun:SetShadowDistance(0)
+        DrawLayer(layer, log)
+        CheckDrawn("with the sun's distance at 0 and no cascades worked out, an item 10 behind", log, nearBehind, 0)
+
+        layer:Remove(sun)
+        PointLight lamp
+        lamp:SetColor(1, 1, 1, 1)
+        lamp:SetIntensity(0.03)
+        lamp:SetPosition(0, 0, -78)
+        layer:Add(lamp)
+        DrawLayer(layer, log)
+        CheckDrawn("an item 2 from a point light reaching 10", log, farBehind, 1)
+        CheckDrawn("an item 68 from that point light", log, nearBehind, 0)
+    end
+end

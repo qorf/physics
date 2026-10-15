@@ -1,0 +1,74 @@
+package Frustrum.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Containers.Array
+
+/*
+Tests removing items while a layer updates them. Layer3D.Update walks its
+render tree, finding the next item before updating the current one, so an
+item can remove itself. One item removes itself, and another removes a
+third item. Every other item must still be updated exactly once.
+
+The removed third item may or may not have been updated before it was
+removed, depending on the tree's order; the test notes which happened.
+
+Attribute: Example
+use Frustrum.Tests.LayerRemoveDuringUpdateTest
+use Libraries.Testing.Tester
+
+// Run from a game's CreateGame, since a Layer3D needs a running game.
+Tester tester
+LayerRemoveDuringUpdateTest test
+tester:Run(test)
+*/
+class LayerRemoveDuringUpdateTest is LayerCullingTest
+    on create
+        SetName("Layer culling: removing items during Update")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        Layer3D layer = MakeLayer()
+        DrawLog log
+        Array<CountingItem3D> others
+        integer i = 0
+        repeat while i < 10
+            others:Add(AddCounting(layer, log, i * 3, 0, 10))
+            i = i + 1
+        end
+
+        RemovingItem3D selfRemover
+        selfRemover:SetDimensions(1, 1, 1)
+        selfRemover:SetRemoval(layer, selfRemover)
+        layer:Add(selfRemover)
+
+        CountingItem3D victim = AddCounting(layer, log, 0, 0, 20)
+        RemovingItem3D remover
+        remover:SetDimensions(1, 1, 1)
+        remover:SetPosition(0, 0, 30)
+        remover:SetRemoval(layer, victim)
+        layer:Add(remover)
+
+        CheckWhole("size before updating", layer:GetSize(), 13)
+        layer:Update(1.0 / 60.0)
+
+        i = 0
+        integer wrong = 0
+        repeat while i < others:GetSize()
+            if others:Get(i):GetUpdateCount() not= 1
+                wrong = wrong + 1
+            end
+            i = i + 1
+        end
+        CheckWhole("other items not updated exactly once", wrong, 0)
+        CheckWhole("the item that removed itself was updated once", selfRemover:GetUpdateCount(), 1)
+        CheckWhole("the item that removed another was updated once", remover:GetUpdateCount(), 1)
+        CheckThat("the item that removed itself is gone", not layer:Has(selfRemover))
+        CheckThat("the removed item is gone", not layer:Has(victim))
+        CheckAtMost("the removed item was updated at most once", victim:GetUpdateCount(), 1)
+        AddNote("the removed item was updated " + victim:GetUpdateCount() + " times before it was removed")
+        CheckWhole("size after updating", layer:GetSize(), 11)
+    end
+end

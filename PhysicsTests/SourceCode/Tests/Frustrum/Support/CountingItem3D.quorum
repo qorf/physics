@@ -1,0 +1,71 @@
+package Frustrum.Tests
+
+use Libraries.Interface.Item3D
+use Libraries.Game.Graphics.Painter3D
+
+/*
+CountingItem3D is an item for the layer tests. When a layer draws it, it
+records itself in a DrawLog and draws its children, as Item3D does, but
+hands nothing to the painter. It also counts how often it is updated.
+
+Attribute: Example
+use Frustrum.Tests.CountingItem3D
+use Frustrum.Tests.DrawLog
+
+DrawLog log
+CountingItem3D item
+item:SetDrawLog(log)
+item:SetDimensions(1, 1, 1)
+output item:GetUpdateCount()
+*/
+class CountingItem3D is Item3D
+    DrawLog drawLog = undefined
+    integer updateCount = 0
+
+    /*
+    This action sets the log the item records itself in when drawn.
+
+    Attribute: Parameter value The log.
+    */
+    action SetDrawLog(DrawLog value)
+        drawLog = value
+    end
+
+    /*
+    This action returns how many times the item has been updated.
+
+    Attribute: Returns The number of updates.
+    */
+    action GetUpdateCount returns integer
+        return updateCount
+    end
+
+    /*
+    This action records that the item was drawn, then draws its children.
+    A hidden item draws nothing, as Item3D's Draw does.
+
+    Attribute: Parameter painter The layer's painter.
+    */
+    action Draw(Painter3D painter)
+        if not IsShowing()
+            return now
+        end
+        if drawLog not= undefined
+            drawLog:Record(me)
+        end
+        integer i = 0
+        repeat while i < GetItemCount()
+            GetItem(i):Draw(painter)
+            i = i + 1
+        end
+    end
+
+    /*
+    This action counts the update.
+
+    Attribute: Parameter seconds How much time has passed.
+    */
+    action Update(number seconds)
+        updateCount = updateCount + 1
+    end
+end

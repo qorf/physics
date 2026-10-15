@@ -1,0 +1,84 @@
+package Frustrum.Tests
+
+use Libraries.Interface.Item3D
+use Libraries.Containers.Array
+
+/*
+DrawLog records which items were drawn, in the order they were drawn. The
+counting test items add themselves to it when a layer draws them, so a test
+can see what Layer3D.Draw handed out.
+
+Attribute: Example
+use Frustrum.Tests.DrawLog
+use Frustrum.Tests.CountingItem3D
+
+DrawLog log
+CountingItem3D item
+item:SetDrawLog(log)
+log:Record(item)
+output log:CountOf(item)
+*/
+class DrawLog
+    Array<Item3D> drawn
+
+    /*
+    This action records that an item was drawn.
+
+    Attribute: Parameter item The item drawn.
+    */
+    action Record(Item3D item)
+        drawn:Add(item)
+    end
+
+    /*
+    This action forgets everything recorded, before the next drawing.
+    */
+    action Empty
+        drawn:Empty()
+    end
+
+    /*
+    This action returns how many draws were recorded.
+
+    Attribute: Returns The number of draws.
+    */
+    action GetSize returns integer
+        return drawn:GetSize()
+    end
+
+    /*
+    This action returns how many times an item was drawn.
+
+    Attribute: Parameter item The item.
+    Attribute: Returns How many times it was drawn.
+    */
+    action CountOf(Item3D item) returns integer
+        integer count = 0
+        integer i = 0
+        repeat while i < drawn:GetSize()
+            if drawn:Get(i) = item
+                count = count + 1
+            end
+            i = i + 1
+        end
+        return count
+    end
+
+    /*
+    This action returns where in the drawing order an item was first drawn,
+    counting from 0, or -1 if it was not drawn.
+
+    Attribute: Parameter item The item.
+    Attribute: Returns Its place in the order, or -1.
+    */
+    action PlaceOf(Item3D item) returns integer
+        integer i = 0
+        repeat while i < drawn:GetSize()
+            if drawn:Get(i) = item
+                return i
+            end
+            i = i + 1
+        end
+        return -1
+    end
+end

@@ -1,0 +1,62 @@
+package Frustrum.Tests
+
+use Libraries.Game.Item3DBackToFrontComparison
+use Libraries.Interface.Item3D
+use Libraries.Containers.Array
+
+/*
+Tests Item3DBackToFrontComparison, which Layer3D uses to draw transparent
+models farthest first. Items are sorted by their distance from a point.
+Moving the point to the other side reverses the order. Items the same
+distance away compare as equal.
+
+Attribute: Example
+use Frustrum.Tests.BackToFrontTest
+use Libraries.Testing.Tester
+
+Tester tester
+BackToFrontTest test
+tester:Run(test)
+*/
+class BackToFrontTest is RenderTreeTest
+    on create
+        SetTestName("back to front sorting")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        Item3D near = MakeItem(0, 0, 2, 1, 1, 1)
+        Item3D middle = MakeItem(0, 0, 5, 1, 1, 1)
+        Item3D far = MakeItem(0, 0, 10, 1, 1, 1)
+        Array<Item3D> items
+        items:Add(near)
+        items:Add(far)
+        items:Add(middle)
+
+        // Sort writes into the second array by place, so it must already be
+        // at least as large.
+        Array<Item3D> temp
+        temp:SetSize(items:GetSize())
+
+        Item3DBackToFrontComparison backToFront
+        backToFront:SetOrigin(0, 0, 0)
+        items:Sort(backToFront, temp)
+        CheckThat("from the origin, the farthest is first", items:Get(0) = far)
+        CheckThat("from the origin, the middle is second", items:Get(1) = middle)
+        CheckThat("from the origin, the nearest is last", items:Get(2) = near)
+
+        backToFront:SetOrigin(0, 0, 20)
+        items:Sort(backToFront, temp)
+        CheckThat("from the other side, the item at z 2 is first", items:Get(0) = near)
+        CheckThat("from the other side, the item at z 10 is last", items:Get(2) = far)
+
+        Item3D left = MakeItem(-3, 0, 0, 1, 1, 1)
+        Item3D right = MakeItem(3, 0, 0, 1, 1, 1)
+        backToFront:SetOrigin(0, 0, 0)
+        CheckWhole("items the same distance away compare as equal", backToFront:Compare(left, right), 0)
+        CheckWhole("a farther item compares as first", backToFront:Compare(far, near), -1)
+        CheckWhole("a nearer item compares as last", backToFront:Compare(near, far), 1)
+    end
+end

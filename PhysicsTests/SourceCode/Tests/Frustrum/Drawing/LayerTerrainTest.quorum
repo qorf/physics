@@ -1,0 +1,64 @@
+package Frustrum.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Game.Graphics.PixelMap
+use Libraries.Game.Graphics.Format
+
+/*
+Tests that a layer draws terrain by the box its GetRenderBounds gives,
+which starts at the terrain's position, at one corner, and runs across it.
+A box centered on the position would be wrong.
+
+The terrain is a flat height map 33 samples on each side, so it runs 32
+along x and z from its corner. With its corner at (-16, -1, -16), behind
+the camera, its far half is in front of the camera, so it must be drawn.
+Moved so its corner is at z -100, all of it is behind, so it must not be.
+
+Terrain builds its mesh with Vulkan only, so with OpenGL the test only
+notes that it was skipped.
+
+Attribute: Example
+use Frustrum.Tests.LayerTerrainTest
+use Libraries.Testing.Tester
+
+// Run from a game's CreateGame, since a Layer3D needs a running game.
+Tester tester
+LayerTerrainTest test
+tester:Run(test)
+*/
+class LayerTerrainTest is LayerCullingTest
+    on create
+        SetName("Layer culling: terrain is drawn by its corner box")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        if not IsVulkan()
+            AddNote("skipped: Terrain builds its mesh with Vulkan only")
+            return now
+        end
+
+        Layer3D layer = MakeLayer()
+        DrawLog log
+
+        PixelMap map
+        Format format
+        format:SetValue(format:RGBA8888)
+        map:CreatePixelMap(33, 33, format)
+
+        CountingTerrain terrain
+        terrain:SetDrawLog(log)
+        terrain:LoadHeightMap(map, "Frustrum test terrain")
+        terrain:SetPosition(-16, -1, -16)
+        layer:Add(terrain)
+
+        DrawLayer(layer, log)
+        CheckDrawn("terrain whose corner is behind the camera but whose far half is in view", log, terrain, 1)
+
+        terrain:SetPosition(-16, -1, -100)
+        DrawLayer(layer, log)
+        CheckDrawn("terrain all behind the camera", log, terrain, 0)
+    end
+end

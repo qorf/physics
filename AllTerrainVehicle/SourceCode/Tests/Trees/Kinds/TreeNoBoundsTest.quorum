@@ -1,0 +1,46 @@
+package Frustrum.Tests
+
+use Libraries.Game.Graphics.Trees.RenderTree3D
+use Libraries.Interface.Item3D
+use Libraries.Containers.Array
+
+/*
+Tests items with no size. Add with no box returns false for them, since
+their GetRenderBounds gives none. Add with a box given works, and the item
+is found where that box is.
+
+Attribute: Example
+use Frustrum.Tests.TreeNoBoundsTest
+use Libraries.Testing.Tester
+
+Tester tester
+TreeNoBoundsTest test
+test:SetKind(test:VOLUME_TREE)
+tester:Run(test)
+*/
+class TreeNoBoundsTest is RenderTreeTest
+    on create
+        SetTestName("items with no size")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        RenderTree3D tree = MakeTree()
+        Item3D item
+        item:SetPosition(3, 0, 0)
+
+        CheckThat("adding an item with no size returns false", not tree:Add(item))
+        CheckWhole("size after a failed add", tree:GetSize(), 0)
+        CheckThat("adding it with a box returns true", tree:Add(item, MakeCube(0, 0, 0, 2)))
+        CheckWhole("size after adding with a box", tree:GetSize(), 1)
+
+        Array<Item3D> found
+        tree:CollectInBox(MakeCube(3, 0, 0, 0.5), found)
+        CheckFoundOnce("found at its position, inside the given box", found, item)
+        found:Empty()
+        tree:CollectInBox(MakeCube(10, 0, 0, 0.5), found)
+        CheckNotFound("not found away from the given box", found, item)
+    end
+end

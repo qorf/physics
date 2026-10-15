@@ -1,0 +1,41 @@
+package Frustrum.Tests
+
+use Libraries.Game.Graphics.Trees.RenderTree3D
+use Libraries.Interface.Item3D
+use Libraries.Containers.Array
+
+/*
+Tests an item added with a box that is not centered on it, as terrain is:
+its box starts at the item's position and runs 10 along x and z. The item
+must be found where its box is, not in a box centered on its position.
+
+Attribute: Example
+use Frustrum.Tests.TreeOffCenterTest
+use Libraries.Testing.Tester
+
+Tester tester
+TreeOffCenterTest test
+test:SetKind(test:QUAD_TREE)
+tester:Run(test)
+*/
+class TreeOffCenterTest is RenderTreeTest
+    on create
+        SetTestName("boxes not centered on the item")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        RenderTree3D tree = MakeTree()
+        Item3D item = MakeItem(100, 0, 0, 10, 1, 10)
+        tree:Add(item, MakeBox(0, 0, 0, 10, 1, 10))
+
+        Array<Item3D> found
+        tree:CollectInBox(MakeCube(108, 0.5, 8, 0.5), found)
+        CheckFoundOnce("found near the far corner of its box", found, item)
+        found:Empty()
+        tree:CollectInBox(MakeCube(96, 0.5, -4, 0.5), found)
+        CheckNotFound("not found where a centered box would reach", found, item)
+    end
+end

@@ -1,0 +1,54 @@
+package Frustrum.Tests
+
+use Libraries.Game.Graphics.Trees.CullingVolume3D
+use Libraries.Compute.Vector3
+use Libraries.Compute.Math
+
+/*
+Tests CullingVolume3D:SetShadowColumn, the column of space that can cast a
+directional light's shadow within a distance of the camera.
+
+The light shines along (1, -2, 0), down and toward positive x, and the
+column is centered on the origin with a distance of 10. Across the light,
+the column spans 10 to each side along z, and 10 to each side along the
+direction (0.894, 0.447, 0), which is at right angles to both. Along the
+light, it ends 10 past the origin, and has no end toward the light.
+
+Attribute: Example
+use Frustrum.Tests.CullingVolumeShadowColumnTest
+use Libraries.Testing.Tester
+
+Tester tester
+CullingVolumeShadowColumnTest test
+tester:Run(test)
+*/
+class CullingVolumeShadowColumnTest is RenderTreeTest
+    on create
+        SetTestName("culling volume, shadow column")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        CullingVolume3D volume
+        Vector3 direction = MakeVector(1, -2, 0)
+        CheckThat("SetShadowColumn returns true", volume:SetShadowColumn(direction, 0, 0, 0, 10))
+        CheckWhole("five planes", volume:GetPlaneCount(), 5)
+
+        // The light's direction, made unit length, and points along it.
+        Math math
+        number length = math:SquareRoot(5)
+        number forwardX = 1 / length
+        number forwardY = -2 / length
+
+        CheckTestResult("a box beside the center, within the distance", volume:Test(MakeCube(0, 0, 5, 1)), volume:INSIDE)
+        CheckTestResult("a box past the distance to the side", volume:Test(MakeCube(0, 0, 30, 1)), volume:OUTSIDE)
+        CheckTestResult("a box far toward the light", volume:Test(MakeCube(-100 * forwardX, -100 * forwardY, 0, 1)),
+            volume:INSIDE)
+        CheckTestResult("a box past the distance, away from the light",
+            volume:Test(MakeCube(30 * forwardX, 30 * forwardY, 0, 1)), volume:OUTSIDE)
+        CheckTestResult("a box across the end of the column, away from the light",
+            volume:Test(MakeCube(10 * forwardX, 10 * forwardY, 0, 1)), volume:INTERSECTING)
+    end
+end

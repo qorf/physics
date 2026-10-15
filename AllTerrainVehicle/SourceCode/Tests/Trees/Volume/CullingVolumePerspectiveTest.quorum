@@ -1,0 +1,40 @@
+package Frustrum.Tests
+
+use Libraries.Game.Graphics.Trees.CullingVolume3D
+
+/*
+Tests CullingVolume3D with a camera's view: a camera at the origin looking
+along positive z, with a field of view of 60 degrees and a square view. At
+a distance of 10, the view reaches 10 times the tangent of 30 degrees, about
+5.77, to each side.
+
+Attribute: Example
+use Frustrum.Tests.CullingVolumePerspectiveTest
+use Libraries.Testing.Tester
+
+Tester tester
+CullingVolumePerspectiveTest test
+tester:Run(test)
+*/
+class CullingVolumePerspectiveTest is RenderTreeTest
+    on create
+        SetTestName("culling volume, camera view")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        CullingVolume3D volume
+        volume:Set(MakeView(0, 0, 0, 0, 0, 10))
+
+        CheckWhole("five planes", volume:GetPlaneCount(), 5)
+        CheckTestResult("a box in front", volume:Test(MakeCube(0, 0, 10, 1)), volume:INSIDE)
+        CheckTestResult("a box behind", volume:Test(MakeCube(0, 0, -10, 1)), volume:OUTSIDE)
+        CheckTestResult("a box past the side of the view", volume:Test(MakeCube(50, 0, 10, 1)), volume:OUTSIDE)
+        CheckTestResult("a box past the top of the view", volume:Test(MakeCube(0, 50, 10, 1)), volume:OUTSIDE)
+        CheckTestResult("a box across the side of the view", volume:Test(MakeBox(5, -0.5, 9.5, 6.5, 0.5, 10.5)),
+            volume:INTERSECTING)
+        CheckTestResult("a box past the far plane", volume:Test(MakeCube(0, 0, 2000, 1)), volume:OUTSIDE)
+    end
+end

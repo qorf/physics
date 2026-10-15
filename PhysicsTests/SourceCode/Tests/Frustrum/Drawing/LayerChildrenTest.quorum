@@ -1,0 +1,66 @@
+package Frustrum.Tests
+
+use Libraries.Game.Layer3D
+
+/*
+Tests how a layer draws children. Only the items added to the layer are in
+its render tree, and drawing an item draws its children. So a child is
+drawn when its parent is in view, and not when its parent is out of view,
+even if the child itself is in view. This is the rule Layer3D chose (see
+Layer3DTrees.md, decision 4).
+
+The parent starts behind the camera, with a child placed 60 in front of
+it, in view. Then the parent moves in front of the camera, taking the
+child with it.
+
+Attribute: Example
+use Frustrum.Tests.LayerChildrenTest
+use Libraries.Testing.Tester
+
+// Run from a game's CreateGame, since a Layer3D needs a running game.
+Tester tester
+LayerChildrenTest test
+tester:Run(test)
+*/
+class LayerChildrenTest is LayerCullingTest
+    on create
+        SetName("Layer culling: children are drawn with their parent")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        Layer3D layer = MakeLayer()
+        DrawLog log
+
+        CountingItem3D parentItem
+        parentItem:SetDrawLog(log)
+        parentItem:SetDimensions(1, 1, 1)
+        parentItem:SetPosition(0, 0, -50)
+
+        CountingItem3D child
+        child:SetDrawLog(log)
+        child:SetDimensions(1, 1, 1)
+        child:SetPosition(0, 0, 60)
+        parentItem:Add(child)
+        layer:Add(parentItem)
+
+        CheckThat("the child is in view, at z 10 (it is at " + child:GetGlobalZ() + ")", child:GetGlobalZ() = 10)
+        CheckWhole("only the parent is counted on the layer", layer:GetSize(), 1)
+
+        DrawLayer(layer, log)
+        CheckDrawn("the parent, out of view", log, parentItem, 0)
+        CheckDrawn("the child, in view but with its parent out of view", log, child, 0)
+
+        parentItem:SetPosition(0, 0, 20)
+        DrawLayer(layer, log)
+        CheckDrawn("the parent, moved into view", log, parentItem, 1)
+        CheckDrawn("the child, with its parent in view", log, child, 1)
+
+        child:Hide()
+        DrawLayer(layer, log)
+        CheckDrawn("a hidden child", log, child, 0)
+        CheckDrawn("the parent of a hidden child", log, parentItem, 1)
+    end
+end

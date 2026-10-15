@@ -1,0 +1,39 @@
+package Frustrum.Tests
+
+use Libraries.Game.Graphics.Trees.RenderTree3D
+use Libraries.Interface.Item3D
+
+/*
+Tests that adding an item to a tree adds only that item, not its children.
+A layer adds only its own items to its tree, and drawing an item draws its
+children.
+
+Attribute: Example
+use Frustrum.Tests.TreeChildrenTest
+use Libraries.Testing.Tester
+
+Tester tester
+TreeChildrenTest test
+test:SetKind(test:QUAD_TREE)
+tester:Run(test)
+*/
+class TreeChildrenTest is RenderTreeTest
+    on create
+        SetTestName("children are not added")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        RenderTree3D tree = MakeTree()
+        Item3D parentItem = MakeItem(0, 0, 0, 1, 1, 1)
+        Item3D child = MakeItem(0, 5, 0, 1, 1, 1)
+        parentItem:Add(child)
+
+        CheckThat("adding the parent returns true", tree:Add(parentItem))
+        CheckThat("has the parent", tree:Has(parentItem))
+        CheckThat("does not have the child", not tree:Has(child))
+        CheckWhole("size", tree:GetSize(), 1)
+    end
+end

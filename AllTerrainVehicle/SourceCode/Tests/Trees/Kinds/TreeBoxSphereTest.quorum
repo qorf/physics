@@ -1,0 +1,96 @@
+package Frustrum.Tests
+
+use Libraries.Game.Graphics.Trees.RenderTree3D
+use Libraries.Interface.Item3D
+use Libraries.Game.BoundingBox
+use Libraries.Containers.Array
+
+/*
+Tests CollectInBox and CollectInSphere against testing every item by hand,
+with the same kind of random items as the visible test, before and after
+moving half of them.
+
+Attribute: Example
+use Frustrum.Tests.TreeBoxSphereTest
+use Libraries.Testing.Tester
+
+Tester tester
+TreeBoxSphereTest test
+test:SetKind(test:QUAD_TREE)
+tester:Run(test)
+*/
+class TreeBoxSphereTest is RenderTreeTest
+    on create
+        SetTestName("boxes and spheres against a hand count")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        RenderTree3D tree = MakeTree()
+        Array<Item3D> items
+        Array<BoundingBox> locals
+        AddRandomItems(tree, 500, 4321, items, locals)
+
+        CheckSearches(tree, items, locals, "before moving")
+        MoveHalfRandomly(tree, items)
+        CheckSearches(tree, items, locals, "after moving")
+    end
+
+    /*
+    This action compares the tree with the hand count for several boxes and
+    spheres.
+
+    Attribute: Parameter tree The tree.
+    Attribute: Parameter items The items in the tree.
+    Attribute: Parameter locals Each item's box in its own coordinates.
+    Attribute: Parameter when Which part of the test this is, for the message.
+    */
+    action CheckSearches(RenderTree3D tree, Array<Item3D> items, Array<BoundingBox> locals, text when)
+        CheckBox(tree, items, locals, MakeBox(-20, -20, -20, 20, 20, 20), when + ", a box at the center")
+        CheckBox(tree, items, locals, MakeBox(40, -100, -100, 60, 100, 100), when + ", a thin slab")
+        CheckBox(tree, items, locals, MakeBox(90, 90, 90, 150, 150, 150), when + ", a box at a corner")
+        CheckSphere(tree, items, locals, 0, 0, 0, 25, when + ", a sphere at the center")
+        CheckSphere(tree, items, locals, -70, 30, 50, 40, when + ", a sphere off center")
+        CheckSphere(tree, items, locals, 10, 10, 10, 2, when + ", a small sphere")
+    end
+
+    /*
+    This action compares the tree with the hand count for one box.
+
+    Attribute: Parameter tree The tree.
+    Attribute: Parameter items The items in the tree.
+    Attribute: Parameter locals Each item's box in its own coordinates.
+    Attribute: Parameter box The box to search.
+    Attribute: Parameter name What is being checked, for the message.
+    */
+    action CheckBox(RenderTree3D tree, Array<Item3D> items, Array<BoundingBox> locals, BoundingBox box, text name)
+        Array<Item3D> found
+        Array<Item3D> expected
+        tree:CollectInBox(box, found)
+        HandInBox(items, locals, box, expected)
+        CheckIncludesAll(name, expected, found)
+    end
+
+    /*
+    This action compares the tree with the hand count for one sphere.
+
+    Attribute: Parameter tree The tree.
+    Attribute: Parameter items The items in the tree.
+    Attribute: Parameter locals Each item's box in its own coordinates.
+    Attribute: Parameter x The x coordinate of the sphere's center.
+    Attribute: Parameter y The y coordinate of the sphere's center.
+    Attribute: Parameter z The z coordinate of the sphere's center.
+    Attribute: Parameter radius The sphere's radius.
+    Attribute: Parameter name What is being checked, for the message.
+    */
+    action CheckSphere(RenderTree3D tree, Array<Item3D> items, Array<BoundingBox> locals, number x, number y, number z,
+            number radius, text name)
+        Array<Item3D> found
+        Array<Item3D> expected
+        tree:CollectInSphere(x, y, z, radius, found)
+        HandInSphere(items, locals, x, y, z, radius, expected)
+        CheckIncludesAll(name, expected, found)
+    end
+end

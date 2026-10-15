@@ -22,11 +22,7 @@ use Libraries.Game.Physics.Vehicles.Vehicle
 use Libraries.Game.Physics.Vehicles.Suspension
 use Libraries.Interface.Behaviors.Games.VehicleMovementBehavior
 use Libraries.Game.Graphics.FramesPerSecondLabel
-use Libraries.Game.BoundingBox
 use RenderingChecks.RenderTreeCheck
-use RenderingChecks.CullingLayer3D
-use RenderingChecks.TreeLayer3D
-use RenderingChecks.Model2
 use Libraries.Game.Graphics.Trees.QuadTree3D
 use Libraries.Game.Graphics.Trees.Octree3D
 
@@ -46,11 +42,11 @@ use Libraries.Game.Graphics.Trees.Octree3D
 */
 class Main is Game
     Terrain terrain
-    Model2 chassis
-    Model2 leftWheel
-    Model2 rightWheel
-    Model2 rearLeftWheel
-    Model2 rearRightWheel
+    Model chassis
+    Model leftWheel
+    Model rightWheel
+    Model rearLeftWheel
+    Model rearRightWheel
     Vehicle vehicle
     VehicleMovementBehavior movement
     PerlinNoise noise
@@ -182,28 +178,11 @@ class Main is Game
     // room above it for the rain and around it for things that roll off.
     integer renderTreeKind = 0
 
-    // Culling test. While useCullingLayer is true, the game draws with a
-    // CullingLayer3D in place of the default Layer3D, so only what the camera
-    // can see, and in Vulkan what can cast a shadow into view, is drawn. It
-    // has its own render tree, separate from the render tree check above, so
-    // turn useRenderTree off when timing it. While drawShadowCasters is
-    // false, models out of view are not drawn into the shadows either, to
-    // show what would be lost without them.
-    boolean useCullingLayer = true
-
-    // Tree layer test. While useTreeLayer is true, the game uses a
-    // TreeLayer3D, which keeps its items in a rendering tree and a physics
-    // and sleeping and awake physics trees instead of an array, and culls
-    // with the same settings as the culling layer, drawShadowCasters and
-    // shadowDistance. It takes the place of the culling layer, so
-    // useCullingLayer is ignored.
-    boolean useTreeLayer = true
-    boolean drawShadowCasters = true
-
-    // How far from the camera the culling layer keeps directional light
-    // shadow casters, or 0 for no limit. The map is 128 units across. See
-    // CullingLayer3D:SetShadowDistance. It changes only what this game's
-    // layer draws, not the painter's cascades.
+    // How far from the camera the sun's shadow casters are kept when the
+    // layer culls, or 0 for no limit. The map is 128 units across. It is set
+    // on the sun, with DirectionalLight:SetShadowDistance, and the layer
+    // reads it from there. It changes only what is drawn into the shadows,
+    // not the painter's cascades.
     number shadowDistance = 20
 
     // If more than 0, the camera's far plane, in place of the default 1000.
@@ -212,9 +191,6 @@ class Main is Game
     // game can come to a real shadow distance without changing the library.
     // Anything farther away is not drawn at all.
     number cameraFarDistance = 0
-    CullingLayer3D cullingLayer = undefined
-    TreeLayer3D treeLayer = undefined
-    integer cullingFrames = 0
     RenderTreeCheck renderCheck
     DirectionalLight sunlight
     PointLight lamp = undefined
@@ -222,30 +198,12 @@ class Main is Game
     action Main
         // Terrain currently builds its mesh with the Vulkan renderer only.
         
-        SetScreenSize(2000, 1000)
+        SetScreenSize(1000, 500)
         UseVulkan(true)
         StartGame()
     end
 
     action CreateGame
-        // The culling layer replaces the default 3D layer before anything,
-        // even physics, is set up on it.
-        if useTreeLayer
-            TreeLayer3D newTreeLayer
-            newTreeLayer:SetDrawShadowCasters(drawShadowCasters)
-            newTreeLayer:SetShadowDistance(shadowDistance)
-            SetLayer(0, newTreeLayer)
-            SetCurrentLayer3D(newTreeLayer)
-            treeLayer = newTreeLayer
-        elseif useCullingLayer
-            CullingLayer3D layer
-            layer:SetDrawShadowCasters(drawShadowCasters)
-            layer:SetShadowDistance(shadowDistance)
-            SetLayer(0, layer)
-            SetCurrentLayer3D(layer)
-            cullingLayer = layer
-        end
-
         if cameraFarDistance > 0
             GetCamera3D():SetFar(cameraFarDistance)
         end
@@ -276,6 +234,7 @@ class Main is Game
         sunlight:SetIntensity(2.5)
         sunlight:SetColor(colors:LightGray())
         sunlight:SetDirection(-1, -4, 2)
+        sunlight:SetShadowDistance(shadowDistance)
         Add(sunlight)
 
         // The stack sites are chosen first, because the terrain flattens the
@@ -350,26 +309,6 @@ class Main is Game
         if useRenderTree
             renderCheck:Update(GetCamera3D(), sunlight, lamp)
         end
-
-        if cullingLayer not= undefined and renderSnapshotInterval > 0
-            cullingFrames = cullingFrames + 1
-            if cullingFrames mod renderSnapshotInterval = 0
-                output "Culling layer: " + cullingLayer:GetLastVisibleCount() + " visible, " +
-                    cullingLayer:GetLastCasterCount() + " shadow casters found, " +
-                    cullingLayer:GetLastDrawnCount() + " models drawn"
-            end
-        end
-
-        if treeLayer not= undefined and renderSnapshotInterval > 0
-            cullingFrames = cullingFrames + 1
-            if cullingFrames mod renderSnapshotInterval = 0
-                output "Tree layer: " + treeLayer:GetLastVisibleCount() + " visible, " +
-                    treeLayer:GetLastCasterCount() + " shadow casters found, " +
-                    treeLayer:GetLastDrawnCount() + " items drawn, " +
-                    treeLayer:GetAwakeBodies():GetSize() + " bodies awake, " +
-                    treeLayer:GetSleepingBodies():GetSize() + " asleep"
-            end
-        end
     end
 
     /*
@@ -437,18 +376,6 @@ class Main is Game
         end
         if useRenderTree
             renderCheck:Report()
-        end
-        if cullingLayer not= undefined
-            output "  Culling layer, last frame: " + cullingLayer:GetLastVisibleCount() + " visible, " +
-                cullingLayer:GetLastCasterCount() + " shadow casters found, " +
-                cullingLayer:GetLastDrawnCount() + " models drawn"
-        end
-        if treeLayer not= undefined
-            output "  Tree layer, last frame: " + treeLayer:GetLastVisibleCount() + " visible, " +
-                treeLayer:GetLastCasterCount() + " shadow casters found, " +
-                treeLayer:GetLastDrawnCount() + " items drawn, " +
-                treeLayer:GetAwakeBodies():GetSize() + " bodies awake, " +
-                treeLayer:GetSleepingBodies():GetSize() + " asleep"
         end
     end
 
@@ -550,7 +477,7 @@ class Main is Game
     */
     action MakeBall returns Model
         Color color
-        Model2 ball
+        Model ball
         //ball:LoadBox(dropDiameter, dropDiameter, dropDiameter, color:CustomColor(0.3 + 0.7 * random:RandomNumber(), 0.3 + 0.7 * random:RandomNumber(), 0.3 + 0.7 * random:RandomNumber(), 1))
         ball:LoadSphere(dropDiameter, dropDiameter, dropDiameter, color:CustomColor(0.3 + 0.7 * random:RandomNumber(), 0.3 + 0.7 * random:RandomNumber(), 0.3 + 0.7 * random:RandomNumber(), 1))
         ball:EnablePhysics(true)
@@ -613,20 +540,10 @@ class Main is Game
         terrain:SetZ(baseZ)
         Add(terrain)
 
-        // The terrain's mesh starts at its corner, not its center, so the
-        // render tree is given its bounds: one unit per height sample across,
-        // and as tall as its highest point. Its scale is in its transform.
-        BoundingBox bounds
-        bounds:Set(MakeVector(0, 0, 0), MakeVector(terrain:GetPixelWidth() - 1, terrain:GetHeight(),
-            terrain:GetPixelHeight() - 1))
+        // The terrain gives the render tree its own bounds, with
+        // GetRenderBounds, since its mesh starts at its corner, not its center.
         if useRenderTree
-            renderCheck:Add(terrain, bounds, true, false)
-        end
-        if cullingLayer not= undefined
-            cullingLayer:SetRenderBounds(terrain, bounds)
-        end
-        if treeLayer not= undefined
-            treeLayer:SetRenderBounds(terrain, bounds)
+            renderCheck:Add(terrain, true, false)
         end
     end
 
@@ -769,7 +686,7 @@ class Main is Game
             repeat while row < stackSize
                 integer column = 0
                 repeat while column < stackSize
-                    Model2 box
+                    Model box
                     box:LoadBox(boxSize, boxSize, boxSize, color:CustomColor(random:RandomNumber(), random:RandomNumber(), random:RandomNumber(), 1))
                     box:SetPosition(centerX + start + column * boxSize, groundY + boxSize / 2 + level * boxSize, centerZ + start + row * boxSize)
                     box:EnablePhysics(true)
@@ -853,7 +770,7 @@ class Main is Game
         // axis starts along Y and is rotated onto X to line up with the axle.
         // The vehicle places the wheel every frame, so no position is needed.
         wheel:LoadCylinder(0.8, 0.4, 0.8, 8, colors:Blue())
-        Model2 spoke
+        Model spoke
         spoke:LoadBox(0.7, 0.44, 0.15, colors:Red())
         wheel:Add(spoke)
         wheel:Rotate(0, 0, 1, 90)

@@ -1,0 +1,77 @@
+package Frustrum.Tests
+
+use Libraries.Game.Graphics.Trees.RenderTree3D
+use Libraries.Interface.Item3D
+use Libraries.Game.BoundingBox
+use Libraries.Containers.Array
+use Libraries.Compute.Matrix4
+
+/*
+Tests CollectVisible against testing every item by hand. 500 items are put
+at seeded random places, with random sizes and turns, half static and half
+dynamic, and seen from several cameras. Then half of them are moved, and
+they are seen again. The tree must find every item the hand count finds,
+and none twice.
+
+Attribute: Example
+use Frustrum.Tests.TreeVisibleTest
+use Libraries.Testing.Tester
+
+Tester tester
+TreeVisibleTest test
+test:SetKind(test:OCTREE)
+tester:Run(test)
+*/
+class TreeVisibleTest is RenderTreeTest
+    on create
+        SetTestName("visible items against a hand count")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        RenderTree3D tree = MakeTree()
+        Array<Item3D> items
+        Array<BoundingBox> locals
+        AddRandomItems(tree, 500, 1234, items, locals)
+        CheckWhole("size", tree:GetSize(), 500)
+
+        CheckViews(tree, items, locals, "before moving")
+        MoveHalfRandomly(tree, items)
+        CheckViews(tree, items, locals, "after moving")
+    end
+
+    /*
+    This action compares the tree with the hand count from one camera.
+
+    Attribute: Parameter tree The tree.
+    Attribute: Parameter items The items in the tree.
+    Attribute: Parameter locals Each item's box in its own coordinates.
+    Attribute: Parameter view The camera's view-projection matrix.
+    Attribute: Parameter name What is being checked, for the message.
+    */
+    action CheckView(RenderTree3D tree, Array<Item3D> items, Array<BoundingBox> locals, Matrix4 view, text name)
+        Array<Item3D> found
+        Array<Item3D> expected
+        tree:CollectVisible(view, found)
+        HandVisible(items, locals, view, expected)
+        CheckIncludesAll(name, expected, found)
+    end
+
+    /*
+    This action compares the tree with the hand count from five cameras.
+
+    Attribute: Parameter tree The tree.
+    Attribute: Parameter items The items in the tree.
+    Attribute: Parameter locals Each item's box in its own coordinates.
+    Attribute: Parameter when Which part of the test this is, for the message.
+    */
+    action CheckViews(RenderTree3D tree, Array<Item3D> items, Array<BoundingBox> locals, text when)
+        CheckView(tree, items, locals, MakeView(0, 0, 0, 0, 0, 1), when + ", from the center looking along z")
+        CheckView(tree, items, locals, MakeView(0, 0, 0, 1, 0, 0), when + ", from the center looking along x")
+        CheckView(tree, items, locals, MakeView(50, 20, -150, 0, 0, 0), when + ", from outside, looking in")
+        CheckView(tree, items, locals, MakeView(0, 150, 10, 0, 0, 0), when + ", from above")
+        CheckView(tree, items, locals, MakeView(-30, -40, 60, -100, 10, 90), when + ", from inside, looking to a corner")
+    end
+end

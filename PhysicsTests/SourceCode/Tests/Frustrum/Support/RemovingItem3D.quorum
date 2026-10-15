@@ -1,0 +1,51 @@
+package Frustrum.Tests
+
+use Libraries.Interface.Item3D
+use Libraries.Game.Layer3D
+
+/*
+RemovingItem3D removes an item from a layer the first time it is updated.
+The item can be itself. The layer tests use it to remove items while the
+layer is walking its items.
+
+Attribute: Example
+use Frustrum.Tests.RemovingItem3D
+use Libraries.Game.Layer3D
+
+Layer3D layer
+RemovingItem3D remover
+remover:SetRemoval(layer, remover)
+layer:Add(remover)
+layer:Update(0.1)
+*/
+class RemovingItem3D is CountingItem3D
+    Layer3D removalLayer = undefined
+    Item3D removalTarget = undefined
+
+    /*
+    This action sets which item to remove, and from which layer.
+
+    Attribute: Parameter fromLayer The layer.
+    Attribute: Parameter target The item to remove, which can be this one.
+    */
+    action SetRemoval(Layer3D fromLayer, Item3D target)
+        removalLayer = fromLayer
+        removalTarget = target
+    end
+
+    /*
+    This action counts the update, then removes the target the first time.
+
+    Attribute: Parameter seconds How much time has passed.
+    */
+    action Update(number seconds)
+        parent:CountingItem3D:Update(seconds)
+        if removalLayer not= undefined and removalTarget not= undefined
+            Layer3D fromLayer = removalLayer
+            Item3D target = removalTarget
+            removalLayer = undefined
+            removalTarget = undefined
+            fromLayer:Remove(target)
+        end
+    end
+end
