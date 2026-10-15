@@ -1,0 +1,67 @@
+package Frustrum.Tests
+
+use Libraries.Game.Graphics.Trees.RenderTree3D
+use Libraries.Game.Graphics.Trees.ShadowCasterCache3D
+use Libraries.Game.Graphics.PointLight
+use Libraries.Interface.Item3D
+use Libraries.Containers.Array
+
+/*
+Tests the remembered static shadow casters of a point light. A second
+search with nothing changed finds the same items. After a static item moves
+into the light's reach, the search finds it, so what was remembered was
+dropped. ShadowCasterCache3D:Matches is false when the light moves, its
+range changes, or the static version changes.
+
+Attribute: Example
+use Frustrum.Tests.PointShadowCacheTest
+use Libraries.Testing.Tester
+
+Tester tester
+PointShadowCacheTest test
+test:SetKind(test:VOLUME_TREE)
+tester:Run(test)
+*/
+class PointShadowCacheTest is RenderTreeTest
+    on create
+        SetTestName("point light shadow caster cache")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        RenderTree3D tree = MakeTree()
+        PointLight light
+        light:SetColor(1, 1, 1, 1)
+        light:SetIntensity(0.03)
+        light:SetPosition(0, 0, 0)
+
+        Item3D near = MakeItem(3, 0, 0, 1, 1, 1)
+        Item3D away = MakeItem(30, 0, 0, 1, 1, 1)
+        tree:Add(near)
+        tree:Add(away)
+
+        Array<Item3D> first
+        Array<Item3D> second
+        tree:CollectPointShadowCasters(light, first)
+        tree:CollectPointShadowCasters(light, second)
+        CheckWhole("the second search finds as many items", second:GetSize(), first:GetSize())
+        CheckFoundOnce("the second search finds the near item", second, near)
+        CheckNotFound("the second search does not find the far item", second, away)
+
+        away:SetPosition(0, 4, 0)
+        tree:Moved(away)
+        second:Empty()
+        tree:CollectPointShadowCasters(light, second)
+        CheckFoundOnce("after a static item moves into reach, it is found", second, away)
+        CheckFoundOnce("the near item is still found", second, near)
+
+        ShadowCasterCache3D cache
+        cache:Set(1, 2, 3, 10, 5)
+        CheckThat("matches what it was set to", cache:Matches(1, 2, 3, 10, 5))
+        CheckThat("does not match after the light moves", not cache:Matches(1, 2, 4, 10, 5))
+        CheckThat("does not match after the range changes", not cache:Matches(1, 2, 3, 11, 5))
+        CheckThat("does not match after the static version changes", not cache:Matches(1, 2, 3, 10, 6))
+    end
+end

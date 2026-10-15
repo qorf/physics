@@ -1,0 +1,43 @@
+use Libraries.Testing.Tester
+use Libraries.Testing.Test
+use Libraries.Containers.Iterator
+use Libraries.Language.Compile.Test.RenderTreeTester
+
+/*
+RunTreeTests runs the render tree tests in Tests/Trees and writes which of
+them failed. Like RunPhysicsTests, it does locally what Quorum's
+CompilerTestSuite does for its testers, so the tests and
+Tests/RenderTreeTester.quorum can be copied into Quorum unchanged. The
+tests need no game window. To run them, make this file the project's main
+file.
+
+The tests that need a Layer3D, and so a running game, are in the
+PhysicsTests project.
+
+Attribute: Example
+// Make RunTreeTests.quorum the project's main file, then run the project.
+RunTreeTests run
+run:Main()
+*/
+class RunTreeTests
+    /*
+    This action runs the tests and writes the results.
+    */
+    action Main
+        Tester tester
+        RenderTreeTester trees
+        trees:SetTester(tester)
+        trees:Test()
+
+        output trees:GetName() + ": " + tester:GetPassingSize() + " of " + tester:GetSize() + " passed."
+
+        Iterator<Test> failures = tester:GetFailedTestsIterator()
+        repeat while failures:HasNext()
+            Test test = failures:Next()
+            output "FAILED: " + test:GetName()
+            if test:GetMessage() not= ""
+                output "    " + test:GetMessage()
+            end
+        end
+    end
+end

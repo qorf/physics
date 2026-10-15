@@ -1,0 +1,104 @@
+package Frustrum.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Interface.Item3D
+use Libraries.Compute.Vector3
+
+/*
+Tests that a layer keeps physics working when an item's physics changes
+after it is added. Layer3D keeps its bodies in awake and sleeping trees,
+and physics walks only the awake ones, so:
+
+- An item added without physics does not fall.
+- Once physics is turned on, it falls.
+- Once it has rested on the ground long enough, it falls asleep.
+- Pushed up, it wakes and moves again.
+
+The 28 physics world tests check the physics itself.
+
+Attribute: Example
+use Frustrum.Tests.LayerPhysicsChangesTest
+use Libraries.Testing.Tester
+
+// Run from a game's CreateGame, since a Layer3D needs a running game.
+Tester tester
+LayerPhysicsChangesTest test
+tester:Run(test)
+*/
+class LayerPhysicsChangesTest is LayerCullingTest
+    on create
+        SetName("Layer culling: physics turned on, sleeping and waking")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        Layer3D layer = MakeLayer()
+        layer:EnablePhysics(true)
+        layer:SetGravity(0, -9.8, 0)
+
+        Item3D ground
+        ground:SetShape(MakeCollisionBox(40, 1, 40))
+        ground:SetPosition(0, -0.5, 0)
+        ground:EnablePhysics(true)
+        ground:SetMass(0)
+        ground:SetUnmovable()
+        layer:Add(ground)
+
+        Item3D crate
+        crate:SetShape(MakeCollisionBox(1, 1, 1))
+        crate:SetPosition(0, 5, 0)
+        layer:Add(crate)
+        Advance(layer, 0.5)
+        CheckThat("without physics, the crate stays at 5 (it is at " + crate:GetY() + ")", crate:GetY() = 5)
+
+        crate:EnablePhysics(true)
+        crate:SetResponsive()
+        crate:SetMass(1)
+        Advance(layer, 0.5)
+        CheckThat("with physics turned on, the crate falls (it is at " + crate:GetY() + ")", crate:GetY() < 4.5)
+
+        Advance(layer, 6)
+        CheckThat("the crate lands on the ground (it is at " + crate:GetY() + ")", crate:GetY() < 1 and crate:GetY() > 0)
+        CheckThat("the crate falls asleep after resting", not crate:IsSimulated())
+
+        number resting = crate:GetY()
+        crate:SetLinearVelocity(MakeVector(0, 5, 0))
+        CheckThat("pushing the crate wakes it", crate:IsSimulated())
+        Advance(layer, 0.2)
+        CheckThat("the woken crate moves up (it is at " + crate:GetY() + ")", crate:GetY() > resting + 0.1)
+        CheckThat("the layer still has the crate", layer:Has(crate))
+        CheckThat("the layer still has the ground", layer:Has(ground))
+    end
+
+    /*
+    This action moves a layer forward by the given number of seconds, one
+    physics step of 1/60 of a second at a time.
+
+    Attribute: Parameter layer The layer.
+    Attribute: Parameter seconds How long to run.
+    */
+    action Advance(Layer3D layer, number seconds)
+        integer steps = cast(integer, seconds * 60 + 0.5)
+        integer i = 0
+        repeat while i < steps
+            layer:TestForCollisions(1.0 / 60.0)
+            i = i + 1
+        end
+    end
+
+    /*
+    This action makes a vector.
+
+    Attribute: Parameter x The x component.
+    Attribute: Parameter y The y component.
+    Attribute: Parameter z The z component.
+    Attribute: Returns The new vector.
+    */
+    action MakeVector(number x, number y, number z) returns Vector3
+        Vector3 result
+        result:Set(x, y, z)
+        return result
+    end
+end

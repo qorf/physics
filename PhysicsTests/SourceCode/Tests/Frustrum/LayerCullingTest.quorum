@@ -1,0 +1,226 @@
+package Frustrum.Tests
+
+use Libraries.Testing.Test
+use Libraries.Game.Layer3D
+use Libraries.Game.GameStateManager
+use Libraries.Game.Graphics.Camera
+use Libraries.Game.Graphics.Vulkan.VulkanGraphics
+use Libraries.Game.Collision.Shapes.Box
+use Libraries.Interface.Item3D
+
+/*
+LayerCullingTest is the parent of the layer culling tests. These test
+Layer3D's render tree and culled drawing, so they need what a Layer3D
+needs, which is a running game: a Layer3D reads the game's display and
+graphics when it is created. Main runs them from CreateGame, after the
+physics world tests.
+
+Nothing is drawn on the screen. Each test makes its own layer, separate
+from the game's, and gives it a stand-in painter that does nothing
+(StandInPainter3D, or StandInVulkanPainter3D when the game uses Vulkan, so
+the layer still searches for shadow casters). The test places the layer's
+camera, calls the layer's Draw itself, and reads which counting items
+(CountingItem3D, CountingModel) recorded themselves in a DrawLog.
+
+The checks are "these were drawn, those were not", rather than exact
+totals, since a tree may hand out an item that only touches the edge of the
+view.
+
+The camera. A layer's camera is a PerspectiveCamera, which has a field of
+view of 67 degrees and sees as far as 100 (it sets its far plane to 100,
+not Camera's 1000). Most tests put it at the origin looking along positive z, so
+an item at z 10 is in front of it, one at z -10 is behind it, and one at x
+100, z 10 is past its side.
+
+Attribute: Example
+use Frustrum.Tests.LayerInViewTest
+use Libraries.Testing.Tester
+
+// Run from a game's CreateGame, since a Layer3D needs a running game.
+Tester tester
+LayerInViewTest test
+tester:Run(test)
+*/
+class LayerCullingTest is Test
+    text notes = ""
+    GameStateManager stateManager
+
+    /*
+    This action adds a line to the test's message.
+
+    Attribute: Parameter note The line to add.
+    */
+    action AddNote(text note)
+        if notes = ""
+            notes = note
+        else
+            notes = notes + "; " + note
+        end
+        SetMessage(notes)
+    end
+
+    /*
+    This action checks that a condition is true.
+
+    Attribute: Parameter name What is being checked, for the message.
+    Attribute: Parameter condition The condition that should be true.
+    */
+    action CheckThat(text name, boolean condition)
+        if not Check(condition, true)
+            AddNote("failed: " + name)
+        end
+    end
+
+    /*
+    This action checks that an integer is exactly what was expected.
+
+    Attribute: Parameter name What is being checked, for the message.
+    Attribute: Parameter actual The value found.
+    Attribute: Parameter expected The value expected.
+    */
+    action CheckWhole(text name, integer actual, integer expected)
+        if not Check(actual = expected, true)
+            AddNote("failed: " + name + " (expected " + expected + ", got " + actual + ")")
+        end
+    end
+
+    /*
+    This action checks that a number is no more than a limit.
+
+    Attribute: Parameter name What is being checked, for the message.
+    Attribute: Parameter actual The value found.
+    Attribute: Parameter limit The largest value allowed.
+    */
+    action CheckAtMost(text name, number actual, number limit)
+        if not Check(actual <= limit, true)
+            AddNote("failed: " + name + " (expected at most " + limit + ", got " + actual + ")")
+        end
+    end
+
+    /*
+    This action checks that an item was drawn exactly the given number of
+    times in the last drawing.
+
+    Attribute: Parameter name What is being checked, for the message.
+    Attribute: Parameter log The log of the last drawing.
+    Attribute: Parameter item The item.
+    Attribute: Parameter times How many times it should have been drawn.
+    */
+    action CheckDrawn(text name, DrawLog log, Item3D item, integer time)
+        CheckWhole(name + ", times drawn", log:CountOf(item), time)
+    end
+
+    /*
+    This action returns true if the game is using Vulkan. Only then does a
+    layer search for shadow casters.
+
+    Attribute: Returns True for Vulkan, false for OpenGL.
+    */
+    action IsVulkan returns boolean
+        return stateManager:GetGameGraphics() is VulkanGraphics
+    end
+
+    /*
+    This action makes a layer for a test, with a stand-in painter that draws
+    nothing, and its camera at the origin looking along positive z.
+
+    Attribute: Returns The new layer.
+    */
+    action MakeLayer returns Layer3D
+        Layer3D layer
+        if IsVulkan()
+            StandInVulkanPainter3D vulkanPainter
+            layer:SetPainter(vulkanPainter)
+        else
+            StandInPainter3D openGLPainter
+            layer:SetPainter(openGLPainter)
+        end
+        PlaceCamera(layer, 0, 0, 0, 0, 0, 10)
+        return layer
+    end
+
+    /*
+    This action puts a layer's camera at one point, looking at another, with
+    up along y.
+
+    Attribute: Parameter layer The layer.
+    Attribute: Parameter eyeX The x coordinate of the camera.
+    Attribute: Parameter eyeY The y coordinate of the camera.
+    Attribute: Parameter eyeZ The z coordinate of the camera.
+    Attribute: Parameter targetX The x coordinate of the point looked at.
+    Attribute: Parameter targetY The y coordinate of the point looked at.
+    Attribute: Parameter targetZ The z coordinate of the point looked at.
+    */
+    action PlaceCamera(Layer3D layer, number eyeX, number eyeY, number eyeZ, number targetX, number targetY, number targetZ)
+        Camera camera = layer:GetCamera()
+        camera:SetPosition(eyeX, eyeY, eyeZ)
+        camera:SetUp(0, 1, 0)
+        camera:LookAt(targetX, targetY, targetZ)
+    end
+
+    /*
+    This action makes a counting item 1 on each side at the given place,
+    records its drawing in the log, and adds it to the layer.
+
+    Attribute: Parameter layer The layer.
+    Attribute: Parameter log The log the item records itself in.
+    Attribute: Parameter x The item's x position.
+    Attribute: Parameter y The item's y position.
+    Attribute: Parameter z The item's z position.
+    Attribute: Returns The new item.
+    */
+    action AddCounting(Layer3D layer, DrawLog log, number x, number y, number z) returns CountingItem3D
+        CountingItem3D item
+        item:SetDrawLog(log)
+        item:SetDimensions(1, 1, 1)
+        item:SetPosition(x, y, z)
+        layer:Add(item)
+        return item
+    end
+
+    /*
+    This action makes a counting model 1 on each side at the given place,
+    records its drawing in the log, and adds it to the layer.
+
+    Attribute: Parameter layer The layer.
+    Attribute: Parameter log The log the model records itself in.
+    Attribute: Parameter x The model's x position.
+    Attribute: Parameter y The model's y position.
+    Attribute: Parameter z The model's z position.
+    Attribute: Returns The new model.
+    */
+    action AddCountingModel(Layer3D layer, DrawLog log, number x, number y, number z) returns CountingModel
+        CountingModel model
+        model:SetDrawLog(log)
+        model:SetDimensions(1, 1, 1)
+        model:SetPosition(x, y, z)
+        layer:Add(model)
+        return model
+    end
+
+    /*
+    This action draws a layer, after emptying the log, so the log holds only
+    what this drawing drew.
+
+    Attribute: Parameter layer The layer.
+    Attribute: Parameter log The log the layer's items record themselves in.
+    */
+    action DrawLayer(Layer3D layer, DrawLog log)
+        log:Empty()
+        layer:Draw()
+    end
+
+    /*
+    This action makes a box shape that collides at the given size.
+
+    Attribute: Parameter width The box's width.
+    Attribute: Parameter height The box's height.
+    Attribute: Parameter depth The box's depth.
+    Attribute: Returns The box.
+    */
+    action MakeCollisionBox(number width, number height, number depth) returns Box
+        Box box
+        box:Set(width, height, depth)
+        return box
+    end
+end

@@ -1,0 +1,53 @@
+package Frustrum.Tests
+
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Painter3D
+
+/*
+CountingModel is a model for the layer tests, so a test can set whether it
+is transparent (EnableTransparency) and whether it casts shadows
+(SetCastsShadows), which Layer3D only checks for models. When a layer draws
+it, it records itself in a DrawLog and draws its children, but hands
+nothing to the painter, since it has no blueprint to draw.
+
+Attribute: Example
+use Frustrum.Tests.CountingModel
+use Frustrum.Tests.DrawLog
+
+DrawLog log
+CountingModel model
+model:SetDrawLog(log)
+model:SetDimensions(1, 1, 1)
+model:EnableTransparency(true)
+*/
+class CountingModel is Model
+    DrawLog drawLog = undefined
+
+    /*
+    This action sets the log the model records itself in when drawn.
+
+    Attribute: Parameter value The log.
+    */
+    action SetDrawLog(DrawLog value)
+        drawLog = value
+    end
+
+    /*
+    This action records that the model was drawn, then draws its children.
+
+    Attribute: Parameter painter The layer's painter.
+    */
+    action Draw(Painter3D painter)
+        if not IsShowing()
+            return now
+        end
+        if drawLog not= undefined
+            drawLog:Record(me)
+        end
+        integer i = 0
+        repeat while i < GetItemCount()
+            GetItem(i):Draw(painter)
+            i = i + 1
+        end
+    end
+end

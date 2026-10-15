@@ -1,0 +1,43 @@
+package Frustrum.Tests
+
+use Libraries.Game.Graphics.Worlds.Terrain
+use Libraries.Game.Graphics.Painter3D
+
+/*
+CountingTerrain is a terrain for the layer tests. When a layer draws it, it
+records itself in a DrawLog, but hands nothing to the painter.
+
+Attribute: Example
+use Frustrum.Tests.CountingTerrain
+use Frustrum.Tests.DrawLog
+
+DrawLog log
+CountingTerrain terrain
+terrain:SetDrawLog(log)
+*/
+class CountingTerrain is Terrain
+    DrawLog drawLog = undefined
+
+    /*
+    This action sets the log the terrain records itself in when drawn.
+
+    Attribute: Parameter value The log.
+    */
+    action SetDrawLog(DrawLog value)
+        drawLog = value
+    end
+
+    /*
+    This action records that the terrain was drawn.
+
+    Attribute: Parameter painter The layer's painter.
+    */
+    action Draw(Painter3D painter)
+        if not IsShowing()
+            return now
+        end
+        if drawLog not= undefined
+            drawLog:Record(me)
+        end
+    end
+end

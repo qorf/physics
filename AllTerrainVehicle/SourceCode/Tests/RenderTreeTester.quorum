@@ -1,0 +1,192 @@
+package Libraries.Language.Compile.Test
+
+use Libraries.Testing.Tester
+use Frustrum.Tests.RenderTreeTest
+use Frustrum.Tests.CullingVolumeIdentityTest
+use Frustrum.Tests.CullingVolumePerspectiveTest
+use Frustrum.Tests.CullingVolumeNoNearPlaneTest
+use Frustrum.Tests.CullingVolumeShadowColumnTest
+use Frustrum.Tests.CullingVolumeColumnEdgeTest
+use Frustrum.Tests.TreeAddRemoveTest
+use Frustrum.Tests.TreeNoBoundsTest
+use Frustrum.Tests.TreeOffCenterTest
+use Frustrum.Tests.TreeMovedTest
+use Frustrum.Tests.TreeRotationScaleTest
+use Frustrum.Tests.TreeStaticDynamicTest
+use Frustrum.Tests.TreeVisibleTest
+use Frustrum.Tests.TreeBoxSphereTest
+use Frustrum.Tests.TreeWalkTest
+use Frustrum.Tests.TreeShowingTest
+use Frustrum.Tests.TreeChildrenTest
+use Frustrum.Tests.TreeRegionTest
+use Frustrum.Tests.PointShadowCastersTest
+use Frustrum.Tests.PointShadowCacheTest
+use Frustrum.Tests.DirectionalCascadeTest
+use Frustrum.Tests.RenderBoundsTest
+use Frustrum.Tests.BackToFrontTest
+
+/*
+RenderTreeTester runs the render tree tests, in the same way ScienceTester
+runs the statistics tests. The test classes are in Tests/Trees, one test to
+a file. None of them needs a game window.
+
+The tests of the trees themselves are run once for each kind of render
+tree: DynamicVolumeRenderTree3D, QuadTree3D and Octree3D. Each run is its
+own test, named with its kind, so a failure says which kind failed.
+
+Attribute: Example
+use Libraries.Language.Compile.Test.RenderTreeTester
+use Libraries.Testing.Tester
+
+Tester tester
+RenderTreeTester trees
+trees:SetTester(tester)
+trees:Test()
+output tester:GetPassingSize() + " of " + tester:GetSize() + " passed."
+*/
+class RenderTreeTester
+    Tester tester = undefined
+
+    /*
+    This action returns the name of this group of tests.
+
+    Attribute: Returns The name.
+    */
+    action GetName returns text
+        return "Render Tree Tests"
+    end
+
+    /*
+    This action sets the Tester the tests are run with.
+
+    Attribute: Parameter tester The Tester.
+    */
+    action SetTester(Tester tester)
+        me:tester = tester
+    end
+
+    /*
+    This action runs every render tree test.
+    */
+    action Test
+        TestCullingVolumes()
+        TestTrees(0)
+        TestTrees(1)
+        TestTrees(2)
+        TestItems()
+    end
+
+    /*
+    This action runs the tests of CullingVolume3D.
+    */
+    action TestCullingVolumes
+        CullingVolumeIdentityTest test1
+        Run(test1)
+
+        CullingVolumePerspectiveTest test2
+        Run(test2)
+
+        CullingVolumeNoNearPlaneTest test3
+        Run(test3)
+
+        CullingVolumeShadowColumnTest test4
+        Run(test4)
+
+        CullingVolumeColumnEdgeTest test5
+        Run(test5)
+    end
+
+    /*
+    This action runs the tests of the trees, and of their shadow caster
+    searches, with one kind of render tree.
+
+    Attribute: Parameter kind Which kind: 0 for DynamicVolumeRenderTree3D,
+    1 for QuadTree3D, 2 for Octree3D, as RenderTreeTest's constants say.
+    */
+    action TestTrees(integer kind)
+        TreeAddRemoveTest test1
+        RunWithKind(test1, kind)
+
+        TreeNoBoundsTest test2
+        RunWithKind(test2, kind)
+
+        TreeOffCenterTest test3
+        RunWithKind(test3, kind)
+
+        TreeMovedTest test4
+        RunWithKind(test4, kind)
+
+        TreeRotationScaleTest test5
+        RunWithKind(test5, kind)
+
+        TreeStaticDynamicTest test6
+        RunWithKind(test6, kind)
+
+        TreeVisibleTest test7
+        RunWithKind(test7, kind)
+
+        TreeBoxSphereTest test8
+        RunWithKind(test8, kind)
+
+        TreeWalkTest test9
+        RunWithKind(test9, kind)
+
+        TreeShowingTest test10
+        RunWithKind(test10, kind)
+
+        TreeChildrenTest test11
+        RunWithKind(test11, kind)
+
+        TreeRegionTest test12
+        RunWithKind(test12, kind)
+
+        PointShadowCastersTest test13
+        RunWithKind(test13, kind)
+
+        PointShadowCacheTest test14
+        RunWithKind(test14, kind)
+
+        DirectionalCascadeTest test15
+        RunWithKind(test15, kind)
+    end
+
+    /*
+    This action runs the tests of the pieces the trees use from items.
+    */
+    action TestItems
+        RenderBoundsTest test1
+        Run(test1)
+
+        BackToFrontTest test2
+        Run(test2)
+    end
+
+    /*
+    This action sets which kind of render tree a test uses, then runs it.
+
+    Attribute: Parameter test The test.
+    Attribute: Parameter kind Which kind of render tree.
+    */
+    action RunWithKind(RenderTreeTest test, integer kind)
+        test:SetKind(kind)
+        Run(test)
+    end
+
+    /*
+    This action runs a test. A Tester marks a test that stops with an error
+    as failed, but does not say why, so this runs the test itself and, if
+    it stops with an error, adds the error to the test's message before
+    handing the test to the Tester.
+
+    Attribute: Parameter test The test.
+    */
+    action Run(RenderTreeTest test)
+        check
+            test:Run()
+        detect e
+            test:SetPassed(false)
+            test:AddNote("stopped with an error: " + e:GetErrorMessage())
+        end
+        tester:Add(test)
+    end
+end

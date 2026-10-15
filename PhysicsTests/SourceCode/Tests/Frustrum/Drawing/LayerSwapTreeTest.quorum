@@ -1,0 +1,121 @@
+package Frustrum.Tests
+
+use Libraries.Game.Layer3D
+use Libraries.Game.Graphics.Trees.QuadTree3D
+use Libraries.Game.Graphics.Trees.Octree3D
+use Libraries.Game.Graphics.Trees.DynamicVolumeRenderTree3D
+use Libraries.Containers.Array
+use Libraries.Compute.Math
+
+/*
+Tests Layer3D:SetRenderTree. After the layer's tree is swapped for a
+QuadTree3D, then an Octree3D, then back to a DynamicVolumeRenderTree3D,
+every item must still be on the layer, and the same items must be drawn.
+
+Attribute: Example
+use Frustrum.Tests.LayerSwapTreeTest
+use Libraries.Testing.Tester
+
+// Run from a game's CreateGame, since a Layer3D needs a running game.
+Tester tester
+LayerSwapTreeTest test
+tester:Run(test)
+*/
+class LayerSwapTreeTest is LayerCullingTest
+    Array<CountingItem3D> ringItems
+    Array<integer> firstDrawCounts
+
+    on create
+        SetName("Layer culling: swapping the render tree")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        Layer3D layer = MakeLayer()
+        DrawLog log
+        integer i = 0
+        repeat while i < 20
+            // A ring of items around the camera, so some are in view and
+            // some are not.
+            number angle = i * 18
+            ringItems:Add(AddCounting(layer, log, 30 * Sine(angle), 0, 30 * Cosine(angle)))
+            i = i + 1
+        end
+
+        DrawLayer(layer, log)
+        i = 0
+        integer drawn = 0
+        repeat while i < ringItems:GetSize()
+            firstDrawCounts:Add(log:CountOf(ringItems:Get(i)))
+            drawn = drawn + log:CountOf(ringItems:Get(i))
+            i = i + 1
+        end
+        CheckThat("some items are drawn and some are not (" + drawn + " of 20 drawn)", drawn > 0 and drawn < 20)
+
+        QuadTree3D quadTree
+        quadTree:SetRegion(-100, -100, -100, 100, 100, 100)
+        layer:SetRenderTree(quadTree)
+        CheckAfterSwap(layer, log, "after swapping to a QuadTree3D")
+
+        Octree3D octree
+        octree:SetRegion(-100, -100, -100, 100, 100, 100)
+        layer:SetRenderTree(octree)
+        CheckAfterSwap(layer, log, "after swapping to an Octree3D")
+
+        DynamicVolumeRenderTree3D volumeTree
+        layer:SetRenderTree(volumeTree)
+        CheckAfterSwap(layer, log, "after swapping back to a DynamicVolumeRenderTree3D")
+    end
+
+    /*
+    This action checks that every item is still on the layer, and that the
+    same items are drawn as at first.
+
+    Attribute: Parameter layer The layer.
+    Attribute: Parameter log The log the items record themselves in.
+    Attribute: Parameter name Which swap this is, for the message.
+    */
+    action CheckAfterSwap(Layer3D layer, DrawLog log, text name)
+        CheckWhole(name + ", size", layer:GetSize(), ringItems:GetSize())
+        DrawLayer(layer, log)
+        integer missing = 0
+        integer different = 0
+        integer i = 0
+        repeat while i < ringItems:GetSize()
+            CountingItem3D item = ringItems:Get(i)
+            if not layer:Has(item)
+                missing = missing + 1
+            end
+            if log:CountOf(item) not= firstDrawCounts:Get(i)
+                different = different + 1
+            end
+            i = i + 1
+        end
+        CheckWhole(name + ", items no longer on the layer", missing, 0)
+        CheckWhole(name + ", items drawn a different number of times", different, 0)
+    end
+
+    /*
+    This action returns the sine of an angle in degrees.
+
+    Attribute: Parameter degrees The angle.
+    Attribute: Returns The sine.
+    */
+    action Sine(number degrees) returns number
+        Math math
+        return math:Sine(degrees * math:pi / 180)
+    end
+
+    /*
+    This action returns the cosine of an angle in degrees.
+
+    Attribute: Parameter degrees The angle.
+    Attribute: Returns The cosine.
+    */
+    action Cosine(number degrees) returns number
+        Math math
+        return math:Cosine(degrees * math:pi / 180)
+    end
+end

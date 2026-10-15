@@ -1,0 +1,92 @@
+package Frustrum.Tests
+
+use Libraries.Game.Graphics.Trees.RenderTree3D
+use Libraries.Game.Graphics.Trees.RenderTreeNode3D
+use Libraries.Interface.Item3D
+use Libraries.Game.BoundingBox
+use Libraries.Containers.Array
+use Libraries.Containers.Iterator
+
+/*
+Tests walking a tree's items with GetFirstLeaf and GetNextLeaf, and with
+GetIterator. Each must visit every item exactly once. Layer3D also removes
+items while it walks, finding the next leaf before handling the current
+one, so the test does the same, removing every second item it visits. Every
+item must still be visited once.
+
+Attribute: Example
+use Frustrum.Tests.TreeWalkTest
+use Libraries.Testing.Tester
+
+Tester tester
+TreeWalkTest test
+test:SetKind(test:VOLUME_TREE)
+tester:Run(test)
+*/
+class TreeWalkTest is RenderTreeTest
+    on create
+        SetTestName("walking the items")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        RenderTree3D tree = MakeTree()
+        Array<Item3D> items
+        Array<BoundingBox> locals
+        AddRandomItems(tree, 40, 99, items, locals)
+
+        Array<Item3D> visited
+        RenderTreeNode3D leaf = tree:GetFirstLeaf()
+        repeat while leaf not= undefined
+            visited:Add(leaf:GetItem())
+            leaf = tree:GetNextLeaf(leaf)
+        end
+        CheckEachOnce("walking with leaves", items, visited)
+
+        visited:Empty()
+        Iterator<Item3D> iterator = tree:GetIterator()
+        repeat while iterator:HasNext()
+            visited:Add(iterator:Next())
+        end
+        CheckEachOnce("walking with GetIterator", items, visited)
+
+        visited:Empty()
+        integer step = 0
+        leaf = tree:GetFirstLeaf()
+        repeat while leaf not= undefined
+            RenderTreeNode3D upcoming = tree:GetNextLeaf(leaf)
+            Item3D item = leaf:GetItem()
+            visited:Add(item)
+            if step mod 2 = 0
+                tree:Remove(item)
+            end
+            leaf = upcoming
+            step = step + 1
+        end
+        CheckEachOnce("walking while removing every second item", items, visited)
+        CheckWhole("size after removing every second item", tree:GetSize(), 20)
+    end
+
+    /*
+    This action checks that every item was visited exactly once, and nothing
+    else was.
+
+    Attribute: Parameter name Which walk this is, for the message.
+    Attribute: Parameter items Every item in the tree.
+    Attribute: Parameter visited The items the walk visited, in order.
+    */
+    action CheckEachOnce(text name, Array<Item3D> items, Array<Item3D> visited)
+        CheckWhole(name + ", items visited", visited:GetSize(), items:GetSize())
+        integer wrong = 0
+        integer i = 0
+        repeat while i < items:GetSize()
+            if CountIn(visited, items:Get(i)) not= 1
+                wrong = wrong + 1
+            end
+            i = i + 1
+        end
+        CheckWhole(name + ", items not visited exactly once", wrong, 0)
+    end
+end

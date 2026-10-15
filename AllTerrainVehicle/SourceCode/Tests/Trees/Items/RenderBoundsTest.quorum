@@ -1,0 +1,53 @@
+package Frustrum.Tests
+
+use Libraries.Interface.Item3D
+use Libraries.Game.BoundingBox
+
+/*
+Tests Item3D:GetRenderBounds: a box of the item's size, centered on it.
+An item with no size, or with a negative size, has none. A flat item, with
+no height, still has one, though BoundingBox:IsValid rejects flat boxes.
+
+Attribute: Example
+use Frustrum.Tests.RenderBoundsTest
+use Libraries.Testing.Tester
+
+Tester tester
+RenderBoundsTest test
+tester:Run(test)
+*/
+class RenderBoundsTest is RenderTreeTest
+    on create
+        SetTestName("Item3D render bounds")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        BoundingBox box
+        Item3D sized
+        sized:SetDimensions(2, 4, 6)
+        sized:SetPosition(10, 10, 10)
+        CheckThat("an item with a size has bounds", sized:GetRenderBounds(box))
+        CheckNumber("minimum x", box:GetMinimum():GetX(), -1)
+        CheckNumber("minimum y", box:GetMinimum():GetY(), -2)
+        CheckNumber("minimum z", box:GetMinimum():GetZ(), -3)
+        CheckNumber("maximum x", box:GetMaximum():GetX(), 1)
+        CheckNumber("maximum y", box:GetMaximum():GetY(), 2)
+        CheckNumber("maximum z", box:GetMaximum():GetZ(), 3)
+
+        Item3D empty
+        CheckThat("an item with no size has no bounds", not empty:GetRenderBounds(box))
+
+        Item3D negative
+        negative:SetDimensions(-1, 2, 2)
+        CheckThat("an item with a negative size has no bounds", not negative:GetRenderBounds(box))
+
+        Item3D flat
+        flat:SetDimensions(2, 0, 2)
+        CheckThat("a flat item has bounds", flat:GetRenderBounds(box))
+        CheckNumber("a flat item's height", box:GetHeight(), 0)
+        CheckNumber("a flat item's width", box:GetWidth(), 2)
+    end
+end

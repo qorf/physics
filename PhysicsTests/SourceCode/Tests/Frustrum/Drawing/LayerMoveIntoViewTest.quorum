@@ -1,0 +1,58 @@
+package Frustrum.Tests
+
+use Libraries.Game.Layer3D
+
+/*
+Tests that an item moved into view is drawn in the same frame. A layer
+usually hands moves to its render tree while it finds collisions, and Draw
+hands over any left. So this is checked twice: once finding collisions
+between the move and the drawing, and once with collisions turned off, so
+only Draw hands the move over.
+
+Attribute: Example
+use Frustrum.Tests.LayerMoveIntoViewTest
+use Libraries.Testing.Tester
+
+// Run from a game's CreateGame, since a Layer3D needs a running game.
+Tester tester
+LayerMoveIntoViewTest test
+tester:Run(test)
+*/
+class LayerMoveIntoViewTest is LayerCullingTest
+    on create
+        SetName("Layer culling: an item moved into view is drawn")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        Layer3D layer = MakeLayer()
+        DrawLog log
+        CountingItem3D item = AddCounting(layer, log, 0, 0, -10)
+
+        layer:TestForCollisions(1.0 / 60.0)
+        DrawLayer(layer, log)
+        CheckDrawn("with collisions, before moving into view", log, item, 0)
+        item:SetPosition(0, 0, 10)
+        layer:TestForCollisions(1.0 / 60.0)
+        DrawLayer(layer, log)
+        CheckDrawn("with collisions, after moving into view", log, item, 1)
+        item:SetPosition(0, 0, -10)
+        layer:TestForCollisions(1.0 / 60.0)
+        DrawLayer(layer, log)
+        CheckDrawn("with collisions, after moving out of view", log, item, 0)
+
+        layer:SetColliding(false)
+        item:SetPosition(0, 0, 10)
+        DrawLayer(layer, log)
+        CheckDrawn("without collisions, after moving into view", log, item, 1)
+        item:SetPosition(0, 0, -10)
+        DrawLayer(layer, log)
+        CheckDrawn("without collisions, after moving out of view", log, item, 0)
+        item:Rotate(0, 1, 0, 45)
+        item:SetPosition(0, 0, 10)
+        DrawLayer(layer, log)
+        CheckDrawn("without collisions, after turning and moving into view", log, item, 1)
+    end
+end

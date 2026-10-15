@@ -1,0 +1,61 @@
+package Frustrum.Tests
+
+use Libraries.Game.Graphics.Trees.RenderTree3D
+use Libraries.Game.Graphics.PointLight
+use Libraries.Interface.Item3D
+use Libraries.Game.BoundingBox
+use Libraries.Containers.Array
+
+/*
+Tests CollectPointShadowCasters, which finds the items within a point
+light's reach, as PointLight:GetRange gives it. A white light of intensity
+0.03 reaches 10, the square root of 0.03 divided by the threshold 0.0003.
+The light also reaches the random items the hand count is checked with.
+
+Attribute: Example
+use Frustrum.Tests.PointShadowCastersTest
+use Libraries.Testing.Tester
+
+Tester tester
+PointShadowCastersTest test
+test:SetKind(test:OCTREE)
+tester:Run(test)
+*/
+class PointShadowCastersTest is RenderTreeTest
+    on create
+        SetTestName("point light shadow casters")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        RenderTree3D tree = MakeTree()
+        PointLight light
+        light:SetColor(1, 1, 1, 1)
+        light:SetIntensity(0.03)
+        light:SetPosition(0, 0, 0)
+        CheckNumber("the light's range", light:GetRange(), 10)
+
+        Item3D near = MakeItem(5, 0, 0, 1, 1, 1)
+        Item3D far = MakeItem(20, 0, 0, 1, 1, 1)
+        tree:Add(near)
+        tree:Add(far, false)
+
+        Array<Item3D> found
+        tree:CollectPointShadowCasters(light, found)
+        CheckFoundOnce("an item within the range", found, near)
+        CheckNotFound("an item past the range", found, far)
+
+        Array<Item3D> items
+        Array<BoundingBox> locals
+        AddRandomItems(tree, 300, 777, items, locals)
+        light:SetIntensity(0.03 * 9)
+        light:SetPosition(20, -10, 30)
+        found:Empty()
+        Array<Item3D> expected
+        tree:CollectPointShadowCasters(light, found)
+        HandInSphere(items, locals, 20, -10, 30, light:GetRange(), expected)
+        CheckIncludesAll("random items, against a hand count", expected, found)
+    end
+end

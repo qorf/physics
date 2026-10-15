@@ -1,0 +1,58 @@
+package Frustrum.Tests
+
+use Libraries.Game.Graphics.Trees.RenderTree3D
+use Libraries.Interface.Item3D
+use Libraries.Containers.Array
+
+/*
+Tests that a tree finds turned and scaled items where their boxes really
+reach. A rod 10 long along x, turned 90 degrees around y, then lies along
+z. A cube 1 on each side, scaled by 4, reaches 2 from its center.
+
+Attribute: Example
+use Frustrum.Tests.TreeRotationScaleTest
+use Libraries.Testing.Tester
+
+Tester tester
+TreeRotationScaleTest test
+test:SetKind(test:OCTREE)
+tester:Run(test)
+*/
+class TreeRotationScaleTest is RenderTreeTest
+    on create
+        SetTestName("turned and scaled items")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        RenderTree3D tree = MakeTree()
+        Item3D rod = MakeItem(0, 0, 0, 10, 1, 1)
+        Item3D cube = MakeItem(50, 0, 0, 1, 1, 1)
+        tree:Add(rod)
+        tree:Add(cube)
+
+        Array<Item3D> found
+        tree:CollectInBox(MakeCube(4.5, 0, 0, 0.5), found)
+        CheckFoundOnce("the rod, near its end along x", found, rod)
+
+        rod:Rotate(0, 1, 0, 90)
+        tree:Moved(rod)
+        found:Empty()
+        tree:CollectInBox(MakeCube(4.5, 0, 0, 0.5), found)
+        CheckNotFound("the turned rod, where its end was", found, rod)
+        found:Empty()
+        tree:CollectInBox(MakeCube(0, 0, 4.5, 0.5), found)
+        CheckFoundOnce("the turned rod, near its end along z", found, rod)
+
+        found:Empty()
+        tree:CollectInBox(MakeCube(51.75, 0, 0, 0.25), found)
+        CheckNotFound("the cube, past its side before scaling", found, cube)
+        cube:Scale(4, 4, 4)
+        tree:Moved(cube)
+        found:Empty()
+        tree:CollectInBox(MakeCube(51.75, 0, 0, 0.25), found)
+        CheckFoundOnce("the scaled cube, near its new side", found, cube)
+    end
+end

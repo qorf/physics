@@ -1,0 +1,54 @@
+package Frustrum.Tests
+
+use Libraries.Game.Layer3D
+
+/*
+Tests an item added with no size, then given one. A layer adds an item with
+no size as a box of no size at its position, so it is drawn only when its
+position is in view. When the item is given a size, it tells the layer,
+which puts it back in the tree with its new box.
+
+The item is placed at x 100, past the side of the view. Given a width of
+300, it reaches across the view, so it must then be drawn.
+
+Attribute: Example
+use Frustrum.Tests.LayerResizeTest
+use Libraries.Testing.Tester
+
+// Run from a game's CreateGame, since a Layer3D needs a running game.
+Tester tester
+LayerResizeTest test
+tester:Run(test)
+*/
+class LayerResizeTest is LayerCullingTest
+    on create
+        SetName("Layer culling: an item given a size after it is added")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        Layer3D layer = MakeLayer()
+        DrawLog log
+
+        CountingItem3D shown
+        shown:SetDrawLog(log)
+        shown:SetPosition(0, 0, 10)
+        layer:Add(shown)
+
+        CountingItem3D wide
+        wide:SetDrawLog(log)
+        wide:SetPosition(100, 0, 10)
+        layer:Add(wide)
+
+        CheckWhole("both items with no size are on the layer", layer:GetSize(), 2)
+        DrawLayer(layer, log)
+        CheckDrawn("an item with no size, at a place in view", log, shown, 1)
+        CheckDrawn("an item with no size, at a place out of view", log, wide, 0)
+
+        wide:SetDimensions(300, 1, 1)
+        DrawLayer(layer, log)
+        CheckDrawn("the item given a size that reaches into view", log, wide, 1)
+    end
+end

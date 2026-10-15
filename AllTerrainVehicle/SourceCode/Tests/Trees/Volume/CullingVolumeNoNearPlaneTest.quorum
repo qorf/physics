@@ -1,0 +1,37 @@
+package Frustrum.Tests
+
+use Libraries.Game.Graphics.Trees.CullingVolume3D
+
+/*
+Tests that CullingVolume3D has no near plane, as its documentation says it
+should not: a box between the camera and its near plane is not outside.
+This is on purpose, so items between a light and its shadow area are kept.
+The camera is at the origin looking along positive z, with its near plane at
+0.1. The box is closer than that, but within the sides of the view.
+
+Attribute: Example
+use Frustrum.Tests.CullingVolumeNoNearPlaneTest
+use Libraries.Testing.Tester
+
+Tester tester
+CullingVolumeNoNearPlaneTest test
+tester:Run(test)
+*/
+class CullingVolumeNoNearPlaneTest is RenderTreeTest
+    on create
+        SetTestName("culling volume, no near plane")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        CullingVolume3D volume
+        volume:Set(MakeView(0, 0, 0, 0, 0, 10))
+
+        // At a distance of 0.05, the view reaches about 0.029 to each side.
+        integer result = volume:Test(MakeBox(-0.01, -0.01, 0.04, 0.01, 0.01, 0.06))
+        CheckThat("a box closer than the near plane is not outside (got " + DescribeResult(result) + ")",
+            result not= volume:OUTSIDE)
+    end
+end

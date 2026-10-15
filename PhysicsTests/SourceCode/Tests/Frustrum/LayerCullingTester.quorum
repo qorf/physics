@@ -1,0 +1,118 @@
+package Frustrum.Tests
+
+use Libraries.Testing.Tester
+
+/*
+LayerCullingTester runs the layer culling tests, in the same way
+ScienceTester runs the statistics tests. The test classes are in
+Tests/Frustrum, one test to a file. Like the physics world tests, these
+need a running game, so Main runs them from CreateGame.
+
+The tests of the render trees on their own, which need no game, are in the
+AllTerrainVehicle project (RunTreeTests).
+
+A Tester marks a test that stops with an error as failed but does not say
+why, so this tester runs each test itself and, if it stops with an error,
+adds the error to the test's message before handing the test to the Tester.
+
+Attribute: Example
+use Frustrum.Tests.LayerCullingTester
+use Libraries.Testing.Tester
+
+// Run from a game's CreateGame, since a Layer3D needs a running game.
+Tester tester
+LayerCullingTester culling
+culling:SetTester(tester)
+culling:Test()
+*/
+class LayerCullingTester
+    Tester tester = undefined
+
+    /*
+    This action returns the name of this group of tests.
+
+    Attribute: Returns The name.
+    */
+    action GetName returns text
+        return "Layer Culling Tests"
+    end
+
+    /*
+    This action sets the Tester the tests are run with.
+
+    Attribute: Parameter tester The Tester.
+    */
+    action SetTester(Tester tester)
+        me:tester = tester
+    end
+
+    /*
+    This action runs every layer culling test.
+    */
+    action Test
+        TestContents()
+        TestDrawing()
+    end
+
+    /*
+    This action runs the tests of what a layer holds.
+    */
+    action TestContents
+        LayerContentsTest test1
+        Run(test1)
+
+        LayerRemoveDuringUpdateTest test2
+        Run(test2)
+
+        LayerPhysicsChangesTest test3
+        Run(test3)
+
+        LayerResizeTest test4
+        Run(test4)
+    end
+
+    /*
+    This action runs the tests of what a layer draws.
+    */
+    action TestDrawing
+        LayerInViewTest test1
+        Run(test1)
+
+        LayerMoveIntoViewTest test2
+        Run(test2)
+
+        LayerChildrenTest test3
+        Run(test3)
+
+        LayerDrawnOnceTest test4
+        Run(test4)
+
+        LayerShadowCastersTest test5
+        Run(test5)
+
+        LayerTransparencyTest test6
+        Run(test6)
+
+        LayerSwapTreeTest test7
+        Run(test7)
+
+        LayerTerrainTest test8
+        Run(test8)
+    end
+
+    /*
+    This action runs a test, and if it stops with an error, marks it failed
+    and adds the error to its message.
+
+    Attribute: Parameter test The test.
+    */
+    action Run(LayerCullingTest test)
+        check
+            test:Run()
+        detect e
+            test:SetPassed(false)
+            test:AddNote("stopped with an error: " + e:GetErrorMessage())
+        end
+        tester:Add(test)
+    end
+end
