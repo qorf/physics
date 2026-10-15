@@ -174,7 +174,7 @@ class Main is Game
     boolean useRenderTree = false
     integer renderCheckInterval = 10
     boolean renderTreeMovesAll = false
-    boolean addPointLight = false
+    boolean addPointLight = true
     integer renderSnapshotInterval = 200
 
     // Which kind of render tree to test: 0 for DynamicVolumeRenderTree3D, 1 for
@@ -292,8 +292,8 @@ class Main is Game
 
         if addPointLight
             PointLight light
-            light:SetColor(colors:White())
-            light:SetIntensity(0.5)
+            light:SetColor(colors:CustomColor(0.5, 0.5, 1, 1))
+            light:SetIntensity(50)
             light:SetPosition(0, GetGroundHeightAt(0, 0) + 6, 0)
             Add(light)
             lamp = light
@@ -344,6 +344,9 @@ class Main is Game
         end
         PlaceCamera()
 
+        if lamp not= undefined
+            lamp:SetPosition(chassis:GetX(), chassis:GetY() + 3, chassis:GetZ())
+        end
         if useRenderTree
             renderCheck:Update(GetCamera3D(), sunlight, lamp)
         end
