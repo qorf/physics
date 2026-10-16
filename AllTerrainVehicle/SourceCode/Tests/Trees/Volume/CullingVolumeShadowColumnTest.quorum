@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Graphics.Trees.CullingVolume3D
 use Libraries.Compute.Vector3
@@ -15,7 +15,7 @@ direction (0.894, 0.447, 0), which is at right angles to both. Along the
 light, it ends 10 past the origin, and has no end toward the light.
 
 Attribute: Example
-use Frustrum.Tests.CullingVolumeShadowColumnTest
+use Frustum.Tests.CullingVolumeShadowColumnTest
 use Libraries.Testing.Tester
 
 Tester tester

@@ -1,10 +1,11 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Graphics.Trees.RenderTree3D
 use Libraries.Interface.Item3D
 use Libraries.Game.BoundingBox
 use Libraries.Containers.Array
 use Libraries.Compute.Matrix4
+use Libraries.Game.Graphics.Trees.RenderTree3DResult
 
 /*
 Tests CollectVisible against testing every item by hand. 500 items are put
@@ -14,7 +15,7 @@ they are seen again. The tree must find every item the hand count finds,
 and none twice.
 
 Attribute: Example
-use Frustrum.Tests.TreeVisibleTest
+use Frustum.Tests.TreeVisibleTest
 use Libraries.Testing.Tester
 
 Tester tester
@@ -52,11 +53,11 @@ class TreeVisibleTest is RenderTreeTest
     Attribute: Parameter name What is being checked, for the message.
     */
     action CheckView(RenderTree3D tree, Array<Item3D> items, Array<BoundingBox> locals, Matrix4 view, text name)
-        Array<Item3D> found
+        RenderTree3DResult result = MakeResult(view)
         Array<Item3D> expected
-        tree:CollectVisible(view, found)
+        tree:CollectVisible(view, result)
         HandVisible(items, locals, view, expected)
-        CheckIncludesAll(name, expected, found)
+        CheckIncludesAll(name, expected, result:GetVisible())
     end
 
     /*

@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Graphics.Trees.RenderTree3D
 use Libraries.Interface.Item3D
@@ -10,7 +10,7 @@ its box starts at the item's position and runs 10 along x and z. The item
 must be found where its box is, not in a box centered on its position.
 
 Attribute: Example
-use Frustrum.Tests.TreeOffCenterTest
+use Frustum.Tests.TreeOffCenterTest
 use Libraries.Testing.Tester
 
 Tester tester

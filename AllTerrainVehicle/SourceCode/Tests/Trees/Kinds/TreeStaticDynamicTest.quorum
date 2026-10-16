@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Graphics.Trees.RenderTree3D
 use Libraries.Interface.Item3D
@@ -11,7 +11,7 @@ move at frame 0 it is static after the 120th EndFrame and not before. The
 static version changes whenever the static part changes.
 
 Attribute: Example
-use Frustrum.Tests.TreeStaticDynamicTest
+use Frustum.Tests.TreeStaticDynamicTest
 use Libraries.Testing.Tester
 
 Tester tester

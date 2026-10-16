@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Interface.Item3D
 use Libraries.Game.BoundingBox
@@ -9,7 +9,7 @@ An item with no size, or with a negative size, has none. A flat item, with
 no height, still has one, though BoundingBox:IsValid rejects flat boxes.
 
 Attribute: Example
-use Frustrum.Tests.RenderBoundsTest
+use Frustum.Tests.RenderBoundsTest
 use Libraries.Testing.Tester
 
 Tester tester

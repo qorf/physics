@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Interface.Item3D
 use Libraries.Containers.Array
@@ -9,8 +9,8 @@ counting test items add themselves to it when a layer draws them, so a test
 can see what Layer3D.Draw handed out.
 
 Attribute: Example
-use Frustrum.Tests.DrawLog
-use Frustrum.Tests.CountingItem3D
+use Frustum.Tests.DrawLog
+use Frustum.Tests.CountingItem3D
 
 DrawLog log
 CountingItem3D item

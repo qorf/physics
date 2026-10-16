@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Graphics.Trees.CullingVolume3D
 
@@ -9,7 +9,7 @@ a distance of 10, the view reaches 10 times the tangent of 30 degrees, about
 5.77, to each side.
 
 Attribute: Example
-use Frustrum.Tests.CullingVolumePerspectiveTest
+use Frustum.Tests.CullingVolumePerspectiveTest
 use Libraries.Testing.Tester
 
 Tester tester

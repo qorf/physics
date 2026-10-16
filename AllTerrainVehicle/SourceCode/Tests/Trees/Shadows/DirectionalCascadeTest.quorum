@@ -1,9 +1,10 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Graphics.Trees.RenderTree3D
 use Libraries.Game.Graphics.DirectionalLight
 use Libraries.Containers.Array
 use Libraries.Interface.Item3D
+use Libraries.Game.Graphics.Trees.RenderTree3DResult
 
 /*
 Tests CollectDirectionalShadowCasters for one cascade, with a light that has
@@ -11,7 +12,7 @@ no shadow data, as in OpenGL or before Vulkan has drawn. It must add
 nothing, whatever is in the tree.
 
 Attribute: Example
-use Frustrum.Tests.DirectionalCascadeTest
+use Frustum.Tests.DirectionalCascadeTest
 use Libraries.Testing.Tester
 
 Tester tester
@@ -34,10 +35,10 @@ class DirectionalCascadeTest is RenderTreeTest
 
         DirectionalLight light
         light:SetDirection(0, -1, 0)
-        Array<Item3D> found
-        tree:CollectDirectionalShadowCasters(light, 0, found)
-        CheckWhole("items found for cascade 0", found:GetSize(), 0)
-        tree:CollectDirectionalShadowCasters(light, 3, found)
-        CheckWhole("items found for cascade 3", found:GetSize(), 0)
+        RenderTree3DResult result = MakeResult()
+        tree:CollectDirectionalShadowCasters(light, 0, result)
+        CheckWhole("items found for cascade 0", GetAll(result):GetSize(), 0)
+        tree:CollectDirectionalShadowCasters(light, 3, result)
+        CheckWhole("items found for cascade 3", GetAll(result):GetSize(), 0)
     end
 end

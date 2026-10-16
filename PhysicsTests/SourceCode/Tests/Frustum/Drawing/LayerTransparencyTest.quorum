@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Layer3D
 
@@ -8,7 +8,7 @@ is not transparent, and from farthest to nearest, so each blends over what
 is behind it. Moving the camera to the other side reverses their order.
 
 Attribute: Example
-use Frustrum.Tests.LayerTransparencyTest
+use Frustum.Tests.LayerTransparencyTest
 use Libraries.Testing.Tester
 
 // Run from a game's CreateGame, since a Layer3D needs a running game.

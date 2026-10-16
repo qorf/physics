@@ -6,6 +6,7 @@ use Libraries.Game.Graphics.Trees.QuadTree3D
 use Libraries.Game.Graphics.Trees.Octree3D
 use Libraries.Game.Graphics.Trees.RenderTreeNode3D
 use Libraries.Game.Graphics.Trees.CullingVolume3D
+use Libraries.Game.Graphics.Trees.RenderTree3DResult
 use Libraries.Containers.Array
 use Libraries.Containers.HashTable
 use Libraries.Interface.Item3D
@@ -110,6 +111,12 @@ class RenderTreeCheck
     Array<Item3D> visible
     Array<Item3D> casters
     Array<Item3D> lit
+
+    // The result the tree fills for each search, and a count that gives
+    // each search its own number, so each search finds every item again
+    // and can be checked on its own.
+    RenderTree3DResult searchResult
+    integer searchCount = 0
 
     // Used by the hand test.
     HashTable<Item3D, Item3D> returned
@@ -254,8 +261,9 @@ class RenderTreeCheck
 
         boolean checking = checkInterval > 0 and frames mod checkInterval = 0
 
-        visible:Empty(false)
-        tree:CollectVisible(camera, visible)
+        StartSearch(camera)
+        tree:CollectVisible(camera, searchResult)
+        CopyResult(visible)
         integer count = visible:GetSize()
         visibleSum = visibleSum + count
         if fewestVisible < 0 or count < fewestVisible
@@ -275,8 +283,9 @@ class RenderTreeCheck
         if sun not= undefined
             integer cascade = 0
             repeat while sun:GetShadowData(cascade) not= undefined
-                casters:Empty(false)
-                tree:CollectDirectionalShadowCasters(sun, cascade, casters)
+                StartSearch(camera)
+                tree:CollectDirectionalShadowCasters(sun, cascade, searchResult)
+                CopyResult(casters)
                 casterSum = casterSum + casters:GetSize()
                 if cascade < cascadeCasters:GetSize()
                     cascadeCasters:Set(cascade, casters:GetSize())
@@ -294,8 +303,9 @@ class RenderTreeCheck
         end
 
         if light not= undefined
-            lit:Empty(false)
-            tree:CollectPointShadowCasters(light, lit)
+            StartSearch(camera)
+            tree:CollectPointShadowCasters(light, searchResult)
+            CopyResult(lit)
             litSum = litSum + lit:GetSize()
             if checking
                 CompareWithSphere(light, lit)
@@ -317,6 +327,44 @@ class RenderTreeCheck
         frames = frames + 1
         totalFrames = totalFrames + 1
         tree:EndFrame()
+    end
+
+    /*
+    This action gets the result ready for a new search: it empties it, and
+    gives it the camera, this frame's number, and a search number no earlier
+    search used, so it finds every item again.
+
+    Attribute: Parameter camera The camera the result sorts items by.
+    */
+    private action StartSearch(Camera camera)
+        searchCount = searchCount + 1
+        searchResult:Empty()
+        searchResult:SetCamera(camera)
+        searchResult:SetFrame(totalFrames)
+        searchResult:SetSearchCount(searchCount)
+    end
+
+    /*
+    This action copies everything the last search found, visible or not,
+    into an array, which it empties first. The checks compare the whole
+    answer of each search with the hand test.
+
+    Attribute: Parameter found The array to copy the items into.
+    */
+    private action CopyResult(Array<Item3D> found)
+        found:Empty(false)
+        Array<Item3D> visibleItems = searchResult:GetVisible()
+        Array<Item3D> invisibleItems = searchResult:GetInvisible()
+        integer i = 0
+        repeat while i < visibleItems:GetSize()
+            found:Add(visibleItems:Get(i))
+            i = i + 1
+        end
+        i = 0
+        repeat while i < invisibleItems:GetSize()
+            found:Add(invisibleItems:Get(i))
+            i = i + 1
+        end
     end
 
     /*

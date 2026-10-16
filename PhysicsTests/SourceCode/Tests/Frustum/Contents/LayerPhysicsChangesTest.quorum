@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Layer3D
 use Libraries.Interface.Item3D
@@ -17,7 +17,7 @@ and physics walks only the awake ones, so:
 The 28 physics world tests check the physics itself.
 
 Attribute: Example
-use Frustrum.Tests.LayerPhysicsChangesTest
+use Frustum.Tests.LayerPhysicsChangesTest
 use Libraries.Testing.Tester
 
 // Run from a game's CreateGame, since a Layer3D needs a running game.

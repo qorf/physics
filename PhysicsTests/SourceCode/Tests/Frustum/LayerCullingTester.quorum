@@ -1,11 +1,11 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Testing.Tester
 
 /*
 LayerCullingTester runs the layer culling tests, in the same way
 ScienceTester runs the statistics tests. The test classes are in
-Tests/Frustrum, one test to a file. Like the physics world tests, these
+Tests/Frustum, one test to a file. Like the physics world tests, these
 need a running game, so Main runs them from CreateGame.
 
 The tests of the render trees on their own, which need no game, are in the
@@ -16,7 +16,7 @@ why, so this tester runs each test itself and, if it stops with an error,
 adds the error to the test's message before handing the test to the Tester.
 
 Attribute: Example
-use Frustrum.Tests.LayerCullingTester
+use Frustum.Tests.LayerCullingTester
 use Libraries.Testing.Tester
 
 // Run from a game's CreateGame, since a Layer3D needs a running game.

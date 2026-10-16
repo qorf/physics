@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Testing.Test
 use Libraries.Interface.Item3D
@@ -10,6 +10,7 @@ use Libraries.Game.Graphics.Trees.DynamicVolumeRenderTree3D
 use Libraries.Game.Graphics.Trees.QuadTree3D
 use Libraries.Game.Graphics.Trees.Octree3D
 use Libraries.Game.Graphics.Trees.CullingVolume3D
+use Libraries.Game.Graphics.Trees.RenderTree3DResult
 use Libraries.Compute.Matrix4
 use Libraries.Compute.Vector3
 use Libraries.Compute.Math
@@ -33,7 +34,7 @@ than the hand count, such as dynamic items whose boxes have a margin, but
 never fewer, and never the same item twice.
 
 Attribute: Example
-use Frustrum.Tests.TreeAddRemoveTest
+use Frustum.Tests.TreeAddRemoveTest
 use Libraries.Testing.Tester
 
 Tester tester
@@ -60,6 +61,10 @@ class RenderTreeTest is Test
     text notes = ""
     Math helperMath
     Random random
+
+    // Counts the results this test has made, so each gets its own search
+    // count and does not skip items an earlier result already holds.
+    integer searchCount = 0
 
     /*
     This action sets what the test is called, without the kind of tree. A
@@ -221,6 +226,60 @@ class RenderTreeTest is Test
             return "inside"
         end
         return "unknown (" + result + ")"
+    end
+
+    /*
+    This action makes an empty result for one search, sorting what it finds
+    by the given view: items the view can see go in its visible list, the
+    rest in its invisible list. Each result gets a new search count, so it
+    finds every item again, even those an earlier result already holds.
+
+    Attribute: Parameter view The view-projection matrix to sort items by.
+    Attribute: Returns The new result.
+    */
+    action MakeResult(Matrix4 view) returns RenderTree3DResult
+        RenderTree3DResult result
+        searchCount = searchCount + 1
+        result:SetSearchCount(searchCount)
+        result:SetViewProjection(view)
+        return result
+    end
+
+    /*
+    This action makes an empty result for one search, as MakeResult(view)
+    does, sorting by a new Matrix4, which sees only the space from -1 to 1
+    around the origin. The shadow tests use it, since their items are away
+    from the origin and so go in the invisible list.
+
+    Attribute: Returns The new result.
+    */
+    action MakeResult returns RenderTree3DResult
+        Matrix4 view
+        return MakeResult(view)
+    end
+
+    /*
+    This action returns every item in a result, the visible ones followed by
+    the invisible ones, in a new array.
+
+    Attribute: Parameter result The result.
+    Attribute: Returns A new array of all the result's items.
+    */
+    action GetAll(RenderTree3DResult result) returns Array<Item3D>
+        Array<Item3D> all
+        Array<Item3D> visible = result:GetVisible()
+        Array<Item3D> invisible = result:GetInvisible()
+        integer i = 0
+        repeat while i < visible:GetSize()
+            all:Add(visible:Get(i))
+            i = i + 1
+        end
+        i = 0
+        repeat while i < invisible:GetSize()
+            all:Add(invisible:Get(i))
+            i = i + 1
+        end
+        return all
     end
 
     /*

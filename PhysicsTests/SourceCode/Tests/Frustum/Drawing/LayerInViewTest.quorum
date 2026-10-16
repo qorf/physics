@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Layer3D
 
@@ -8,7 +8,7 @@ not the items behind it or past its sides. There are no lights, so no item
 is drawn for its shadow.
 
 Attribute: Example
-use Frustrum.Tests.LayerInViewTest
+use Frustum.Tests.LayerInViewTest
 use Libraries.Testing.Tester
 
 // Run from a game's CreateGame, since a Layer3D needs a running game.

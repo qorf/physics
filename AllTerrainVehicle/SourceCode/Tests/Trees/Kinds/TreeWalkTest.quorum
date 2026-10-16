@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Graphics.Trees.RenderTree3D
 use Libraries.Game.Graphics.Trees.RenderTreeNode3D
@@ -15,7 +15,7 @@ one, so the test does the same, removing every second item it visits. Every
 item must still be visited once.
 
 Attribute: Example
-use Frustrum.Tests.TreeWalkTest
+use Frustum.Tests.TreeWalkTest
 use Libraries.Testing.Tester
 
 Tester tester

@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Layer3D
 use Libraries.Containers.Array
@@ -13,7 +13,7 @@ The removed third item may or may not have been updated before it was
 removed, depending on the tree's order; the test notes which happened.
 
 Attribute: Example
-use Frustrum.Tests.LayerRemoveDuringUpdateTest
+use Frustum.Tests.LayerRemoveDuringUpdateTest
 use Libraries.Testing.Tester
 
 // Run from a game's CreateGame, since a Layer3D needs a running game.

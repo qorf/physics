@@ -8,7 +8,7 @@
     "ImageSheetBuildPath" : "resources",
     "ImageSheetEnabled" : false,
     "ImageSheetRebuildOnCompile" : false,
-    "Main" : "/SourceCode/RunPhysicsTests.quorum",
+    "Main" : "/SourceCode/Main.quorum",
     "Project Version" : "1.0",
     "ProjectName" : "AllTerrainVehicle",
     "ProjectType" : "JavaType",

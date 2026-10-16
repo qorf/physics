@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Layer3D
 
@@ -10,7 +10,7 @@ between the move and the drawing, and once with collisions turned off, so
 only Draw hands the move over.
 
 Attribute: Example
-use Frustrum.Tests.LayerMoveIntoViewTest
+use Frustum.Tests.LayerMoveIntoViewTest
 use Libraries.Testing.Tester
 
 // Run from a game's CreateGame, since a Layer3D needs a running game.

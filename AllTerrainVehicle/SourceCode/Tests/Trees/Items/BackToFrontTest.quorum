@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Item3DBackToFrontComparison
 use Libraries.Interface.Item3D
@@ -11,7 +11,7 @@ Moving the point to the other side reverses the order. Items the same
 distance away compare as equal.
 
 Attribute: Example
-use Frustrum.Tests.BackToFrontTest
+use Frustum.Tests.BackToFrontTest
 use Libraries.Testing.Tester
 
 Tester tester

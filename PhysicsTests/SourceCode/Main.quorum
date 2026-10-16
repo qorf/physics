@@ -3,7 +3,7 @@ use Libraries.Testing.Tester
 use Libraries.Testing.Test
 use Libraries.Containers.Iterator
 use Physics.Tests.PhysicsWorldTester
-use Frustrum.Tests.LayerCullingTester
+use Frustum.Tests.LayerCullingTester
 
 /*
 Main runs the physics world tests and the layer culling tests. These tests

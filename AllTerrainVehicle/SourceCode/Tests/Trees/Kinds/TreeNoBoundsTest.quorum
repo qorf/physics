@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Graphics.Trees.RenderTree3D
 use Libraries.Interface.Item3D
@@ -10,7 +10,7 @@ their GetRenderBounds gives none. Add with a box given works, and the item
 is found where that box is.
 
 Attribute: Example
-use Frustrum.Tests.TreeNoBoundsTest
+use Frustum.Tests.TreeNoBoundsTest
 use Libraries.Testing.Tester
 
 Tester tester

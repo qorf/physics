@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Interface.Item3D
 use Libraries.Game.Layer3D
@@ -9,7 +9,7 @@ The item can be itself. The layer tests use it to remove items while the
 layer is walking its items.
 
 Attribute: Example
-use Frustrum.Tests.RemovingItem3D
+use Frustum.Tests.RemovingItem3D
 use Libraries.Game.Layer3D
 
 Layer3D layer

@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Layer3D
 
@@ -12,7 +12,7 @@ The item is placed at x 100, past the side of the view. Given a width of
 300, it reaches across the view, so it must then be drawn.
 
 Attribute: Example
-use Frustrum.Tests.LayerResizeTest
+use Frustum.Tests.LayerResizeTest
 use Libraries.Testing.Tester
 
 // Run from a game's CreateGame, since a Layer3D needs a running game.

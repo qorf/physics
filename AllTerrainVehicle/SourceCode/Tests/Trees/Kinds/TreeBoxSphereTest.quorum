@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Graphics.Trees.RenderTree3D
 use Libraries.Interface.Item3D
@@ -11,7 +11,7 @@ with the same kind of random items as the visible test, before and after
 moving half of them.
 
 Attribute: Example
-use Frustrum.Tests.TreeBoxSphereTest
+use Frustum.Tests.TreeBoxSphereTest
 use Libraries.Testing.Tester
 
 Tester tester

@@ -1,6 +1,8 @@
 # Shadow distance on DirectionalLight, for culling
 
 > **Status, 2026-10-15: done.** Applied to the library (default distance 50, not 0 as written below). Kept as a record.
+>
+> **Renamed, 2026-10-16:** `SetShadowDistance` and `GetShadowDistance` are now `DirectionalLight:SetRange` and `GetRange`, matching the new `PointLight:SetRange`. The field is `range`.
 
 Written 2026-10-14. A proposal for review. **Nothing has been changed.**
 

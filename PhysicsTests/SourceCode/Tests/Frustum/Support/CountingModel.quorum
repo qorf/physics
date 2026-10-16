@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Graphics.Model
 use Libraries.Game.Graphics.Painter3D
@@ -11,8 +11,8 @@ it, it records itself in a DrawLog and draws its children, but hands
 nothing to the painter, since it has no blueprint to draw.
 
 Attribute: Example
-use Frustrum.Tests.CountingModel
-use Frustrum.Tests.DrawLog
+use Frustum.Tests.CountingModel
+use Frustum.Tests.DrawLog
 
 DrawLog log
 CountingModel model

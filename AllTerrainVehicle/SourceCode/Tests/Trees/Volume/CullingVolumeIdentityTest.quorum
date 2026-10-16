@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Graphics.Trees.CullingVolume3D
 use Libraries.Compute.Matrix4
@@ -9,7 +9,7 @@ where it is. Its volume is x and y from -1 to 1, and z up to 1, with no
 lower limit on z, since the volume has no near plane.
 
 Attribute: Example
-use Frustrum.Tests.CullingVolumeIdentityTest
+use Frustum.Tests.CullingVolumeIdentityTest
 use Libraries.Testing.Tester
 
 Tester tester

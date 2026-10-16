@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Layer3D
 use Libraries.Game.Graphics.Trees.QuadTree3D
@@ -13,7 +13,7 @@ QuadTree3D, then an Octree3D, then back to a DynamicVolumeRenderTree3D,
 every item must still be on the layer, and the same items must be drawn.
 
 Attribute: Example
-use Frustrum.Tests.LayerSwapTreeTest
+use Frustum.Tests.LayerSwapTreeTest
 use Libraries.Testing.Tester
 
 // Run from a game's CreateGame, since a Layer3D needs a running game.

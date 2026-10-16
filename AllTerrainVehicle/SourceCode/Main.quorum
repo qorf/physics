@@ -25,6 +25,8 @@ use Libraries.Game.Graphics.FramesPerSecondLabel
 use RenderingChecks.RenderTreeCheck
 use Libraries.Game.Graphics.Trees.QuadTree3D
 use Libraries.Game.Graphics.Trees.Octree3D
+use Libraries.Game.Graphics.Label
+use Libraries.Game.Layer3D
 
 /*
     A raycast vehicle driving over rolling hills. The hills are a Terrain built
@@ -153,6 +155,7 @@ class Main is Game
     number linearSleepSpeed = 0.8
     number angularSleepSpeed = 1
     FramesPerSecondLabel fpsLabel
+    Label cullLabel
 
     // Render tree check. While useRenderTree is true, every drawn item is
     // added to a RenderTree3D as well as to the game. Each frame the tree is
@@ -178,12 +181,12 @@ class Main is Game
     // room above it for the rain and around it for things that roll off.
     integer renderTreeKind = 0
 
-    // How far from the camera the sun's shadow casters are kept when the
-    // layer culls, or 0 for no limit. The map is 128 units across. It is set
-    // on the sun, with DirectionalLight:SetShadowDistance, and the layer
-    // reads it from there. It changes only what is drawn into the shadows,
-    // not the painter's cascades.
-    number shadowDistance = 20
+    // How far the sun's shadows reach from the camera when the layer culls,
+    // or 0 for the sun to work it out from its shadow cascades. The map is
+    // 128 units across. It is set on the sun, with DirectionalLight:SetRange,
+    // and the layer reads it from there. It changes only what is drawn into
+    // the shadows, not the painter's cascades.
+    number sunRange = 20
 
     // If more than 0, the camera's far plane, in place of the default 1000.
     // The painter fits its shadow cascades between the camera's near and far
@@ -198,7 +201,7 @@ class Main is Game
     action Main
         // Terrain currently builds its mesh with the Vulkan renderer only.
         
-        SetScreenSize(1000, 500)
+        SetScreenSize(2000, 1000)
         UseVulkan(true)
         StartGame()
     end
@@ -208,6 +211,8 @@ class Main is Game
             GetCamera3D():SetFar(cameraFarDistance)
         end
 
+        cullLabel:SetText("0% Culled")
+        Add(cullLabel)
         EnablePhysics3D(true)
         SetGravity3D(0, -9.8, 0)
         Color colors
@@ -234,7 +239,7 @@ class Main is Game
         sunlight:SetIntensity(2.5)
         sunlight:SetColor(colors:LightGray())
         sunlight:SetDirection(-1, -4, 2)
-        sunlight:SetShadowDistance(shadowDistance)
+        sunlight:SetRange(sunRange)
         Add(sunlight)
 
         // The stack sites are chosen first, because the terrain flattens the
@@ -253,7 +258,8 @@ class Main is Game
             PointLight light
             light:SetColor(colors:CustomColor(0.5, 0.5, 1, 1))
             light:SetIntensity(50)
-            light:SetPosition(0, GetGroundHeightAt(0, 0) + 6, 0)
+            light:SetRange(5)
+            light:SetPosition(0, GetGroundHeightAt(0, 0) + 9, 0)
             Add(light)
             lamp = light
         end
@@ -265,6 +271,13 @@ class Main is Game
     end
 
     action Update(number seconds)
+        cullLabel:SetPosition(fpsLabel:GetX() + fpsLabel:GetWidth() + 20, fpsLabel:GetY())
+        Layer3D layer = GetCurrentLayer3D()
+        number cull = 100 * layer:GetCullPercentage()
+        text cullText = "" + cull
+        integer value = cullText:IndexOf(".")
+        cullText = cullText:GetSubtext(0, value + 2)
+        cullLabel:SetText("Culled: " + cullText + " %")
         if benchmark
             RecordFrame(seconds)
             if frameCount >= benchmarkFrames

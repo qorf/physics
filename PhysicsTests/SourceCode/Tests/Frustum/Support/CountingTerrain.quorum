@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Graphics.Worlds.Terrain
 use Libraries.Game.Graphics.Painter3D
@@ -8,8 +8,8 @@ CountingTerrain is a terrain for the layer tests. When a layer draws it, it
 records itself in a DrawLog, but hands nothing to the painter.
 
 Attribute: Example
-use Frustrum.Tests.CountingTerrain
-use Frustrum.Tests.DrawLog
+use Frustum.Tests.CountingTerrain
+use Frustum.Tests.DrawLog
 
 DrawLog log
 CountingTerrain terrain

@@ -1,4 +1,4 @@
-package Frustrum.Tests
+package Frustum.Tests
 
 use Libraries.Game.Layer3D
 
@@ -14,7 +14,7 @@ it, in view. Then the parent moves in front of the camera, taking the
 child with it.
 
 Attribute: Example
-use Frustrum.Tests.LayerChildrenTest
+use Frustum.Tests.LayerChildrenTest
 use Libraries.Testing.Tester
 
 // Run from a game's CreateGame, since a Layer3D needs a running game.
