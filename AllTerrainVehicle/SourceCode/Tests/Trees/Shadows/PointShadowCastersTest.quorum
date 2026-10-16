@@ -59,7 +59,7 @@ class PointShadowCastersTest is RenderTreeTest
         result = MakeResult()
         tree:CollectPointShadowCasters(light, result)
         found = GetAll(result)
-        HandInSphere(items, locals, 20, -10, 30, light:GetRange(), expected)
+        HandInSphere(items, locals, 20, -10, 30, light:GetCullingRange(), expected)
         CheckIncludesAll("random items, against a hand count", expected, found)
     end
 end

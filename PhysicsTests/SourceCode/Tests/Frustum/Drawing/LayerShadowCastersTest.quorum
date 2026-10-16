@@ -10,11 +10,11 @@ Vulkan layer does this, so with OpenGL the test checks instead that nothing
 out of view is drawn.
 
 With Vulkan:
-- A sun shining straight down, with its range of 50, keeps items
+- A sun shining straight down, with its culling range of 50, keeps items
   within 50 of the camera across the light. An item 10 behind the camera is
   drawn; one 80 behind is not.
 - A model that casts no shadow is not drawn, even 12 behind the camera.
-- With the sun's range at 0, the layer uses the sun's cascades instead.
+- With the sun's culling range at 0, the layer uses the sun's cascades instead.
   The stand-in painter never draws, so the cascades are never worked out,
   and nothing out of view is drawn. The test records this.
 - A point light reaching 10 draws an item 2 from it, behind the camera, and
@@ -58,13 +58,13 @@ class LayerShadowCastersTest is LayerCullingTest
             return now
         end
 
-        CheckDrawn("an item 10 behind, within the sun's range", log, nearBehind, 1)
-        CheckDrawn("an item 80 behind, past the sun's range", log, farBehind, 0)
+        CheckDrawn("an item 10 behind, within the sun's culling range", log, nearBehind, 1)
+        CheckDrawn("an item 80 behind, past the sun's culling range", log, farBehind, 0)
         CheckDrawn("a model that casts no shadow, 12 behind", log, noShadow, 0)
 
-        sun:SetRange(0)
+        sun:SetCullingRange(0)
         DrawLayer(layer, log)
-        CheckDrawn("with the sun's range at 0 and no cascades worked out, an item 10 behind", log, nearBehind, 0)
+        CheckDrawn("with the sun's culling range at 0 and no cascades worked out, an item 10 behind", log, nearBehind, 0)
 
         layer:Remove(sun)
         PointLight lamp

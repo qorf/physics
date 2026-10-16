@@ -603,7 +603,7 @@ class RenderTreeCheck
         number x = light:GetGlobalX()
         number y = light:GetGlobalY()
         number z = light:GetGlobalZ()
-        number range = light:GetRange()
+        number range = light:GetCullingRange()
         integer i = 0
         repeat while i < items:GetSize()
             Item3D item = items:Get(i)

@@ -181,12 +181,13 @@ class Main is Game
     // room above it for the rain and around it for things that roll off.
     integer renderTreeKind = 0
 
-    // How far the sun's shadows reach from the camera when the layer culls,
-    // or 0 for the sun to work it out from its shadow cascades. The map is
-    // 128 units across. It is set on the sun, with DirectionalLight:SetRange,
-    // and the layer reads it from there. It changes only what is drawn into
-    // the shadows, not the painter's cascades.
-    number sunRange = 20
+    // How far from the camera objects are drawn into the sun's shadows when
+    // the layer culls, or 0 for the sun to work it out from its shadow
+    // cascades. The map is 128 units across. It is set on the sun, with
+    // DirectionalLight:SetCullingRange, and the layer reads it from there. It
+    // changes only what is drawn into the shadows, not the painter's
+    // cascades.
+    number sunCullingRange = 20
 
     // If more than 0, the camera's far plane, in place of the default 1000.
     // The painter fits its shadow cascades between the camera's near and far
@@ -239,7 +240,7 @@ class Main is Game
         sunlight:SetIntensity(2.5)
         sunlight:SetColor(colors:LightGray())
         sunlight:SetDirection(-1, -4, 2)
-        sunlight:SetRange(sunRange)
+        sunlight:SetCullingRange(sunCullingRange)
         Add(sunlight)
 
         // The stack sites are chosen first, because the terrain flattens the
@@ -258,7 +259,7 @@ class Main is Game
             PointLight light
             light:SetColor(colors:CustomColor(0.5, 0.5, 1, 1))
             light:SetIntensity(50)
-            light:SetRange(5)
+            light:SetCullingRange(5)
             light:SetPosition(0, GetGroundHeightAt(0, 0) + 9, 0)
             Add(light)
             lamp = light
