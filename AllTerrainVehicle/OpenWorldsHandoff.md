@@ -16,11 +16,15 @@ Last updated: 2026-10-17
 
 ## Working on now
 
-**Tier 1**, tracked in its own file, `OpenWorldTier1Handoff.md`. Steps 1,
-3 and 4 are done and checked: DriveOpen drives over 64 regions with a
-texture. Steps 2 (queries), 5 (editing) and 6 (saving) are written and
-waiting to be run. All code goes in AllTerrainVehicle first, and the
-standard library is not changed unless the user asks.
+**Tier 1 is complete** (committed in `d9ef406`); its record is in
+`OpenWorldTier1Handoff.md`. **Tier 2 (texturing)** is planned in
+`OpenWorldTier2Handoff.md`, and on hold by the user's choice. **Tier 3
+(open worlds)** is planned in `OpenWorldTier3Handoff.md`; step 1 (collision
+only near the player) is done and checked. Step 2 (streaming regions, with
+settings saved as JSON) is done and checked. Next in the plan is step 3, a
+floating origin experiment, then the library change S1 (freeing GPU
+memory). All code goes in AllTerrainVehicle first, and
+the standard library is not changed unless the user asks.
 
 ## Next steps
 

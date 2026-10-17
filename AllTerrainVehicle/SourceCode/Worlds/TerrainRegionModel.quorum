@@ -5,24 +5,24 @@ use Libraries.Containers.Number32BitArray
 use Libraries.Containers.Integer32BitArray
 use Libraries.Compute.Vector3
 use Libraries.Compute.Vector4
-use Libraries.Game.BoundingBox
 use Libraries.Game.Graphics.Texture
 use Libraries.Game.Graphics.Models.Data.ModelData
 use Libraries.Game.Graphics.Models.Data.MeshData
 use Libraries.Game.Graphics.Models.Data.Material
 use Libraries.Game.Graphics.Models.Vulkan.ModelManagerVulkan
 use Libraries.Game.Graphics.Models.Vulkan.ModelBlueprintVulkan
-use Libraries.Game.Collision.Shapes.HeightmapTerrainShape
 
 /*
-A TerrainRegionModel draws one TerrainRegion and gives it something to collide
-with. A WorldTerrain makes one for each region, so a large terrain is drawn
-and collided with as many smaller pieces. Each piece can be culled on its
-own, and a change to the ground only needs the pieces it touched rebuilt.
+A TerrainRegionModel draws one TerrainRegion. A WorldTerrain makes one for
+each region, so a large terrain is drawn as many smaller pieces. Each piece
+can be culled on its own, and a change to the ground only needs the pieces
+it touched rebuilt.
 
-It is a Terrain, so the physics engine's HeightmapTerrainShape works with it
-unchanged. The shape asks the terrain for the corners of each triangle, and
-this class answers by reading the heights straight from the TerrainData.
+It is a TerrainPatch, so it can also be what the physics engine collides
+with. When a WorldTerrain uses full collision, each region model has a
+collision shape for its whole region. When it uses dynamic collision, the
+region models only draw, and a TerrainCollision keeps small collision pieces
+near the player instead.
 
 The mesh covers its region's samples and reaches one sample into the next
 region along x and along z, where there is one, so neighboring pieces share
@@ -30,14 +30,8 @@ their edges and there are no gaps between them. Normals are worked out from
 the TerrainData as well, across region edges, so the lighting matches where
 two pieces meet.
 
-The model's own grid has one unit between samples. The vertex spacing is
-applied as the model's x and z scale, the way HeightmapTerrainShape expects.
-The model sits at the lowest height in its mesh, and its vertices are
-measured up from there, so the shape's box, which starts at the model's
-position, holds all of the ground.
-
 In Terrain3D, drawing is done by Terrain3DMesher and collision by
-Terrain3DCollision, which also makes one collision shape per region.
+Terrain3DCollision.
 
 Attribute: Example
 use Libraries.Game.Game
@@ -53,42 +47,32 @@ class Main is Game
         TerrainData data
         data:AddRegion(0, 0)
         TerrainRegionModel model
-        model:Build(data, data:GetRegion(0, 0), undefined, 4)
+        model:Build(data, data:GetRegion(0, 0), undefined, 4, false)
+        model:PlaceInWorld()
         Add(model)
     end
 end
 */
-class TerrainRegionModel is Terrain
-    // Where the heights come from, and which region this model draws.
-    TerrainData terrainData = undefined
+class TerrainRegionModel is TerrainPatch
+    // Which region this model draws.
     TerrainRegion terrainRegion = undefined
 
-    // The first sample of the mesh, along x and z, counted from the world's
-    // origin.
-    integer firstSampleX = 0
-    integer firstSampleZ = 0
-
-    // How many samples the mesh covers along x and z. This is the region size,
-    // plus one where the mesh reaches into the next region.
-    integer sampleCountX = 0
-    integer sampleCountZ = 0
-
-    // The lowest height in the mesh. The model sits at this height, and its
-    // vertices are measured up from it.
-    number baseHeight = 0
+    // Whether the model has a collision shape for its whole region.
+    boolean hasCollisionShape = true
 
     // How many times this model has been built, so each build's mesh gets its
     // own name.
     integer buildCount = 0
 
-    // How far the edges of a triangle's box are pushed out, for the collision
-    // shape. This matches Terrain.
-    number triangleMargin = 0.04
+    // Whether the ground this model draws has changed while it was out of the
+    // game, so it must be rebuilt before it is shown again.
+    boolean needsRebuild = false
 
     /*
-    This action builds the model's mesh and collision shape for one region.
-    Call PlaceInWorld afterward, once physics has been set up, to place and
-    scale the model to match the TerrainData's vertex spacing.
+    This action builds the model's mesh, and its collision shape if asked,
+    for one region. Call PlaceInWorld afterward, once physics has been set
+    up, to place and scale the model to match the TerrainData's vertex
+    spacing.
 
     Building again makes a new mesh. The renderer cannot yet free the old
     one, so its memory stays in use. See VulkanChanges.md.
@@ -97,17 +81,19 @@ class TerrainRegionModel is Terrain
     Attribute: Parameter region The region this model draws.
     Attribute: Parameter texture The texture laid over the ground, or undefined for none.
     Attribute: Parameter textureRepeat How far apart, in world units, the texture repeats.
+    Attribute: Parameter withCollision True to give the model a collision shape for its whole region.
     */
-    action Build(TerrainData data, TerrainRegion region, Texture texture, number textureRepeat)
-        terrainData = data
+    action Build(TerrainData data, TerrainRegion region, Texture texture, number textureRepeat, boolean withCollision)
         terrainRegion = region
-        BuildMeshAndShape(texture, textureRepeat)
+        hasCollisionShape = withCollision
+        BuildMeshAndShape(data, texture, textureRepeat)
     end
 
     /*
     This action builds the model again from the current heights, after they
-    have changed, and moves it to its new height. The model keeps its
-    physics settings. It must have been built with Build first.
+    have changed, and moves it to its new height. It keeps its physics
+    settings, and keeps or leaves out its collision shape as it was built.
+    It must have been built with Build first.
 
     Each rebuild makes a new mesh, and the renderer cannot yet free the old
     one, so its memory stays in use. See VulkanChanges.md.
@@ -116,121 +102,43 @@ class TerrainRegionModel is Terrain
     Attribute: Parameter textureRepeat How far apart, in world units, the texture repeats.
     */
     action Rebuild(Texture texture, number textureRepeat)
-        if terrainData = undefined
+        if terrainRegion = undefined
             alert("A TerrainRegionModel must be built with Build before it can be rebuilt.")
         end
-        BuildMeshAndShape(texture, textureRepeat)
+        BuildMeshAndShape(GetTerrainData(), texture, textureRepeat)
         PlaceInWorld()
+        needsRebuild = false
     end
 
     /*
-    This action returns true if a change to a rectangle of samples would
-    change this model. The model's mesh covers its region and one sample
-    into the next, and its normals read one sample further on each side, so
-    the rectangle is compared against the region grown by one sample, and
-    by two on the far sides.
+    This action sets the region this model draws, without rebuilding it.
+    When a streamed region is loaded again, it is a new TerrainRegion at the
+    same location, and the model built for it before can be reused.
 
-    Attribute: Parameter minimumX The rectangle's smallest sample along x.
-    Attribute: Parameter minimumZ The rectangle's smallest sample along z.
-    Attribute: Parameter maximumX The rectangle's largest sample along x.
-    Attribute: Parameter maximumZ The rectangle's largest sample along z.
-    Attribute: Returns True if the model should be rebuilt.
+    Attribute: Parameter region The region, at the same location as before.
     */
-    action IsAffectedBy(integer minimumX, integer minimumZ, integer maximumX, integer maximumZ) returns boolean
-        if terrainData = undefined
-            return false
-        end
-        integer regionSize = terrainData:GetRegionSize()
-        integer firstX = terrainRegion:GetLocationX() * regionSize
-        integer firstZ = terrainRegion:GetLocationZ() * regionSize
-        return maximumX >= firstX - 1 and minimumX <= firstX + regionSize + 1 and
-            maximumZ >= firstZ - 1 and minimumZ <= firstZ + regionSize + 1
+    action SetTerrainRegion(TerrainRegion region)
+        terrainRegion = region
     end
 
     /*
-    This action works out which samples the mesh covers, builds the mesh,
-    loads it, and gives the model its sizes and collision shape.
+    This action marks whether the ground this model draws has changed while
+    it was out of the game, so it must be rebuilt before it is shown again.
 
-    Attribute: Parameter texture The texture laid over the ground, or undefined for none.
-    Attribute: Parameter textureRepeat How far apart, in world units, the texture repeats.
+    Attribute: Parameter rebuild True if the model must be rebuilt.
     */
-    private action BuildMeshAndShape(Texture texture, number textureRepeat)
-        TerrainData data = terrainData
-        integer regionSize = data:GetRegionSize()
-        integer locationX = terrainRegion:GetLocationX()
-        integer locationZ = terrainRegion:GetLocationZ()
-        firstSampleX = locationX * regionSize
-        firstSampleZ = locationZ * regionSize
-
-        // Reach one sample into the next region, if there is one, to close
-        // the gap between the two meshes.
-        sampleCountX = regionSize
-        if data:HasRegion(locationX + 1, locationZ)
-            sampleCountX = regionSize + 1
-        end
-        sampleCountZ = regionSize
-        if data:HasRegion(locationX, locationZ + 1)
-            sampleCountZ = regionSize + 1
-        end
-
-        // Find the height range of the mesh first, since the vertices are
-        // measured up from the lowest height.
-        baseHeight = GetMeshHeight(0, 0)
-        number highestHeight = baseHeight
-        integer row = 0
-        repeat while row < sampleCountZ
-            integer column = 0
-            repeat while column < sampleCountX
-                number height = GetMeshHeight(column, row)
-                if height < baseHeight
-                    baseHeight = height
-                end
-                if height > highestHeight
-                    highestHeight = height
-                end
-                column = column + 1
-            end
-            row = row + 1
-        end
-
-        MeshData mesh = BuildMesh(data:GetVertexSpacing(), textureRepeat)
-        LoadMesh(mesh, locationX, locationZ)
-        if texture not= undefined
-            GetResources():SetTexture(texture)
-        end
-
-        // The same sizes Terrain gives itself, which the collision shape
-        // reads: samples across, height range, samples deep. Once all three
-        // are set, Item3D gives the model a plain box shape, so the terrain's
-        // shape is set after them.
-        SetWidth(sampleCountX)
-        SetHeight(highestHeight - baseHeight)
-        SetDepth(sampleCountZ)
-
-        HeightmapTerrainShape terrainShape
-        terrainShape:SetTerrain(me)
-        terrainShape:Set(GetWidth(), GetHeight(), GetDepth())
-        SetShape(terrainShape)
+    action SetNeedsRebuild(boolean rebuild)
+        needsRebuild = rebuild
     end
 
     /*
-    This action places the model in the world and scales it to the vertex
-    spacing. It is called after physics has been set up, the same order a
-    game uses for Terrain.
-    */
-    action PlaceInWorld
-        number spacing = terrainData:GetVertexSpacing()
-        SetScale(spacing, 1, spacing)
-        SetPosition(firstSampleX * spacing, baseHeight, firstSampleZ * spacing)
-    end
+    This action returns true if the model must be rebuilt before it is shown
+    again.
 
-    /*
-    This action returns the TerrainData this model reads its heights from.
-
-    Attribute: Returns The terrain's data, or undefined if the model has not been built.
+    Attribute: Returns True if the model is out of date.
     */
-    action GetTerrainData returns TerrainData
-        return terrainData
+    action NeedsRebuild returns boolean
+        return needsRebuild
     end
 
     /*
@@ -243,144 +151,43 @@ class TerrainRegionModel is Terrain
     end
 
     /*
-    This action returns how many samples the mesh covers along x. The
-    collision shape reads this, as it does for Terrain.
+    This action returns true if the model has a collision shape for its
+    whole region.
 
-    Attribute: Returns The number of samples along x.
+    Attribute: Returns True if the model can be collided with.
     */
-    action GetPixelWidth returns integer
-        return sampleCountX
+    action HasCollisionShape returns boolean
+        return hasCollisionShape
     end
 
     /*
-    This action returns how many samples the mesh covers along z. The
-    collision shape reads this, as it does for Terrain.
+    This action measures the region, builds and loads its mesh, and gives
+    the model its collision shape if it should have one.
 
-    Attribute: Returns The number of samples along z.
+    Attribute: Parameter data The heights of the whole terrain.
+    Attribute: Parameter texture The texture laid over the ground, or undefined for none.
+    Attribute: Parameter textureRepeat How far apart, in world units, the texture repeats.
     */
-    action GetPixelHeight returns integer
-        return sampleCountZ
-    end
+    private action BuildMeshAndShape(TerrainData data, Texture texture, number textureRepeat)
+        integer regionSize = data:GetRegionSize()
+        integer locationX = terrainRegion:GetLocationX()
+        integer locationZ = terrainRegion:GetLocationZ()
+        Measure(data, locationX * regionSize, locationZ * regionSize, regionSize)
 
-    /*
-    This action returns the lowest height in the mesh, which is the height
-    the model sits at.
-
-    Attribute: Returns The lowest height, in world units.
-    */
-    action GetBaseHeight returns number
-        return baseHeight
-    end
-
-    /*
-    This action fills in the three corners of one triangle of the ground, in
-    the model's own grid, and the box around them. The collision shape calls
-    it for each triangle it tests. The heights are read from the TerrainData,
-    so they are always the current ones.
-
-    Each grid cell is split into two triangles in the same way as the mesh:
-    the left one is the top left, bottom left and top right corners, and the
-    right one is the top right, bottom left and bottom right corners.
-
-    Attribute: Parameter x The cell's column. Cells past the last one use the last one.
-    Attribute: Parameter y The cell's row, which is along z.
-    Attribute: Parameter vertices Exactly three vectors, which are filled with the triangle's corners.
-    Attribute: Parameter box The box to fill in around the triangle, pushed out by a small margin.
-    Attribute: Parameter leftTriangle True for the left triangle of the cell, false for the right one.
-    */
-    action FillAtPixel(integer x, integer y, Array<Vector3> vertices, BoundingBox box, boolean leftTriangle)
-        if x > sampleCountX - 2
-            x = sampleCountX - 2
-        end
-        if y > sampleCountZ - 2
-            y = sampleCountZ - 2
+        MeshData mesh = BuildMesh(data:GetVertexSpacing(), textureRepeat)
+        LoadMesh(mesh, locationX, locationZ)
+        if texture not= undefined
+            GetResources():SetTexture(texture)
         end
 
-        if leftTriangle
-            FillCorner(vertices:Get(0), x, y)
-            FillCorner(vertices:Get(1), x, y + 1)
-            FillCorner(vertices:Get(2), x + 1, y)
+        // Loading a mesh gives the model its mesh's sizes, and with them a
+        // plain box shape. With full collision, the terrain's own shape
+        // replaces it. Without, the model is kept out of collisions.
+        if hasCollisionShape
+            ApplyCollisionShape()
         else
-            FillCorner(vertices:Get(0), x + 1, y)
-            FillCorner(vertices:Get(1), x, y + 1)
-            FillCorner(vertices:Get(2), x + 1, y + 1)
+            SetCollidable(false)
         end
-
-        Vector3 minimum = box:GetMinimum()
-        Vector3 maximum = box:GetMaximum()
-        Vector3 first = vertices:Get(0)
-        minimum:Set(first:GetX(), first:GetY(), first:GetZ())
-        maximum:Set(first:GetX(), first:GetY(), first:GetZ())
-        integer i = 1
-        repeat while i < 3
-            Vector3 corner = vertices:Get(i)
-            if corner:GetX() < minimum:GetX()
-                minimum:SetX(corner:GetX())
-            end
-            if corner:GetX() > maximum:GetX()
-                maximum:SetX(corner:GetX())
-            end
-            if corner:GetY() < minimum:GetY()
-                minimum:SetY(corner:GetY())
-            end
-            if corner:GetY() > maximum:GetY()
-                maximum:SetY(corner:GetY())
-            end
-            if corner:GetZ() < minimum:GetZ()
-                minimum:SetZ(corner:GetZ())
-            end
-            if corner:GetZ() > maximum:GetZ()
-                maximum:SetZ(corner:GetZ())
-            end
-            i = i + 1
-        end
-        minimum:Add(-triangleMargin)
-        maximum:Add(triangleMargin)
-    end
-
-    /*
-    This action sets a vector to one corner of the mesh, in the model's own
-    grid: its column, its height above the base, and its row.
-
-    Attribute: Parameter corner The vector to set.
-    Attribute: Parameter column The corner's column, along x.
-    Attribute: Parameter row The corner's row, along z.
-    */
-    private action FillCorner(Vector3 corner, integer column, integer row)
-        corner:Set(column, GetMeshHeight(column, row) - baseHeight, row)
-    end
-
-    /*
-    This action returns the height of a sample, counted from the first sample
-    of this mesh. Samples outside the mesh can be asked for, which is how
-    normals at the edges are worked out. Where no region holds a sample, the
-    nearest sample inside this mesh is used instead, so the ground is
-    treated as continuing flat past the edge of the world.
-
-    Attribute: Parameter column The sample's column, counted from the mesh's first sample.
-    Attribute: Parameter row The sample's row, counted from the mesh's first sample.
-    Attribute: Returns The height, in world units.
-    */
-    private action GetMeshHeight(integer column, integer row) returns number
-        integer sampleX = firstSampleX + column
-        integer sampleZ = firstSampleZ + row
-        if not terrainData:HasSample(sampleX, sampleZ)
-            if column < 0
-                column = 0
-            end
-            if column > sampleCountX - 1
-                column = sampleCountX - 1
-            end
-            if row < 0
-                row = 0
-            end
-            if row > sampleCountZ - 1
-                row = sampleCountZ - 1
-            end
-            sampleX = firstSampleX + column
-            sampleZ = firstSampleZ + row
-        end
-        return terrainData:GetSampleHeight(sampleX, sampleZ)
     end
 
     /*
@@ -393,7 +200,13 @@ class TerrainRegionModel is Terrain
     Attribute: Returns The mesh.
     */
     private action BuildMesh(number spacing, number textureRepeat) returns MeshData
-        integer vertexCount = sampleCountX * sampleCountZ
+        integer countX = GetPixelWidth()
+        integer countZ = GetPixelHeight()
+        integer firstX = GetFirstSampleX()
+        integer firstZ = GetFirstSampleZ()
+        number base = GetBaseHeight()
+
+        integer vertexCount = countX * countZ
         Number32BitArray vertices
         vertices:SetSize(vertexCount * 3)
         Number32BitArray normals
@@ -410,20 +223,20 @@ class TerrainRegionModel is Terrain
         Vector3 bitangent
 
         integer row = 0
-        repeat while row < sampleCountZ
+        repeat while row < countZ
             integer column = 0
-            repeat while column < sampleCountX
-                integer position = (row * sampleCountX + column) * 3
-                integer uvPosition = (row * sampleCountX + column) * 2
+            repeat while column < countX
+                integer position = (row * countX + column) * 3
+                integer uvPosition = (row * countX + column) * 2
 
                 vertices:Set(position, column)
-                vertices:Set(position + 1, GetMeshHeight(column, row) - baseHeight)
+                vertices:Set(position + 1, GetPatchHeight(column, row) - base)
                 vertices:Set(position + 2, row)
 
                 // The slope from the neighbors on each side. They are read
                 // across region edges, so normals match where pieces meet.
-                number dx = GetMeshHeight(column + 1, row) - GetMeshHeight(column - 1, row)
-                number dz = GetMeshHeight(column, row + 1) - GetMeshHeight(column, row - 1)
+                number dx = GetPatchHeight(column + 1, row) - GetPatchHeight(column - 1, row)
+                number dz = GetPatchHeight(column, row + 1) - GetPatchHeight(column, row - 1)
 
                 normal:Set(-dx, 2, -dz)
                 normal:Normalize()
@@ -445,8 +258,8 @@ class TerrainRegionModel is Terrain
 
                 // Texture coordinates come from the world position, so the
                 // texture lines up across region edges.
-                textureCoordinates:Set(uvPosition, (firstSampleX + column) * spacing / textureRepeat)
-                textureCoordinates:Set(uvPosition + 1, (firstSampleZ + row) * spacing / textureRepeat)
+                textureCoordinates:Set(uvPosition, (firstX + column) * spacing / textureRepeat)
+                textureCoordinates:Set(uvPosition + 1, (firstZ + row) * spacing / textureRepeat)
 
                 column = column + 1
             end
@@ -456,15 +269,15 @@ class TerrainRegionModel is Terrain
         // Two triangles per cell, in the same order as Terrain and as
         // FillAtPixel.
         Integer32BitArray indices
-        indices:SetSize((sampleCountX - 1) * (sampleCountZ - 1) * 6)
+        indices:SetSize((countX - 1) * (countZ - 1) * 6)
         integer index = 0
         row = 0
-        repeat while row < sampleCountZ - 1
+        repeat while row < countZ - 1
             integer column = 0
-            repeat while column < sampleCountX - 1
-                integer topLeft = row * sampleCountX + column
+            repeat while column < countX - 1
+                integer topLeft = row * countX + column
                 integer topRight = topLeft + 1
-                integer bottomLeft = (row + 1) * sampleCountX + column
+                integer bottomLeft = (row + 1) * countX + column
                 integer bottomRight = bottomLeft + 1
 
                 indices:Set(index, topLeft)

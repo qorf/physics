@@ -1,0 +1,111 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainData
+use Libraries.Game.Graphics.Worlds.TerrainCollisionPiece
+use Libraries.Containers.Array
+use Libraries.Compute.Vector3
+use Libraries.Game.BoundingBox
+
+/*
+Tests placing a TerrainCollisionPiece. A piece covers its square of samples
+and reaches one sample further along x and z where that sample has a
+height, so it shares its edges with its neighbors. It sits at the lowest
+height it covers, scaled to the vertex spacing, and the triangles it gives
+the physics engine have the terrain's heights measured up from there. It is
+hidden, since it only collides.
+
+Attribute: Example
+use Worlds.Tests.TerrainCollisionPieceTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainCollisionPieceTest test
+tester:Run(test)
+*/
+class TerrainCollisionPieceTest is WorldsTest
+    on create
+        SetName("Terrain collision pieces")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        // Two regions side by side along x, covering samples 0 to 127 along x
+        // and 0 to 63 along z, half a unit apart. The height is
+        // 0.1 x + 0.2 z, in samples.
+        TerrainData data
+        data:SetRegionSize(64)
+        data:SetVertexSpacing(0.5)
+        data:AddRegion(0, 0)
+        data:AddRegion(1, 0)
+        integer z = 0
+        repeat while z < 64
+            integer x = 0
+            repeat while x < 128
+                data:SetSampleHeight(x, z, 0.1 * x + 0.2 * z)
+                x = x + 1
+            end
+            z = z + 1
+        end
+
+        TerrainCollisionPiece piece
+        CheckThat("a piece is hidden", not piece:IsShowing())
+
+        // A piece in the middle reaches one sample further each way.
+        piece:Place(data, 48, 0, 16)
+        CheckWhole("samples across, reaching into the next region", piece:GetPixelWidth(), 17)
+        CheckWhole("samples deep", piece:GetPixelHeight(), 17)
+        CheckNumber("base height is the lowest", piece:GetBaseHeight(), 4.8)
+        CheckNumber("top height is the highest", piece:GetTopHeight(), 6.4 + 3.2)
+        CheckNumber("placed along x", piece:GetX(), 24)
+        CheckNumber("placed at the base height", piece:GetY(), 4.8)
+        CheckNumber("placed along z", piece:GetZ(), 0)
+        CheckNumber("scaled along x to the spacing", piece:GetScaleX(), 0.5)
+        CheckNumber("not scaled up", piece:GetScaleY(), 1)
+        CheckThat("covers its own square", piece:Covers(48, 0))
+        CheckThat("does not cover another square", not piece:Covers(48, 16))
+
+        // The left triangle of the first cell, measured up from the base.
+        Array<Vector3> corners
+        Vector3 a
+        Vector3 b
+        Vector3 c
+        corners:Add(a)
+        corners:Add(b)
+        corners:Add(c)
+        BoundingBox box
+        piece:FillAtPixel(0, 0, corners, box, true)
+        CheckVector("first corner", a, 0, 0, 0)
+        CheckVector("second corner, one row along z", b, 0, 0.2, 1)
+        CheckVector("third corner, one column along x", c, 1, 0.1, 0)
+
+        // Changes inside or touching the piece affect it; ones well away don't.
+        CheckThat("a change inside affects it", piece:IsAffectedBy(50, 5, 52, 6))
+        CheckThat("a change on the shared edge affects it", piece:IsAffectedBy(65, 0, 70, 3))
+        CheckThat("a change past the edge does not", not piece:IsAffectedBy(66, 0, 70, 3))
+        CheckThat("a change just before it affects it", piece:IsAffectedBy(40, 0, 47, 0))
+        CheckThat("a change further before it does not", not piece:IsAffectedBy(40, 0, 46, 0))
+
+        // At the far edge of the world there is nothing to reach into.
+        piece:Place(data, 112, 48, 16)
+        CheckWhole("samples across at the world's edge", piece:GetPixelWidth(), 16)
+        CheckWhole("samples deep at the world's edge", piece:GetPixelHeight(), 16)
+    end
+
+    /*
+    This action checks that each part of a vector is close to what was
+    expected.
+
+    Attribute: Parameter name What is being checked, shown if it fails.
+    Attribute: Parameter actual The vector found.
+    Attribute: Parameter x The expected x.
+    Attribute: Parameter y The expected y.
+    Attribute: Parameter z The expected z.
+    */
+    action CheckVector(text name, Vector3 actual, number x, number y, number z)
+        CheckNumber(name + " x", actual:GetX(), x)
+        CheckNumber(name + " y", actual:GetY(), y)
+        CheckNumber(name + " z", actual:GetZ(), z)
+    end
+end

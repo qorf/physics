@@ -204,6 +204,13 @@ class TerrainRegion
     heights in the region.
     */
     action CalculateHeightRange
+        // A region with no size has no heights. Its array can't be asked its
+        // size until it has one.
+        if regionSize = 0
+            lowestHeight = 0
+            highestHeight = 0
+            return now
+        end
         integer count = heights:GetSize()
         if count = 0
             lowestHeight = 0

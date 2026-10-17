@@ -2,6 +2,9 @@ package Libraries.Game.Graphics.Worlds
 
 use Libraries.Containers.Array
 use Libraries.Game.Graphics.Texture
+use Libraries.Game.Layer3D
+use Libraries.Containers.Integer32BitArray
+use Libraries.System.File
 
 /*
 A WorldTerrain is ground for a large world. It holds a TerrainData, which
@@ -11,6 +14,21 @@ for each region, which draws that region and gives it a collision shape.
 The models are not added to the game automatically, so a game can add them
 however it likes, for example to a particular layer. After Build, add each
 one with GetRegionModelCount and GetRegionModel.
+
+Collision works in one of three ways, as in Terrain3D:
+1. COLLISION_FULL, the default here: every region model has a collision
+   shape for its whole region.
+2. COLLISION_DYNAMIC, Terrain3D's default: the region models only draw, and
+   a TerrainCollision keeps small collision pieces near a target, such as
+   the player. Call Update every frame with the target's position.
+3. COLLISION_DISABLED: no collision at all.
+
+For a world larger than should be in memory at once, call StartStreaming
+instead of Build. Then only regions near the target are loaded, from a
+folder the world was saved in, and only those within the draw radius are
+drawn. Update loads and unloads regions, and adds and removes their models
+from the layer, a little each frame. A region's model is kept when it is
+taken out, and used again when the region comes back unchanged.
 
 This class plays the part of the Terrain3D node in Terrain3D, which holds a
 Terrain3DData and builds the drawing and collision for it.
@@ -47,8 +65,15 @@ class Main is Game
 end
 */
 class WorldTerrain
+    // The ways the terrain can be collided with. See the class description.
+    public constant integer COLLISION_DISABLED = 0
+    public constant integer COLLISION_DYNAMIC = 1
+    public constant integer COLLISION_FULL = 2
+
     TerrainData terrainData
     Array<TerrainRegionModel> regionModels
+    TerrainCollision collision
+    integer collisionMode = 2
 
     // The texture laid over the ground, shared by every region, and how far
     // apart in world units it repeats.
@@ -60,6 +85,28 @@ class WorldTerrain
 
     // How much the ground grips what rests on it, given to every region.
     number friction = 1
+
+    // Streaming. While streaming, only regions near the target are loaded,
+    // and those within drawRadius world units are drawn. Every region model
+    // ever made is kept in modelMap by location, in the same order as
+    // TerrainData's region map, and activeMap marks which are in the layer:
+    // 1 if so, 0 if not. At most buildsPerUpdate models are built or rebuilt
+    // in one update.
+    TerrainStreamer streamer
+    boolean streaming = false
+    number drawRadius = 100
+    integer buildsPerUpdate = 1
+    Layer3D drawLayer = undefined
+    Array<TerrainRegionModel> modelMap
+    Integer32BitArray activeMap
+
+    // The region map's size, matching TerrainData's.
+    integer mapSize = 32
+
+    on create
+        modelMap:SetSize(mapSize * mapSize)
+        activeMap:SetSize(mapSize * mapSize)
+    end
 
     /*
     This action returns the terrain's data, which holds all of its heights.
@@ -163,9 +210,75 @@ class WorldTerrain
     end
 
     /*
-    This action makes a model for every region in the data, with a mesh and a
-    collision shape, and then clears the data's edited area. Any models from
-    an earlier build are replaced, so remove them from the game first.
+    This action sets how the terrain can be collided with:
+    COLLISION_DISABLED, COLLISION_DYNAMIC or COLLISION_FULL. It takes effect
+    the next time Build is called. The default is COLLISION_FULL.
+
+    Attribute: Parameter mode The collision mode.
+    */
+    action SetCollisionMode(integer mode)
+        if mode < 0 or mode > 2
+            alert("The collision mode must be COLLISION_DISABLED, COLLISION_DYNAMIC or COLLISION_FULL, but was given " + mode + ".")
+        end
+        collisionMode = mode
+    end
+
+    /*
+    This action returns how the terrain can be collided with.
+
+    Attribute: Returns COLLISION_DISABLED, COLLISION_DYNAMIC or COLLISION_FULL.
+    */
+    action GetCollisionMode returns integer
+        return collisionMode
+    end
+
+    /*
+    This action returns the TerrainCollision that keeps collision near a
+    target in COLLISION_DYNAMIC mode. Its shape size and radius can be
+    changed here.
+
+    Attribute: Returns The terrain's dynamic collision.
+    */
+    action GetCollision returns TerrainCollision
+        return collision
+    end
+
+    /*
+    This action keeps the terrain up to date around a target, usually the
+    player or camera. Call it every frame, after Build or StartStreaming.
+    While streaming, it loads and unloads regions, and adds and removes
+    their models from the layer, a little at a time. In COLLISION_DYNAMIC
+    mode, it keeps collision near the target, which only takes work when
+    the target moves into a new square of the collision grid.
+
+    Attribute: Parameter layer The layer to put the collision pieces in, usually the game's current 3D layer.
+    Attribute: Parameter targetX The target's position along x, in world units.
+    Attribute: Parameter targetZ The target's position along z, in world units.
+    Attribute: Returns True if any regions, region models or collision pieces changed.
+    */
+    action Update(Layer3D layer, number targetX, number targetZ) returns boolean
+        boolean changed = false
+        if streaming
+            if streamer:Update(targetX, targetZ)
+                changed = true
+            end
+            if UpdateDrawnModels(targetX, targetZ, buildsPerUpdate)
+                changed = true
+            end
+        end
+        if collisionMode = COLLISION_DYNAMIC
+            if collision:Update(layer, targetX, targetZ)
+                changed = true
+            end
+        end
+        return changed
+    end
+
+    /*
+    This action makes a model for every region in the data, with a mesh, and
+    with a collision shape in COLLISION_FULL mode. Then it clears the data's
+    edited area. Any models from an earlier build are replaced, so remove
+    them from the game first.
 
     The renderer cannot yet free a model's mesh, so building again keeps the
     old meshes' memory in use. See VulkanChanges.md.
@@ -174,21 +287,13 @@ class WorldTerrain
         regionModels:Empty()
         integer i = 0
         repeat while i < terrainData:GetRegionCount()
-            TerrainRegion region = terrainData:GetRegionAtIndex(i)
-            TerrainRegionModel model
-            model:SetName(name + " (" + region:GetLocationX() + ", " + region:GetLocationZ() + ")")
-            model:Build(terrainData, region, texture, textureRepeat)
-
-            // The same order a game uses for Terrain: physics first, then the
-            // scale and position.
-            model:EnablePhysics(true)
-            model:SetMass(0)
-            model:SetFriction(friction)
-            model:PlaceInWorld()
-
-            regionModels:Add(model)
+            regionModels:Add(MakeRegionModel(terrainData:GetRegionAtIndex(i)))
             i = i + 1
         end
+
+        collision:SetTerrainData(terrainData)
+        collision:SetFriction(friction)
+        collision:Refresh()
         terrainData:ClearEditedArea()
     end
 
@@ -225,8 +330,151 @@ class WorldTerrain
             end
             i = i + 1
         end
+
+        // While streaming, models out of the layer that the change touches,
+        // such as one sharing an edge, are rebuilt when they come back.
+        if streaming
+            i = 0
+            repeat while i < modelMap:GetSize()
+                TerrainRegionModel cached = modelMap:Get(i)
+                if cached not= undefined and activeMap:Get(i) = 0
+                    if cached:IsAffectedBy(minimumX, minimumZ, maximumX, maximumZ)
+                        cached:SetNeedsRebuild(true)
+                    end
+                end
+                i = i + 1
+            end
+        end
+
+        // Collision pieces near the target also follow the new heights.
+        if collisionMode = COLLISION_DYNAMIC
+            collision:Rebuild(minimumX, minimumZ, maximumX, maximumZ)
+        end
         terrainData:ClearEditedArea()
         return rebuilt
+    end
+
+    /*
+    This action starts streaming the terrain from a folder it was saved in,
+    in place of Build. Any regions already loaded are unloaded first, and
+    changed ones are saved to the folder. Then the folder's terrain.json is
+    read, every saved region near the target is loaded, and those within the
+    draw radius get models in the layer. After this, call Update every frame.
+
+    Regions are loaded within the draw radius plus one and a half regions, so
+    every drawn region's neighbors are loaded too. A region's mesh reaches
+    into its neighbors, so it is only drawn once they are loaded.
+
+    Attribute: Parameter folder The folder the terrain was saved in, with TerrainData's Save.
+    Attribute: Parameter layer The layer to draw the region models in, usually the game's current 3D layer.
+    Attribute: Parameter targetX The target's position along x, in world units.
+    Attribute: Parameter targetZ The target's position along z, in world units.
+    */
+    action StartStreaming(File folder, Layer3D layer, number targetX, number targetZ)
+        streamer:SetTerrainData(terrainData)
+        streamer:SetFolder(folder)
+        if terrainData:GetRegionCount() > 0
+            streamer:UnloadAll()
+        end
+        terrainData:LoadSettings(folder)
+
+        streaming = true
+        drawLayer = layer
+        regionModels:Empty()
+        streamer:SetLoadRadius(drawRadius + 1.5 * streamer:GetRegionWorldSize())
+        streamer:LoadAllNear(targetX, targetZ)
+        UpdateDrawnModels(targetX, targetZ, mapSize * mapSize)
+
+        collision:SetTerrainData(terrainData)
+        collision:SetFriction(friction)
+        collision:Refresh()
+        terrainData:ClearEditedArea()
+    end
+
+    /*
+    This action returns true if the terrain is streaming its regions.
+
+    Attribute: Returns True after StartStreaming.
+    */
+    action IsStreaming returns boolean
+        return streaming
+    end
+
+    /*
+    This action returns the TerrainStreamer that loads and unloads regions
+    while streaming.
+
+    Attribute: Returns The streamer.
+    */
+    action GetStreamer returns TerrainStreamer
+        return streamer
+    end
+
+    /*
+    This action sets how near, in world units, a region must be to the
+    target to be drawn while streaming. Set it before StartStreaming. The
+    default is 100.
+
+    Attribute: Parameter radius The draw radius. It must be more than 0.
+    */
+    action SetDrawRadius(number radius)
+        if radius <= 0
+            alert("The draw radius must be more than 0, but was given " + radius + ".")
+        end
+        drawRadius = radius
+    end
+
+    /*
+    This action returns how near, in world units, a region must be to the
+    target to be drawn while streaming.
+
+    Attribute: Returns The draw radius.
+    */
+    action GetDrawRadius returns number
+        return drawRadius
+    end
+
+    /*
+    This action sets how many region models may be built or rebuilt in one
+    update while streaming. The default is 1.
+
+    Attribute: Parameter count The number of models. It must be at least 1.
+    */
+    action SetBuildsPerUpdate(integer count)
+        if count < 1
+            alert("At least 1 model must be built per update, but was given " + count + ".")
+        end
+        buildsPerUpdate = count
+    end
+
+    /*
+    This action returns true if a loaded region can be drawn: each of its
+    eight neighbors is either loaded or doesn't exist. A region's mesh
+    reaches into its neighbors along x and z, and its normals read one
+    sample into every neighbor, so they must be there first.
+
+    Attribute: Parameter locationX The region location along x.
+    Attribute: Parameter locationZ The region location along z.
+    Attribute: Returns True if the region can be drawn.
+    */
+    action IsDrawable(integer locationX, integer locationZ) returns boolean
+        if not terrainData:HasRegion(locationX, locationZ)
+            return false
+        end
+        integer dz = -1
+        repeat while dz <= 1
+            integer dx = -1
+            repeat while dx <= 1
+                integer x = locationX + dx
+                integer z = locationZ + dz
+                if terrainData:HasSavedRegion(x, z) and not terrainData:HasRegion(x, z)
+                    return false
+                end
+                dx = dx + 1
+            end
+            dz = dz + 1
+        end
+        return true
     end
 
     /*
@@ -246,5 +494,120 @@ class WorldTerrain
     */
     action GetRegionModel(integer index) returns TerrainRegionModel
         return regionModels:Get(index)
+    end
+
+    /*
+    This action makes a region model with its mesh, and its physics in
+    COLLISION_FULL mode, placed in the world. It is not added to a layer.
+
+    Attribute: Parameter region The region to draw.
+    Attribute: Returns The new model.
+    */
+    private action MakeRegionModel(TerrainRegion region) returns TerrainRegionModel
+        TerrainRegionModel model
+        model:SetName(name + " (" + region:GetLocationX() + ", " + region:GetLocationZ() + ")")
+        boolean withCollision = collisionMode = COLLISION_FULL
+        model:Build(terrainData, region, texture, textureRepeat, withCollision)
+
+        // The same order a game uses for Terrain: physics first, then the
+        // scale and position.
+        if withCollision
+            model:EnablePhysics(true)
+            model:SetMass(0)
+            model:SetFriction(friction)
+        end
+        model:PlaceInWorld()
+        return model
+    end
+
+    /*
+    This action takes models out of the layer whose regions were unloaded or
+    have moved out of reach, and puts models in for loaded regions that have
+    come within the draw radius and can be drawn. Models are kept by
+    location and used again. A region is taken out half a region past the
+    draw radius, so one at the edge doesn't go in and out over and over.
+
+    Attribute: Parameter targetX The target's position along x, in world units.
+    Attribute: Parameter targetZ The target's position along z, in world units.
+    Attribute: Parameter limit The most models to build or rebuild.
+    Attribute: Returns True if any model was added or removed.
+    */
+    private action UpdateDrawnModels(number targetX, number targetZ, integer limit) returns boolean
+        boolean changed = false
+        number removeRadius = drawRadius + streamer:GetRegionWorldSize() / 2
+
+        integer i = regionModels:GetSize() - 1
+        repeat while i >= 0
+            TerrainRegionModel model = regionModels:Get(i)
+            TerrainRegion region = model:GetTerrainRegion()
+            integer locationX = region:GetLocationX()
+            integer locationZ = region:GetLocationZ()
+            if not terrainData:HasRegion(locationX, locationZ) or
+                    streamer:GetDistanceToRegion(locationX, locationZ, targetX, targetZ) > removeRadius
+                drawLayer:Remove(model)
+                regionModels:RemoveAt(i)
+                activeMap:Set(GetMapIndex(locationX, locationZ), 0)
+                changed = true
+            end
+            i = i - 1
+        end
+
+        integer builds = 0
+        i = 0
+        repeat while i < terrainData:GetRegionCount()
+            TerrainRegion region = terrainData:GetRegionAtIndex(i)
+            integer locationX = region:GetLocationX()
+            integer locationZ = region:GetLocationZ()
+            integer index = GetMapIndex(locationX, locationZ)
+            if activeMap:Get(index) = 0 and
+                    streamer:GetDistanceToRegion(locationX, locationZ, targetX, targetZ) <= drawRadius and
+                    IsDrawable(locationX, locationZ)
+                TerrainRegionModel model = modelMap:Get(index)
+                boolean ready = false
+                if model = undefined
+                    if builds < limit
+                        model = MakeRegionModel(region)
+                        modelMap:Set(index, model)
+                        builds = builds + 1
+                        ready = true
+                    end
+                else
+                    model:SetTerrainRegion(region)
+                    if not model:NeedsRebuild()
+                        ready = true
+                    elseif builds < limit
+                        model:Rebuild(texture, textureRepeat)
+                        builds = builds + 1
+                        ready = true
+                    end
+                end
+                if ready
+                    // Layer3D's Remove turns an item's collision off and its
+                    // Add doesn't turn it back on, so a model coming back is
+                    // set up again: colliding only if it has a collision
+                    // shape for its region.
+                    model:SetCollidable(model:HasCollisionShape())
+                    drawLayer:Add(model)
+                    regionModels:Add(model)
+                    activeMap:Set(index, 1)
+                    changed = true
+                end
+            end
+            i = i + 1
+        end
+        return changed
+    end
+
+    /*
+    This action returns where a region location is kept in modelMap and
+    activeMap, the same place TerrainData's region map uses.
+
+    Attribute: Parameter locationX The region location along x, from -16 to 15.
+    Attribute: Parameter locationZ The region location along z, from -16 to 15.
+    Attribute: Returns The place in the maps.
+    */
+    private action GetMapIndex(integer locationX, integer locationZ) returns integer
+        integer half = mapSize / 2
+        return (locationZ + half) * mapSize + (locationX + half)
     end
 end

@@ -11,6 +11,8 @@ use Libraries.Game.Graphics.Worlds.WorldTerrain
 use Libraries.Game.Graphics.Worlds.TerrainData
 use Libraries.Game.Graphics.Worlds.TerrainRegionModel
 use Libraries.Game.Graphics.Worlds.TerrainRegion
+use Libraries.Game.Graphics.Worlds.TerrainCollision
+use Libraries.Game.Graphics.Worlds.TerrainStreamer
 use Libraries.Compute.Vector3
 use Libraries.System.File
 use Libraries.Compute.Matrix3
@@ -51,6 +53,11 @@ use Libraries.Game.Collision.Shapes.Box
 
     The ground can be changed while driving: E raises a mound in front of the
     vehicle and Q digs a hollow. Only the regions that change are rebuilt.
+
+    Collision follows Terrain3D's dynamic mode: only the ground near the
+    vehicle can be collided with, using small collision pieces that move as
+    the vehicle does. So the rain falls near the vehicle, and anything that
+    rolls far enough away falls through the ground and is removed.
 */
 class DriveOpen is Game
     WorldTerrain terrain
@@ -89,6 +96,31 @@ class DriveOpen is Game
     number editAmount = 0.4
     number editInterval = 0.15
     number timeUntilEdit = 0
+
+    // Collision. While dynamicCollision is true, only the ground within
+    // collisionRadius samples of the vehicle can be collided with, using
+    // pieces collisionShapeSize samples across, as in Terrain3D's dynamic
+    // mode. Terrain3D's default radius is 64 samples; 96 here is 48 units,
+    // so every box stack starts on ground. While it is false, every region
+    // has a collision shape for its whole area, as before.
+    boolean dynamicCollision = true
+    integer collisionRadius = 96
+    integer collisionShapeSize = 16
+
+    // How far from the vehicle the rain falls, in world units, while
+    // collision is dynamic.
+    number rainRadius = 20
+    integer lastPieceCount = -1
+
+    // Streaming. While streamTerrain is true, the whole world is saved to
+    // saveFolder at the start, then only the regions near the vehicle are
+    // loaded from it, and those within drawRadius world units are drawn.
+    // Regions load and unload a few at a time as the vehicle drives, and
+    // ones changed with E or Q are saved before they unload, so the change
+    // is still there when the vehicle comes back. The render tree check
+    // isn't told about streamed region models.
+    boolean streamTerrain = true
+    number drawRadius = 40
 
     // Save check. While checkSaving is true, the terrain is saved to the
     // folder saveFolder once it is built, loaded back into new TerrainData,
@@ -325,6 +357,11 @@ class DriveOpen is Game
             ResetVehicle()
         end
 
+        // Keep the terrain's regions, and its collision, around the vehicle.
+        if terrain:Update(GetCurrentLayer3D(), chassis:GetX(), chassis:GetZ())
+            ReportTerrainChanges()
+        end
+
         timeUntilEdit = timeUntilEdit - seconds
         if timeUntilEdit <= 0
             if monitor:IsKeyPressed(keys:E)
@@ -516,10 +553,16 @@ class DriveOpen is Game
         drops:Add(ball)
 
         // A random place over the terrain, kept a little in from the edges,
-        // high above the tallest possible hill.
+        // high above the tallest possible hill. With dynamic collision, only
+        // the ground near the vehicle can catch it, so it falls within
+        // rainRadius of the vehicle.
         number size = (mapSize - 1) * terrainScale
         number x = baseX + 1 + random:RandomNumber() * (size - 2)
         number z = baseZ + 1 + random:RandomNumber() * (size - 2)
+        if dynamicCollision
+            x = math:Clamp(chassis:GetX() + (2 * random:RandomNumber() - 1) * rainRadius, baseX + 1, baseX + size - 1)
+            z = math:Clamp(chassis:GetZ() + (2 * random:RandomNumber() - 1) * rainRadius, baseZ + 1, baseZ + size - 1)
+        end
         number y = baseY + heightScale * terrainScale + dropHeightAbove
 
         Vector3 stop
@@ -599,18 +642,51 @@ class DriveOpen is Game
         terrain:SetTexture("Textures/grass.png")
         terrain:SetTextureRepeat(textureRepeat)
         terrain:SetFriction(1)
-        terrain:Build()
-        output "Terrain: " + data:GetRegionCount() + " regions, " + terrain:GetRegionModelCount() + " region models."
+        if dynamicCollision
+            terrain:SetCollisionMode(terrain:COLLISION_DYNAMIC)
+            TerrainCollision collision = terrain:GetCollision()
+            collision:SetRadius(collisionRadius)
+            collision:SetShapeSize(collisionShapeSize)
+        else
+            terrain:SetCollisionMode(terrain:COLLISION_FULL)
+        end
+        output "Terrain: " + data:GetRegionCount() + " regions."
         if checkSaving
             CheckSaving()
         end
 
-        // Each region model gives the render tree its own bounds, with
-        // GetRenderBounds, since its mesh starts at its corner, not its center.
-        integer i = 0
-        repeat while i < terrain:GetRegionModelCount()
-            AddToBoth(terrain:GetRegionModel(i), true, false)
-            i = i + 1
+        if streamTerrain
+            // The whole world is saved, then streamed back from the files,
+            // starting around the middle of the map where the vehicle starts.
+            // CheckSaving has already saved it, if it ran.
+            File folder
+            folder:SetPath(saveFolder)
+            if not checkSaving
+                data:Save(folder)
+            end
+            terrain:SetDrawRadius(drawRadius)
+            terrain:StartStreaming(folder, GetCurrentLayer3D(), 0, 0)
+            output "Streaming: " + data:GetRegionCount() + " regions loaded, " + terrain:GetRegionModelCount() +
+                " drawn, from " + folder:GetAbsolutePath()
+        else
+            terrain:Build()
+            output "Terrain: " + terrain:GetRegionModelCount() + " region models."
+
+            // Each region model gives the render tree its own bounds, with
+            // GetRenderBounds, since its mesh starts at its corner, not its
+            // center.
+            integer i = 0
+            repeat while i < terrain:GetRegionModelCount()
+                AddToBoth(terrain:GetRegionModel(i), true, false)
+                i = i + 1
+            end
+        end
+
+        // The vehicle starts in the middle of the map, so collision starts
+        // there, before the stacks and the vehicle are placed.
+        if dynamicCollision
+            terrain:Update(GetCurrentLayer3D(), 0, 0)
+            output "Collision: dynamic, " + terrain:GetCollision():GetActivePieceCount() + " pieces near the start."
         end
     end
 
@@ -816,6 +892,36 @@ class DriveOpen is Game
                 row = row + 1
             end
             level = level + 1
+        end
+    end
+
+    /*
+    This action writes to the console what the terrain's last update did:
+    regions loaded, unloaded and saved while streaming, and how many
+    collision pieces are near the vehicle. Nothing is written for an update
+    that only moved region models in or out of the layer.
+    */
+    action ReportTerrainChanges
+        text report = ""
+        if streamTerrain
+            TerrainStreamer streamer = terrain:GetStreamer()
+            integer loaded = streamer:GetLastLoadedCount()
+            integer unloaded = streamer:GetLastUnloadedCount()
+            integer saved = streamer:GetLastSavedCount()
+            if loaded > 0 or unloaded > 0
+                report = "Streaming: loaded " + loaded + ", unloaded " + unloaded + ", saved " + saved + "; " +
+                    terrain:GetData():GetRegionCount() + " regions loaded, " + terrain:GetRegionModelCount() + " drawn. "
+            end
+        end
+        if dynamicCollision
+            integer pieces = terrain:GetCollision():GetActivePieceCount()
+            if pieces not= lastPieceCount
+                report = report + "Collision pieces near the vehicle: " + pieces
+                lastPieceCount = pieces
+            end
+        end
+        if report not= ""
+            output report
         end
     end
 

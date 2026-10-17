@@ -6,6 +6,31 @@ machines. The overall picture is in `OpenWorlds.md` and
 
 Last updated: 2026-10-17, after steps 2, 5 and 6 were written (not yet compiled).
 
+## Tier 1 is complete (2026-10-17)
+
+**Note (Tier 3 step 2):** the save format described below has changed.
+`terrain.txt` was replaced by `terrain.json` (version 2), which also holds
+each region's height range. See `OpenWorldTier3Handoff.md`.
+
+Checked by the user and committed (`d9ef406`, "Next"):
+- all `RunWorldTests` pass;
+- DriveOpen drives across 64 regions with the grass texture;
+- E and Q editing works;
+- the save check passes.
+
+Every Tier 1 goal is met: texture coordinates and spacing, queries,
+runtime editing, saving and loading, and building from noise
+(`GenerateHeights`, tested in `RunWorldTests`; DriveOpen uses an imported
+height map instead).
+
+Left over, both needing the user's decision:
+- **The mesh leak when editing.** Needs the library change in
+  `VulkanChanges.md` #3, plus #1 and #4.
+- **Moving the classes into the standard library**
+  (`Libraries.Game.Graphics.Worlds`), when the user decides.
+
+The rest of this file is the record of how Tier 1 went.
+
 ## Rules for this work
 
 - **Do not change the standard library** (`quorum-language/Quorum/Library/Standard`)

@@ -26,6 +26,12 @@ Line numbers were right on 2026-10-17.
 | 10 | Textures can't be read in vertex shaders | Limitation | One or two lines | Only for the vertex-shader route in Tier 3 |
 | 11 | Skybox not implemented | Missing feature | Medium | Open worlds, later |
 | 12 | Unused "global buffer index" code | Leftover code | Remove | Nothing; tidying |
+| 13 | Texture override writes the global index | Bug (latent, Java) | 1 line | More than one texture group |
+| 14 | Animation compute pass isn't ordered before drawing | Bug (latent) | Small | Animated models; a compute clipmap |
+| 15 | Painter batches are never removed | Missing feature | Small | Streaming (with #2) |
+| 16 | No camera-relative drawing | Missing feature | ~40 lines (Java) | Large worlds |
+| 17 | No fog or distance fade | Missing feature | ~20-40 lines | Hiding the far edge |
+| 18 | Draw queues fixed at 8192 instances | Limitation | Small | Many objects |
 
 ## 1. `StopMapping` passes the wrong handle (bug)
 
@@ -278,6 +284,67 @@ new numbers.
 4. **#6, #7 and #8** at the start of Tier 2.
 5. **#9, #10, #11 and #12** when they are needed.
 
+## 13. Texture override writes the global index (latent bug)
+
+**Where:** J/Vulkan/VulkanDrawQueue3DInstanceMappedMemory.java:52 writes
+`texture.GetVulkanTextureIndex()`, the global index. But the draw queue, and
+so the bound texture set, is chosen by `GetVulkanTextureGroupIndex()`, and
+materials use the local index in the group (`GetVulkanTextureLocalIndex`,
+MaterialVulkan.quorum:139). The two agree only while every texture is in
+group 0.
+
+**Fix:** write the local index in the group. Matters once more textures are
+loaded than one descriptor set holds. This is L4 in
+`OpenWorldTier2Handoff.md`.
+
+## 14. Animation compute pass isn't ordered before drawing (bug)
+
+**Where:** G/Vulkan/VulkanPainter3D.quorum `ComputeAnimations` (about
+1488-1569). The compute shader writes animated vertices on the compute
+queue and is submitted with only `animationFence`. The graphics pass has no
+barrier or semaphore waiting for those writes; its only barrier is transfer
+to vertex input (about 1069-1077). The compute queue is usually the same
+family as graphics, which hides the problem.
+
+**Fix:** record the compute work into the frame's render command buffer,
+before the scene pass, with a barrier from compute-shader write to
+vertex-shader read; or signal a semaphore from the compute submit that the
+graphics submit waits on.
+
+## 15. Painter batches are never removed (missing feature)
+
+**Where:** G/Vulkan/VulkanPainter3DBatch.quorum (`age`, lines 20 and 64),
+`VulkanPainter3D:GetBatch` (about 864-886). Batches are made per blueprint
+and kept forever. Once blueprints can be freed (#2), batches that haven't
+been used for a while should be removed too.
+
+## 16. No camera-relative drawing (missing feature)
+
+**Where:** J/Vulkan/VulkanDrawQueue3DInstanceMappedMemory.java (about line
+72 onward) casts each model matrix to float. The camera's matrix goes
+through `MatrixToArray` (VulkanPainter3D about 1720-1738). World positions
+are worked out in float in the shader, so objects jitter far from the
+origin.
+
+**Fix (about 40 lines):** subtract the camera position from each model's
+translation in 64-bit before the cast to float, and send the shader a view
+matrix with no translation.
+
+## 17. No fog or distance fade (missing feature)
+
+**Where:** no Vulkan shader has a distance term apart from point-light
+falloff (DefaultLightingFragmentShaderVulkan.quorum about 198-200).
+
+**Fix:** distance fog in the deferred lighting shader, from the G-buffer
+position and the camera position. About 20-40 lines plus settings.
+
+## 18. Draw queues are fixed at 8192 instances (limitation)
+
+**Where:** `DEFAULT_MAX_INSTANCES = 8192` (VulkanPainter3D.quorum:108), used
+for every queue (about 1676-1682), with no growth.
+
+**Fix:** grow a queue (or add another) when it fills.
+
 ## Other library bugs found along the way
 
 These aren't in the Vulkan renderer, but they were found during the same
@@ -328,3 +395,38 @@ return lines;
 **Workaround used now:** `TerrainData:Load` reads one line at a time with
 `ReadLine` until `IsAtEndOfFile` is true. `ReadLine` handles the end of the
 file correctly.
+
+### B. `Integer32BitArray` and `Number32BitArray` fail before `SetSize` (bug)
+
+**Where:** J/../Containers/Integer32BitArray.java, `GetSize` (line 33)
+returns `ints.length`, but `ints` is null until `SetSize` is called (line
+38). So asking a new array its size throws a null pointer error, instead of
+answering 0. Found 2026-10-17 in `TerrainCollision:ChooseCells` (the
+"Terrain collision squares" test). `Number32BitArray` is built the same way
+and should be checked.
+
+**Fix:** start with an empty array (`ints = new int[0]`), or have `GetSize`
+return 0 when it is null. `Get` and `Set` already check for null.
+
+**Workaround used now:** `TerrainCollision` keeps its own count of how much
+room its arrays have, and `TerrainRegion` checks its region size before
+asking its array.
+
+### C. An item removed from a Layer3D and added again doesn't collide (bug)
+
+**Where:** G/../Game/Layer3D.quorum `Remove` (about lines 583-606) calls
+`item:SetCollidable(false)` after destroying the item's collision nodes.
+`Add` (about line 459) never sets it back, and `Item3D:SetLayer` only makes
+collision nodes for collidable items. So an item taken out of a layer and
+put back, which is the natural way to reuse objects, is drawn and simulated
+but nothing collides with it, silently. Found 2026-10-17: reused terrain
+collision pieces let the vehicle fall through the ground.
+
+**Fix:** in `Remove`, destroy the nodes without changing the item's
+collidable setting. The setting is the game's choice, not the layer's.
+(Or restore it in `Add`, but then a game that turned collision off on
+purpose would get it back.)
+
+**Workaround used now:** `TerrainCollision` and `WorldTerrain` call
+`SetCollidable` before adding an item again.
+

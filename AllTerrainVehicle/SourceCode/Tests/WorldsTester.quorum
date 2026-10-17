@@ -12,6 +12,10 @@ use Worlds.Tests.TerrainDataPixelTest
 use Worlds.Tests.TerrainDataSurfaceTest
 use Worlds.Tests.TerrainDataSlopeTest
 use Worlds.Tests.TerrainDataRaiseTest
+use Worlds.Tests.TerrainCollisionCellsTest
+use Worlds.Tests.TerrainCollisionPieceTest
+use Worlds.Tests.TerrainDataSettingsTest
+use Worlds.Tests.TerrainStreamingTest
 
 /*
 WorldsTester runs the terrain and world tests, in the same way PhysicsTester
@@ -54,6 +58,30 @@ class WorldsTester
     action Test
         TestRegions()
         TestData()
+        TestCollision()
+        TestStreaming()
+    end
+
+    /*
+    This action runs the tests of collision near a target.
+    */
+    action TestCollision
+        TerrainCollisionCellsTest test1
+        tester:Run(test1)
+
+        TerrainCollisionPieceTest test2
+        tester:Run(test2)
+    end
+
+    /*
+    This action runs the tests of saving settings and streaming regions.
+    */
+    action TestStreaming
+        TerrainDataSettingsTest test1
+        tester:Run(test1)
+
+        TerrainStreamingTest test2
+        tester:Run(test2)
     end
 
     /*

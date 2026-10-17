@@ -1,13 +1,16 @@
 package Libraries.Game.Graphics.Worlds
 
 use Libraries.Containers.Array
+use Libraries.Containers.Integer32BitArray
+use Libraries.Containers.Number32BitArray
+use Libraries.Containers.Iterator
+use Libraries.Data.Formats.JavaScriptObjectNotation
 use Libraries.Compute.Math
 use Libraries.Compute.Vector3
 use Libraries.Compute.BitwiseOperations
 use Libraries.Compute.Noise.NoiseGenerator
 use Libraries.Game.Graphics.PixelMap
 use Libraries.System.File
-use Libraries.System.FileReader
 use Libraries.System.FileWriter
 
 /*
@@ -62,6 +65,15 @@ class TerrainData
     // The regions that have been added, in the order they were added.
     Array<TerrainRegion> regions
 
+    // Which region locations are saved in the folder the terrain was last
+    // saved to or loaded from: 1 if saved, 0 if not, in the same order as
+    // the region map. And that folder's path, so saving to a different
+    // folder starts a fresh list.
+    Integer32BitArray savedMap
+    Number32BitArray savedLowest
+    Number32BitArray savedHighest
+    text savedFolderPath = ""
+
     // The rectangle of samples changed since the edited area was last cleared.
     boolean hasEditedArea = false
     integer editedMinimumX = 0
@@ -74,6 +86,9 @@ class TerrainData
 
     on create
         regionMap:SetSize(regionMapSize * regionMapSize)
+        savedMap:SetSize(regionMapSize * regionMapSize)
+        savedLowest:SetSize(regionMapSize * regionMapSize)
+        savedHighest:SetSize(regionMapSize * regionMapSize)
     end
 
     /*
@@ -201,11 +216,7 @@ class TerrainData
             alert("There is already a region at (" + locationX + ", " + locationZ + ").")
         end
 
-        TerrainRegion region
-        region:SetRegionSize(regionSize)
-        region:SetLocation(locationX, locationZ)
-        regionMap:Set(GetRegionMapIndex(locationX, locationZ), region)
-        regions:Add(region)
+        TerrainRegion region = AddRegionQuietly(locationX, locationZ)
         AddRegionToEditedArea(locationX, locationZ)
         return region
     end
@@ -222,8 +233,7 @@ class TerrainData
         if region = undefined
             return now
         end
-        regionMap:Set(GetRegionMapIndex(locationX, locationZ), undefined)
-        regions:Remove(region)
+        UnloadRegion(locationX, locationZ)
         AddRegionToEditedArea(locationX, locationZ)
     end
 
@@ -609,107 +619,287 @@ class TerrainData
     end
 
     /*
-    This action saves the terrain to a folder, which is made if it does not
-    exist. Like Terrain3D, each region is saved to its own file, an image
-    named for its location, such as "region_-1_2.png". A text file named
-    "terrain.txt" holds the region size, the vertex spacing, and each
-    region's location and height range. Every region is marked as
-    unmodified afterward.
+    This action saves the whole terrain to a folder, which is made if it does
+    not exist. Like Terrain3D, each region's heights are saved to their own
+    image, named for its location, such as "region_-1_2.png". A JSON file
+    named "terrain.json" holds the region size, the vertex spacing, and for
+    every saved region its location and the height range its image covers.
+    Every region is marked as unmodified afterward.
+
+    Regions that were saved to the same folder earlier, and have been
+    unloaded since, stay listed in "terrain.json".
 
     Saving uses PixelMap, so it needs a running game.
 
     Attribute: Parameter folder The folder to save into.
     */
     action Save(File folder)
-        if not folder:Exists()
-            folder:CreateDirectories()
-        end
-
-        FileWriter writer
-        writer:OpenForWrite(GetFileInFolder(folder, "terrain.txt"))
-        writer:WriteLine("TerrainData 1")
-        writer:WriteLine("regionSize " + regionSize)
-        writer:WriteLine("vertexSpacing " + vertexSpacing)
-
+        UseSaveFolder(folder)
         integer i = 0
         repeat while i < regions:GetSize()
-            TerrainRegion region = regions:Get(i)
-            // GetHeightImage works out the exact height range first, so the
-            // range is written after the image is made.
-            PixelMap image = region:GetHeightImage()
-            image:Save(GetFileInFolder(folder, GetRegionFileName(region:GetLocationX(), region:GetLocationZ())))
-            writer:WriteLine("region " + region:GetLocationX() + " " + region:GetLocationZ() + " " +
-                region:GetLowestHeight() + " " + region:GetHighestHeight())
-            region:SetModified(false)
+            SaveRegionImage(folder, regions:Get(i))
             i = i + 1
         end
-        writer:Close()
+        SaveSettings(folder)
     end
 
     /*
-    This action loads a terrain saved by Save. The terrain must not have any
-    regions yet. The whole loaded terrain becomes the edited area.
+    This action loads a whole terrain saved by Save. The terrain must not have
+    any regions yet. The whole loaded terrain becomes the edited area.
 
     Loading uses PixelMap, so it needs a running game.
 
     Attribute: Parameter folder The folder the terrain was saved into.
     */
     action Load(File folder)
-        if regions:GetSize() > 0
-            alert("A terrain can only be loaded into TerrainData that has no regions yet.")
-        end
-        File settings = GetFileInFolder(folder, "terrain.txt")
-        if not settings:Exists()
-            alert("There is no saved terrain in " + folder:GetPath() + ", since it has no terrain.txt.")
-        end
-
-        // The file is read one line at a time. FileReader's ReadLines always
-        // reports reaching the end of the file as an error, so it can't be
-        // used here.
-        FileReader reader
-        reader:OpenForRead(settings)
-        Array<text> lines
-        repeat while not reader:IsAtEndOfFile()
-            lines:Add(reader:ReadLine())
-        end
-        reader:Close()
-
-        if lines:GetSize() = 0
-            alert("The file " + settings:GetPath() + " is empty, so it is not a saved terrain.")
-        end
-        if not lines:Get(0):StartsWith("TerrainData")
-            alert("The file " + settings:GetPath() + " is not a saved terrain.")
-        end
-
-        integer i = 1
-        repeat while i < lines:GetSize()
-            text line = lines:Get(i):Trim()
-            if not line:IsEmpty()
-                Array<text> parts = line:Split(" ")
-                text kind = parts:Get(0)
-                if kind = "regionSize"
-                    SetRegionSize(parts:Get(1):ParseInteger())
-                elseif kind = "vertexSpacing"
-                    SetVertexSpacing(parts:Get(1):ParseNumber())
-                elseif kind = "region"
-                    integer locationX = parts:Get(1):ParseInteger()
-                    integer locationZ = parts:Get(2):ParseInteger()
-                    number lowest = parts:Get(3):ParseNumber()
-                    number highest = parts:Get(4):ParseNumber()
-
-                    PixelMap image
-                    image:LoadPixelMap(GetFileInFolder(folder, GetRegionFileName(locationX, locationZ)))
-                    TerrainRegion region = AddRegion(locationX, locationZ)
-                    region:SetHeightsFromImage(image, lowest, highest)
-                end
+        LoadSettings(folder)
+        integer i = 0
+        repeat while i < savedMap:GetSize()
+            if savedMap:Get(i) = 1
+                integer locationX = GetLocationXFromMapIndex(i)
+                integer locationZ = GetLocationZFromMapIndex(i)
+                LoadRegion(folder, locationX, locationZ)
+                AddRegionToEditedArea(locationX, locationZ)
             end
             i = i + 1
         end
     end
 
     /*
-    This action returns the name of the file a region is saved in, such as
-    "region_-1_2.png" for the region at location (-1, 2).
+    This action reads "terrain.json" from a folder: the region size, the
+    vertex spacing, and which regions are saved there, with their height
+    ranges. No regions are loaded, so a game can load just the ones it needs
+    with LoadRegion. The terrain must not have any regions yet.
+
+    The file is read with the standard library's JavaScriptObjectNotation.
+    It looks like this:
+
+    {
+        "format": "TerrainData",
+        "version": 2,
+        "regionSize": 64,
+        "vertexSpacing": 0.5,
+        "regions": [
+            {"x": -1, "z": 2, "lowest": -3.25, "highest": 7.5}
+        ]
+    }
+
+    Attribute: Parameter folder The folder the terrain was saved into.
+    */
+    action LoadSettings(File folder)
+        if regions:GetSize() > 0
+            alert("Saved settings can only be loaded into TerrainData that has no regions yet.")
+        end
+        File settings = GetFileInFolder(folder, "terrain.json")
+        if not settings:Exists()
+            alert("There is no saved terrain in " + folder:GetPath() + ", since it has no terrain.json.")
+        end
+
+        JavaScriptObjectNotation json
+        json:Read(settings)
+        if not json:HasValue("format")
+            alert("The file " + settings:GetPath() + " is not a saved terrain, since it has no format.")
+        end
+        if json:GetValue("format") not= "TerrainData"
+            alert("The file " + settings:GetPath() + " is not a saved terrain.")
+        end
+        integer version = cast(integer, GetJsonNumber(json, "version"))
+        if version not= 2
+            alert("The file " + settings:GetPath() + " is version " + version + ", but only version 2 can be read.")
+        end
+
+        UseSaveFolder(folder)
+        SetRegionSize(cast(integer, GetJsonNumber(json, "regionSize")))
+        SetVertexSpacing(GetJsonNumber(json, "vertexSpacing"))
+
+        // When the standard library reads "regions": [...], the value under
+        // "regions" holds the array as its one child, which GetArray returns.
+        // The region objects are the array's children.
+        JavaScriptObjectNotation holder = json:GetObject("regions")
+        if holder = undefined
+            return now
+        end
+        JavaScriptObjectNotation list = holder
+        if holder:IsArrayObject()
+            list = holder:GetArray()
+        end
+        integer i = 0
+        repeat while i < list:GetSize()
+            JavaScriptObjectNotation item = list:Get(i)
+            integer locationX = cast(integer, GetJsonNumber(item, "x"))
+            integer locationZ = cast(integer, GetJsonNumber(item, "z"))
+            if IsInRegionMap(locationX, locationZ)
+                integer index = GetRegionMapIndex(locationX, locationZ)
+                savedMap:Set(index, 1)
+                savedLowest:Set(index, GetJsonNumber(item, "lowest"))
+                savedHighest:Set(index, GetJsonNumber(item, "highest"))
+            end
+            i = i + 1
+        end
+    end
+
+    /*
+    This action writes "terrain.json" to a folder: the region size, the vertex
+    spacing, and the location and height range of every region whose image
+    has been saved to this folder. See LoadSettings for what it looks like.
+
+    Attribute: Parameter folder The folder to save into.
+    */
+    action SaveSettings(File folder)
+        UseSaveFolder(folder)
+
+        JavaScriptObjectNotation json
+        json:SetPrettyPrint(true)
+        json:Add("format", "TerrainData")
+        json:Add("version", 2)
+        json:Add("regionSize", regionSize)
+        json:Add("vertexSpacing", vertexSpacing)
+
+        JavaScriptObjectNotation list
+        list:SetPrettyPrint(true)
+        list:SetArray()
+        integer i = 0
+        repeat while i < savedMap:GetSize()
+            if savedMap:Get(i) = 1
+                JavaScriptObjectNotation item
+                item:Add("x", GetLocationXFromMapIndex(i))
+                item:Add("z", GetLocationZFromMapIndex(i))
+                item:Add("lowest", savedLowest:Get(i))
+                item:Add("highest", savedHighest:Get(i))
+                list:Add(item)
+            end
+            i = i + 1
+        end
+        json:Add("regions", list)
+
+        FileWriter writer
+        writer:OpenForWrite(GetFileInFolder(folder, "terrain.json"))
+        writer:Write(json:ToText())
+        writer:Close()
+    end
+
+    /*
+    This action saves one region's image to a folder, which is made if it
+    does not exist, updates "terrain.json" to match, and marks the region as
+    unmodified.
+
+    Saving uses PixelMap, so it needs a running game.
+
+    Attribute: Parameter folder The folder to save into.
+    Attribute: Parameter region The region to save.
+    */
+    action SaveRegion(File folder, TerrainRegion region)
+        UseSaveFolder(folder)
+        SaveRegionImage(folder, region)
+        SaveSettings(folder)
+    end
+
+    /*
+    This action loads one saved region from a folder and adds it to the
+    terrain. Unlike AddRegion, it does not add to the edited area, since the
+    region is being brought back rather than changed. The settings must have
+    been read first, with LoadSettings or Load.
+
+    Loading uses PixelMap, so it needs a running game.
+
+    Attribute: Parameter folder The folder the terrain was saved into.
+    Attribute: Parameter locationX The region location along x.
+    Attribute: Parameter locationZ The region location along z.
+    Attribute: Returns The loaded region.
+    */
+    action LoadRegion(File folder, integer locationX, integer locationZ) returns TerrainRegion
+        if HasRegion(locationX, locationZ)
+            alert("There is already a region at (" + locationX + ", " + locationZ + ").")
+        end
+        if not HasSavedRegion(locationX, locationZ)
+            alert("There is no saved region at (" + locationX + ", " + locationZ + ").")
+        end
+        integer index = GetRegionMapIndex(locationX, locationZ)
+
+        PixelMap image
+        image:LoadPixelMap(GetFileInFolder(folder, GetRegionFileName(locationX, locationZ)))
+        TerrainRegion region = AddRegionQuietly(locationX, locationZ)
+        region:SetHeightsFromImage(image, savedLowest:Get(index), savedHighest:Get(index))
+        return region
+    end
+
+    /*
+    This action takes a region out of the terrain without saving it, and
+    without adding to the edited area. Save it first with SaveRegion if it
+    has been modified.
+
+    Attribute: Parameter locationX The region location along x.
+    Attribute: Parameter locationZ The region location along z.
+    */
+    action UnloadRegion(integer locationX, integer locationZ)
+        TerrainRegion region = GetRegion(locationX, locationZ)
+        if region = undefined
+            return now
+        end
+        regionMap:Set(GetRegionMapIndex(locationX, locationZ), undefined)
+        regions:Remove(region)
+    end
+
+    /*
+    This action returns true if a region at a location has been saved to, or
+    listed in, the folder the terrain was last saved to or loaded from.
+
+    Attribute: Parameter locationX The region location along x.
+    Attribute: Parameter locationZ The region location along z.
+    Attribute: Returns True if the region is saved.
+    */
+    action HasSavedRegion(integer locationX, integer locationZ) returns boolean
+        if not IsInRegionMap(locationX, locationZ)
+            return false
+        end
+        return savedMap:Get(GetRegionMapIndex(locationX, locationZ)) = 1
+    end
+
+    /*
+    This action returns the lowest height of a saved region, as recorded
+    when it was last saved.
+
+    Attribute: Parameter locationX The region location along x.
+    Attribute: Parameter locationZ The region location along z.
+    Attribute: Returns The lowest height, or 0 if the region isn't saved.
+    */
+    action GetSavedLowestHeight(integer locationX, integer locationZ) returns number
+        if not HasSavedRegion(locationX, locationZ)
+            return 0
+        end
+        return savedLowest:Get(GetRegionMapIndex(locationX, locationZ))
+    end
+
+    /*
+    This action returns the highest height of a saved region, as recorded
+    when it was last saved.
+
+    Attribute: Parameter locationX The region location along x.
+    Attribute: Parameter locationZ The region location along z.
+    Attribute: Returns The highest height, or 0 if the region isn't saved.
+    */
+    action GetSavedHighestHeight(integer locationX, integer locationZ) returns number
+        if not HasSavedRegion(locationX, locationZ)
+            return 0
+        end
+        return savedHighest:Get(GetRegionMapIndex(locationX, locationZ))
+    end
+
+    /*
+    This action returns true if a region at a location is loaded, or is
+    saved and could be loaded. Where neither is true, there is no ground.
+
+    Attribute: Parameter locationX The region location along x.
+    Attribute: Parameter locationZ The region location along z.
+    Attribute: Returns True if the region exists.
+    */
+    action HasRegionAnywhere(integer locationX, integer locationZ) returns boolean
+        return HasRegion(locationX, locationZ) or HasSavedRegion(locationX, locationZ)
+    end
+
+    /*
+    This action returns the name of the image file a region's heights are
+    saved in, such as "region_-1_2.png" for the region at location (-1, 2).
 
     Attribute: Parameter locationX The region location along x.
     Attribute: Parameter locationZ The region location along z.
@@ -836,6 +1026,117 @@ class TerrainData
             end
             locationZ = locationZ + 1
         end
+    end
+
+    /*
+    This action makes a flat region at a location and puts it in the region
+    map, without adding to the edited area.
+
+    Attribute: Parameter locationX The region location along x, from -16 to 15.
+    Attribute: Parameter locationZ The region location along z, from -16 to 15.
+    Attribute: Returns The new region.
+    */
+    private action AddRegionQuietly(integer locationX, integer locationZ) returns TerrainRegion
+        if not IsInRegionMap(locationX, locationZ)
+            alert("The region location (" + locationX + ", " + locationZ + ") is outside the grid of regions, which runs from " +
+                -(regionMapSize / 2) + " to " + (regionMapSize / 2 - 1) + ".")
+        end
+        TerrainRegion region
+        region:SetRegionSize(regionSize)
+        region:SetLocation(locationX, locationZ)
+        regionMap:Set(GetRegionMapIndex(locationX, locationZ), region)
+        regions:Add(region)
+        return region
+    end
+
+    /*
+    This action notes the folder the terrain is being saved to or loaded
+    from. If it is a different folder than before, the list of saved regions
+    starts again, since the old list was about the other folder.
+
+    Attribute: Parameter folder The folder.
+    */
+    private action UseSaveFolder(File folder)
+        if not folder:Exists()
+            folder:CreateDirectories()
+        end
+        text path = folder:GetAbsolutePath()
+        if path not= savedFolderPath
+            integer i = 0
+            repeat while i < savedMap:GetSize()
+                savedMap:Set(i, 0)
+                i = i + 1
+            end
+            savedFolderPath = path
+        end
+    end
+
+    /*
+    This action saves one region's image to a folder and records it as
+    saved, with the height range the image covers, and marks the region as
+    unmodified. It does not write "terrain.json".
+
+    Attribute: Parameter folder The folder to save into.
+    Attribute: Parameter region The region to save.
+    */
+    private action SaveRegionImage(File folder, TerrainRegion region)
+        // GetHeightImage works out the exact height range first, so the
+        // range is read after the image is made.
+        PixelMap image = region:GetHeightImage()
+        image:Save(GetFileInFolder(folder, GetRegionFileName(region:GetLocationX(), region:GetLocationZ())))
+
+        integer index = GetRegionMapIndex(region:GetLocationX(), region:GetLocationZ())
+        savedMap:Set(index, 1)
+        savedLowest:Set(index, region:GetLowestHeight())
+        savedHighest:Set(index, region:GetHighestHeight())
+        region:SetModified(false)
+    end
+
+    /*
+    This action returns a number from a JSON object, whether it was written
+    as a whole number, like 64, or with a decimal point, like 0.5. The
+    standard library's GetNumber and GetInteger each only accept one kind.
+
+    Attribute: Parameter json The JSON object.
+    Attribute: Parameter key The name of the value.
+    Attribute: Returns The value.
+    */
+    private action GetJsonNumber(JavaScriptObjectNotation json, text key) returns number
+        Iterator<JavaScriptObjectNotation> children = json:GetIterator()
+        repeat while children:HasNext()
+            JavaScriptObjectNotation child = children:Next()
+            if child:GetKey() = key
+                if child:IsInteger()
+                    return child:GetInteger()
+                elseif child:IsNumber()
+                    return child:GetNumber()
+                end
+            end
+        end
+        alert("The saved terrain has no number named " + key + ".")
+        return 0
+    end
+
+    /*
+    This action returns the region location along x for a place in the
+    region map.
+
+    Attribute: Parameter index The place in the region map.
+    Attribute: Returns The region location along x.
+    */
+    private action GetLocationXFromMapIndex(integer index) returns integer
+        return index mod regionMapSize - regionMapSize / 2
+    end
+
+    /*
+    This action returns the region location along z for a place in the
+    region map.
+
+    Attribute: Parameter index The place in the region map.
+    Attribute: Returns The region location along z.
+    */
+    private action GetLocationZFromMapIndex(integer index) returns integer
+        return index / regionMapSize - regionMapSize / 2
     end
 
     /*

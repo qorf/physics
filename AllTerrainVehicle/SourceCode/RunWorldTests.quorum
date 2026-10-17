@@ -8,6 +8,10 @@ RunWorldTests runs the terrain and world tests in this project and writes
 which of them failed. It works like RunPhysicsTests, so the tests in
 Tests/Worlds and Tests/WorldsTester.quorum can be copied into Quorum
 unchanged. To run it, make this file the project's main file.
+
+A test that stops with an error has no message, since the Tester catches
+the error. Such a test is run again here, and the error and where it
+happened are written out.
 */
 class RunWorldTests
     action Main
@@ -24,6 +28,16 @@ class RunWorldTests
             output "FAILED: " + test:GetName()
             if test:GetMessage() not= ""
                 output "    " + test:GetMessage()
+            else
+                // No message means the test stopped with an error, which the
+                // Tester catches and hides. Run it again here to show it.
+                check
+                    test:Run()
+                    output "    (no error on a second run)"
+                detect e
+                    output "    Error: " + e:GetErrorMessage()
+                    output e:GetStackTraceMessage()
+                end
             end
         end
     end

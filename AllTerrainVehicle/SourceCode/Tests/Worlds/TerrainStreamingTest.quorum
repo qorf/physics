@@ -1,0 +1,137 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainData
+use Libraries.Game.Graphics.Worlds.TerrainStreamer
+use Libraries.Game.Graphics.Worlds.WorldTerrain
+use Libraries.System.File
+use Libraries.System.FileWriter
+
+/*
+Tests the parts of streaming that don't need a running game:
+1. Unloading a region takes it out without adding to the edited area, unlike
+   RemoveRegion.
+2. TerrainStreamer measures distance to the nearest point of a region's
+   square, and its unload radius is the load radius plus half a region.
+3. WorldTerrain only draws a loaded region once every saved neighbor is
+   loaded too, since its mesh reaches into them.
+
+Loading and saving region images needs a running game, so it is checked in
+DriveOpen.
+
+Attribute: Example
+use Worlds.Tests.TerrainStreamingTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainStreamingTest test
+tester:Run(test)
+*/
+class TerrainStreamingTest is WorldsTest
+    on create
+        SetName("Terrain streaming")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        CheckUnloading()
+        CheckDistances()
+        CheckDrawable()
+    end
+
+    /*
+    This action checks UnloadRegion.
+    */
+    action CheckUnloading
+        TerrainData data
+        data:SetRegionSize(64)
+        data:AddRegion(0, 0)
+        data:ClearEditedArea()
+        data:UnloadRegion(0, 0)
+        CheckThat("an unloaded region is gone", not data:HasRegion(0, 0))
+        CheckWhole("no regions after unloading", data:GetRegionCount(), 0)
+        CheckThat("unloading adds no edited area", not data:HasEditedArea())
+        data:UnloadRegion(3, 3)
+        CheckWhole("unloading where there is no region changes nothing", data:GetRegionCount(), 0)
+    end
+
+    /*
+    This action checks the streamer's distances and radii.
+    */
+    action CheckDistances
+        // Regions 64 samples across, half a unit apart, are 32 units wide.
+        TerrainData data
+        data:SetRegionSize(64)
+        data:SetVertexSpacing(0.5)
+        TerrainStreamer streamer
+        streamer:SetTerrainData(data)
+        CheckNumber("region width in the world", streamer:GetRegionWorldSize(), 32)
+
+        // Region (0, 0) covers 0 to 32 along x and z.
+        CheckNumber("inside a region", streamer:GetDistanceToRegion(0, 0, 10, 10), 0)
+        CheckNumber("beside a region", streamer:GetDistanceToRegion(0, 0, 40, 10), 8)
+        CheckNumber("off a corner", streamer:GetDistanceToRegion(0, 0, -3, -4), 5)
+        CheckNumber("a region below 0", streamer:GetDistanceToRegion(-1, -1, -10, -20), 0)
+
+        streamer:SetLoadRadius(50)
+        CheckNumber("load radius", streamer:GetLoadRadius(), 50)
+        CheckNumber("unload radius is half a region more", streamer:GetUnloadRadius(), 66)
+    end
+
+    /*
+    This action checks which loaded regions WorldTerrain can draw.
+    */
+    action CheckDrawable
+        // A saved world of four regions in a square.
+        File folder
+        folder:SetPath("Build/WorldTests/Streaming")
+        if not folder:Exists()
+            folder:CreateDirectories()
+        end
+        text q = ""
+        q = q:GetDoubleQuote()
+        text json = "{" + q + "format" + q + ": " + q + "TerrainData" + q + ", " +
+            q + "version" + q + ": 2, " +
+            q + "regionSize" + q + ": 64, " +
+            q + "vertexSpacing" + q + ": 0.5, " +
+            q + "regions" + q + ": [" +
+            RegionText(0, 0) + ", " + RegionText(1, 0) + ", " + RegionText(0, 1) + ", " + RegionText(1, 1) +
+            "]}"
+        File settings
+        settings:SetPath("Build/WorldTests/Streaming/terrain.json")
+        FileWriter writer
+        writer:OpenForWrite(settings)
+        writer:Write(json)
+        writer:Close()
+
+        WorldTerrain terrain
+        TerrainData data = terrain:GetData()
+        data:LoadSettings(folder)
+
+        data:AddRegion(0, 0)
+        CheckThat("not drawn while its neighbors aren't loaded", not terrain:IsDrawable(0, 0))
+        data:AddRegion(1, 0)
+        data:AddRegion(0, 1)
+        CheckThat("not drawn while its diagonal neighbor isn't loaded", not terrain:IsDrawable(0, 0))
+        data:AddRegion(1, 1)
+        CheckThat("drawn once every saved neighbor is loaded", terrain:IsDrawable(0, 0))
+        CheckThat("neighbors that aren't saved don't matter", terrain:IsDrawable(1, 1))
+        CheckThat("a region that isn't loaded isn't drawn", not terrain:IsDrawable(3, 3))
+    end
+
+    /*
+    This action returns the JSON for one saved region, with a height range
+    of 0 to 1.
+
+    Attribute: Parameter x The region location along x.
+    Attribute: Parameter z The region location along z.
+    Attribute: Returns The region's JSON object, as text.
+    */
+    action RegionText(integer x, integer z) returns text
+        text q = ""
+        q = q:GetDoubleQuote()
+        return "{" + q + "x" + q + ": " + x + ", " + q + "z" + q + ": " + z + ", " +
+            q + "lowest" + q + ": 0, " + q + "highest" + q + ": 1}"
+    end
+end

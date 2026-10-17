@@ -1,0 +1,96 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainData
+use Libraries.Data.Formats.JavaScriptObjectNotation
+use Libraries.System.File
+use Libraries.System.FileWriter
+
+/*
+Tests reading and writing "terrain.json", the settings file of a saved
+terrain. A file written by hand is read with LoadSettings: the region size,
+the vertex spacing, which regions are saved, and their height ranges,
+including whole numbers, negative numbers, and a tiny number written with
+an exponent. No regions are loaded. Then SaveSettings writes the file again,
+and reading it back gives the same values, and the file is still readable by
+the standard library's JavaScriptObjectNotation.
+
+The files are written under Build/WorldTests, which git ignores. Region
+images are not involved, since they need a running game.
+
+Attribute: Example
+use Worlds.Tests.TerrainDataSettingsTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainDataSettingsTest test
+tester:Run(test)
+*/
+class TerrainDataSettingsTest is WorldsTest
+    on create
+        SetName("Terrain data settings file")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        File folder
+        folder:SetPath("Build/WorldTests/Settings")
+        if not folder:Exists()
+            folder:CreateDirectories()
+        end
+
+        text q = ""
+        q = q:GetDoubleQuote()
+        text json = "{" + q + "format" + q + ": " + q + "TerrainData" + q + ", " +
+            q + "version" + q + ": 2, " +
+            q + "regionSize" + q + ": 64, " +
+            q + "vertexSpacing" + q + ": 0.5, " +
+            q + "regions" + q + ": [" +
+            "{" + q + "x" + q + ": -1, " + q + "z" + q + ": 2, " + q + "lowest" + q + ": -3.25, " + q + "highest" + q + ": 7.5}, " +
+            "{" + q + "x" + q + ": 0, " + q + "z" + q + ": 0, " + q + "lowest" + q + ": 1.0E-5, " + q + "highest" + q + ": 12}" +
+            "]}"
+        File settings
+        settings:SetPath("Build/WorldTests/Settings/terrain.json")
+        FileWriter writer
+        writer:OpenForWrite(settings)
+        writer:Write(json)
+        writer:Close()
+
+        TerrainData data
+        data:LoadSettings(folder)
+        CheckSettings(data, "written by hand")
+
+        // Write the file again from what was read, and read it back.
+        data:SaveSettings(folder)
+        TerrainData again
+        again:LoadSettings(folder)
+        CheckSettings(again, "written by SaveSettings")
+
+        // The file SaveSettings wrote is ordinary JSON.
+        JavaScriptObjectNotation written
+        written:Read(settings)
+        CheckThat("the written file is JSON with its format", written:GetValue("format") = "TerrainData")
+    end
+
+    /*
+    This action checks what LoadSettings read.
+
+    Attribute: Parameter data The terrain the settings were read into.
+    Attribute: Parameter how How the file was written, for messages.
+    */
+    action CheckSettings(TerrainData data, text how)
+        CheckWhole("region size, " + how, data:GetRegionSize(), 64)
+        CheckNumber("vertex spacing, " + how, data:GetVertexSpacing(), 0.5)
+        CheckWhole("no regions are loaded, " + how, data:GetRegionCount(), 0)
+        CheckThat("region (-1, 2) is saved, " + how, data:HasSavedRegion(-1, 2))
+        CheckThat("region (0, 0) is saved, " + how, data:HasSavedRegion(0, 0))
+        CheckThat("region (1, 1) is not saved, " + how, not data:HasSavedRegion(1, 1))
+        CheckThat("region (-1, 2) exists somewhere, " + how, data:HasRegionAnywhere(-1, 2))
+        CheckNumber("lowest of (-1, 2), " + how, data:GetSavedLowestHeight(-1, 2), -3.25)
+        CheckNumber("highest of (-1, 2), " + how, data:GetSavedHighestHeight(-1, 2), 7.5)
+        // The tiny lowest height is scaled up so the check can tell it from 0.
+        CheckNumber("lowest of (0, 0), " + how, data:GetSavedLowestHeight(0, 0) * 100000, 1)
+        CheckNumber("highest of (0, 0), written as a whole number, " + how, data:GetSavedHighestHeight(0, 0), 12)
+    end
+end

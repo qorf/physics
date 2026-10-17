@@ -1,0 +1,108 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainData
+use Libraries.Game.Graphics.Worlds.TerrainCollision
+
+/*
+Tests how TerrainCollision chooses which grid squares get collision pieces.
+Squares start at multiples of the shape size, including below 0. With a
+shape size of 16 and a radius of 64 samples, a target in the middle of the
+world has 49 squares in reach, and the ones with no region are left out.
+Every chosen square is within the radius and in a region, and the target's
+own square is always chosen.
+
+Attribute: Example
+use Worlds.Tests.TerrainCollisionCellsTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainCollisionCellsTest test
+tester:Run(test)
+*/
+class TerrainCollisionCellsTest is WorldsTest
+    on create
+        SetName("Terrain collision squares")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        // Four regions of 64 samples, covering samples -64 to 63 each way,
+        // with samples half a unit apart.
+        TerrainData data
+        data:SetRegionSize(64)
+        data:SetVertexSpacing(0.5)
+        data:AddRegion(-1, -1)
+        data:AddRegion(0, -1)
+        data:AddRegion(-1, 0)
+        data:AddRegion(0, 0)
+
+        TerrainCollision collision
+        collision:SetTerrainData(data)
+        CheckWhole("default shape size", collision:GetShapeSize(), 16)
+        CheckWhole("default radius", collision:GetRadius(), 64)
+
+        CheckWhole("sample 0 starts square 0", collision:GetCellStart(0), 0)
+        CheckWhole("sample 20 is in square 16", collision:GetCellStart(20), 16)
+        CheckWhole("sample -1 is in square -16", collision:GetCellStart(-1), -16)
+        CheckWhole("sample -16 is in square -16", collision:GetCellStart(-16), -16)
+        CheckWhole("sample -17 is in square -32", collision:GetCellStart(-17), -32)
+
+        // At the origin, 49 squares are in reach. The two that start at
+        // sample 64, along x and along z, have no region.
+        collision:ChooseCells(0, 0)
+        CheckWhole("squares chosen at the origin", collision:GetChosenCount(), 47)
+        CheckChosen(data, collision, 0, 0, "at the origin")
+
+        // At world (-20, 10), which is sample (-40, 20), in square (-48, 16).
+        collision:ChooseCells(-20, 10)
+        CheckWhole("squares chosen near the corner", collision:GetChosenCount(), 31)
+        CheckChosen(data, collision, -48, 16, "near the corner")
+
+        // Far from every region, nothing is chosen.
+        collision:ChooseCells(100, 100)
+        CheckWhole("squares chosen far away", collision:GetChosenCount(), 0)
+
+        // A smaller radius chooses fewer squares.
+        collision:SetRadius(16)
+        collision:ChooseCells(0, 0)
+        CheckWhole("squares chosen with a radius of 16", collision:GetChosenCount(), 5)
+    end
+
+    /*
+    This action checks that every chosen square is in a region, within the
+    radius of the target's square, and that the target's own square was
+    chosen.
+
+    Attribute: Parameter data The terrain's data.
+    Attribute: Parameter collision The collision that chose the squares.
+    Attribute: Parameter targetX The first sample along x of the target's square.
+    Attribute: Parameter targetZ The first sample along z of the target's square.
+    Attribute: Parameter where A few words saying where the target was, for messages.
+    */
+    action CheckChosen(TerrainData data, TerrainCollision collision, integer targetX, integer targetZ, text where)
+        integer radius = collision:GetRadius()
+        boolean allInRegions = true
+        boolean allInReach = true
+        boolean hasTarget = false
+        integer i = 0
+        repeat while i < collision:GetChosenCount()
+            integer x = collision:GetChosenX(i)
+            integer z = collision:GetChosenZ(i)
+            if not data:HasSample(x, z)
+                allInRegions = false
+            end
+            if (x - targetX) * (x - targetX) + (z - targetZ) * (z - targetZ) > radius * radius
+                allInReach = false
+            end
+            if x = targetX and z = targetZ
+                hasTarget = true
+            end
+            i = i + 1
+        end
+        CheckThat("every square is in a region, " + where, allInRegions)
+        CheckThat("every square is within the radius, " + where, allInReach)
+        CheckThat("the target's square is chosen, " + where, hasTarget)
+    end
+end
