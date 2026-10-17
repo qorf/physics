@@ -1,0 +1,57 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainData
+
+/*
+Tests TerrainData:RaiseArea. The sample at the center rises by the full
+amount, samples partway out rise by less, and samples at or past the radius
+do not change. A negative amount lowers the ground. The changed samples are
+added to the edited area.
+
+Attribute: Example
+use Worlds.Tests.TerrainDataRaiseTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainDataRaiseTest test
+tester:Run(test)
+*/
+class TerrainDataRaiseTest is WorldsTest
+    on create
+        SetName("Terrain data raising an area")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        TerrainData data
+        data:SetRegionSize(64)
+        data:AddRegion(0, 0)
+        data:ClearEditedArea()
+
+        // A circle of radius 4 around sample (20, 30), with a spacing of 1.
+        data:RaiseArea(20, 30, 4, 2)
+        CheckNumber("center rises the full amount", data:GetSampleHeight(20, 30), 2)
+        // Halfway out, the smooth curve gives half the amount.
+        CheckNumber("halfway out rises half", data:GetSampleHeight(22, 30), 1)
+        CheckNumber("at the radius does not change", data:GetSampleHeight(24, 30), 0)
+        CheckNumber("past the radius does not change", data:GetSampleHeight(25, 30), 0)
+        CheckThat("halfway rises less than the center",
+            data:GetSampleHeight(20, 32) < data:GetSampleHeight(20, 31))
+
+        CheckThat("raising makes an edited area", data:HasEditedArea())
+        CheckWhole("edited area's smallest x", data:GetEditedMinimumX(), 17)
+        CheckWhole("edited area's largest x", data:GetEditedMaximumX(), 23)
+
+        // Lowering by the same amount puts the ground back.
+        data:RaiseArea(20, 30, 4, -2)
+        CheckNumber("lowering puts the center back", data:GetSampleHeight(20, 30), 0)
+        CheckNumber("lowering puts halfway back", data:GetSampleHeight(22, 30), 0)
+
+        // Near the edge of the world, samples with no region are skipped.
+        data:RaiseArea(0, 0, 3, 1)
+        CheckNumber("the corner sample rises", data:GetSampleHeight(0, 0), 1)
+        CheckNumber("no region stays at 0", data:GetSampleHeight(-1, 0), 0)
+    end
+end

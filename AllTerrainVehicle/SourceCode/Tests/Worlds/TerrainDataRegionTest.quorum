@@ -1,0 +1,71 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainData
+use Libraries.Game.Graphics.Worlds.TerrainRegion
+
+/*
+Tests adding, finding and removing regions in TerrainData. The default
+region size is 256, as in Terrain3D, and regions can be placed from -16 to
+15 along each axis. A new region has the data's region size, knows its
+location, and is flat.
+
+Attribute: Example
+use Worlds.Tests.TerrainDataRegionTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainDataRegionTest test
+tester:Run(test)
+*/
+class TerrainDataRegionTest is WorldsTest
+    on create
+        SetName("Terrain data regions")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        TerrainData data
+        CheckWhole("default region size", data:GetRegionSize(), 256)
+        CheckNumber("default vertex spacing", data:GetVertexSpacing(), 1)
+        CheckWhole("no regions at first", data:GetRegionCount(), 0)
+        CheckThat("no region at (0, 0) at first", not data:HasRegion(0, 0))
+        CheckThat("an empty location gives undefined", data:GetRegion(0, 0) = undefined)
+
+        data:SetRegionSize(64)
+        CheckWhole("region size can change before regions are added", data:GetRegionSize(), 64)
+
+        TerrainRegion region = data:AddRegion(-1, 2)
+        CheckWhole("one region", data:GetRegionCount(), 1)
+        CheckThat("region at (-1, 2)", data:HasRegion(-1, 2))
+        CheckThat("no region at (2, -1)", not data:HasRegion(2, -1))
+        CheckThat("GetRegion finds the added region", data:GetRegion(-1, 2) = region)
+        CheckThat("GetRegionAtIndex finds the added region", data:GetRegionAtIndex(0) = region)
+        CheckWhole("new region's size", region:GetRegionSize(), 64)
+        CheckWhole("new region's x location", region:GetLocationX(), -1)
+        CheckWhole("new region's z location", region:GetLocationZ(), 2)
+        CheckNumber("new region is flat", region:GetHeight(10, 10), 0)
+
+        // The grid of regions runs from -16 to 15.
+        CheckThat("(-16, -16) is in the grid", data:IsInRegionMap(-16, -16))
+        CheckThat("(15, 15) is in the grid", data:IsInRegionMap(15, 15))
+        CheckThat("(16, 0) is outside the grid", not data:IsInRegionMap(16, 0))
+        CheckThat("(0, -17) is outside the grid", not data:IsInRegionMap(0, -17))
+        CheckThat("outside the grid there is no region", data:GetRegion(16, 0) = undefined)
+
+        // Corners of the grid can hold regions.
+        TerrainRegion corner = data:AddRegion(15, -16)
+        CheckThat("corner region at (15, -16)", data:GetRegion(15, -16) = corner)
+        CheckWhole("two regions", data:GetRegionCount(), 2)
+
+        data:RemoveRegion(-1, 2)
+        CheckThat("removed region is gone", not data:HasRegion(-1, 2))
+        CheckWhole("one region after removing", data:GetRegionCount(), 1)
+        CheckThat("the other region stays", data:GetRegionAtIndex(0) = corner)
+
+        // Removing where there is no region does nothing.
+        data:RemoveRegion(3, 3)
+        CheckWhole("removing an empty location changes nothing", data:GetRegionCount(), 1)
+    end
+end

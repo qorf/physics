@@ -1,0 +1,101 @@
+package Libraries.Language.Compile.Test
+
+use Libraries.Testing.Tester
+use Worlds.Tests.TerrainRegionHeightTest
+use Worlds.Tests.TerrainRegionPixelTest
+use Worlds.Tests.TerrainDataRegionTest
+use Worlds.Tests.TerrainDataSampleTest
+use Worlds.Tests.TerrainDataWorldPositionTest
+use Worlds.Tests.TerrainDataEditedAreaTest
+use Worlds.Tests.TerrainDataNoiseTest
+use Worlds.Tests.TerrainDataPixelTest
+use Worlds.Tests.TerrainDataSurfaceTest
+use Worlds.Tests.TerrainDataSlopeTest
+use Worlds.Tests.TerrainDataRaiseTest
+
+/*
+WorldsTester runs the terrain and world tests, in the same way PhysicsTester
+runs the physics tests. The test classes are in Tests/Worlds, one test to a
+file.
+
+Attribute: Example
+use Libraries.Testing.Tester
+use Libraries.Language.Compile.Test.WorldsTester
+
+Tester tester
+WorldsTester worlds
+worlds:SetTester(tester)
+worlds:Test()
+*/
+class WorldsTester
+    Tester tester = undefined
+
+    /*
+    This action returns the name of this group of tests.
+
+    Attribute: Returns The name.
+    */
+    action GetName returns text
+        return "Worlds Tests"
+    end
+
+    /*
+    This action sets the Tester that runs each test and keeps the results.
+
+    Attribute: Parameter tester The Tester to use.
+    */
+    action SetTester(Tester tester)
+        me:tester = tester
+    end
+
+    /*
+    This action runs every test in the group.
+    */
+    action Test
+        TestRegions()
+        TestData()
+    end
+
+    /*
+    This action runs the tests of TerrainRegion.
+    */
+    action TestRegions
+        TerrainRegionHeightTest test1
+        tester:Run(test1)
+
+        TerrainRegionPixelTest test2
+        tester:Run(test2)
+    end
+
+    /*
+    This action runs the tests of TerrainData.
+    */
+    action TestData
+        TerrainDataRegionTest test1
+        tester:Run(test1)
+
+        TerrainDataSampleTest test2
+        tester:Run(test2)
+
+        TerrainDataWorldPositionTest test3
+        tester:Run(test3)
+
+        TerrainDataEditedAreaTest test4
+        tester:Run(test4)
+
+        TerrainDataNoiseTest test5
+        tester:Run(test5)
+
+        TerrainDataPixelTest test6
+        tester:Run(test6)
+
+        TerrainDataSurfaceTest test7
+        tester:Run(test7)
+
+        TerrainDataSlopeTest test8
+        tester:Run(test8)
+
+        TerrainDataRaiseTest test9
+        tester:Run(test9)
+    end
+end

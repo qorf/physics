@@ -1,0 +1,63 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainData
+
+/*
+Tests TerrainData's edited area, the rectangle of samples changed since it
+was last cleared. Adding or removing a region adds the region's whole square.
+Setting heights grows the rectangle to cover each sample. Setting a height
+where there is no region changes nothing, so it does not add to the area.
+
+Attribute: Example
+use Worlds.Tests.TerrainDataEditedAreaTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainDataEditedAreaTest test
+tester:Run(test)
+*/
+class TerrainDataEditedAreaTest is WorldsTest
+    on create
+        SetName("Terrain data edited area")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        TerrainData data
+        data:SetRegionSize(64)
+        CheckThat("no edited area at first", not data:HasEditedArea())
+
+        data:AddRegion(-1, 0)
+        CheckThat("adding a region makes an edited area", data:HasEditedArea())
+        CheckWhole("added region's smallest x", data:GetEditedMinimumX(), -64)
+        CheckWhole("added region's smallest z", data:GetEditedMinimumZ(), 0)
+        CheckWhole("added region's largest x", data:GetEditedMaximumX(), -1)
+        CheckWhole("added region's largest z", data:GetEditedMaximumZ(), 63)
+
+        data:ClearEditedArea()
+        CheckThat("clearing empties the edited area", not data:HasEditedArea())
+
+        data:SetSampleHeight(-10, 20, 1)
+        CheckWhole("one sample's smallest x", data:GetEditedMinimumX(), -10)
+        CheckWhole("one sample's largest x", data:GetEditedMaximumX(), -10)
+        CheckWhole("one sample's smallest z", data:GetEditedMinimumZ(), 20)
+        CheckWhole("one sample's largest z", data:GetEditedMaximumZ(), 20)
+
+        data:SetSampleHeight(-30, 5, 1)
+        CheckWhole("two samples' smallest x", data:GetEditedMinimumX(), -30)
+        CheckWhole("two samples' largest x", data:GetEditedMaximumX(), -10)
+        CheckWhole("two samples' smallest z", data:GetEditedMinimumZ(), 5)
+        CheckWhole("two samples' largest z", data:GetEditedMaximumZ(), 20)
+
+        data:ClearEditedArea()
+        data:SetSampleHeight(500, 500, 1)
+        CheckThat("a height set with no region adds no edited area", not data:HasEditedArea())
+
+        data:RemoveRegion(-1, 0)
+        CheckThat("removing a region makes an edited area", data:HasEditedArea())
+        CheckWhole("removed region's smallest x", data:GetEditedMinimumX(), -64)
+        CheckWhole("removed region's largest z", data:GetEditedMaximumZ(), 63)
+    end
+end

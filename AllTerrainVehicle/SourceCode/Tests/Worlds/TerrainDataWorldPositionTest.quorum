@@ -1,0 +1,55 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainData
+
+/*
+Tests turning world positions into samples in TerrainData. With a vertex
+spacing of 0.5, samples are half a unit apart, so the world position 1.24 is
+in sample 2 (which starts at 1.0) and -0.1 is in sample -1. GetHeight and
+SetHeight use the sample at or just below a position, without blending.
+
+Attribute: Example
+use Worlds.Tests.TerrainDataWorldPositionTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainDataWorldPositionTest test
+tester:Run(test)
+*/
+class TerrainDataWorldPositionTest is WorldsTest
+    on create
+        SetName("Terrain data world positions")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        TerrainData data
+        data:SetRegionSize(64)
+        data:SetVertexSpacing(0.5)
+        CheckNumber("vertex spacing", data:GetVertexSpacing(), 0.5)
+
+        CheckWhole("x of 0 is sample 0", data:GetSampleX(0), 0)
+        CheckWhole("x of 0.49 is sample 0", data:GetSampleX(0.49), 0)
+        CheckWhole("x of 0.5 is sample 1", data:GetSampleX(0.5), 1)
+        CheckWhole("x of 1.24 is sample 2", data:GetSampleX(1.24), 2)
+        CheckWhole("x of -0.1 is sample -1", data:GetSampleX(-0.1), -1)
+        CheckWhole("x of -0.5 is sample -1", data:GetSampleX(-0.5), -1)
+        CheckWhole("z of 3.9 is sample 7", data:GetSampleZ(3.9), 7)
+        CheckWhole("z of -3.9 is sample -8", data:GetSampleZ(-3.9), -8)
+
+        data:AddRegion(0, 0)
+        CheckThat("height at (1, 1)", data:HasHeight(1, 1))
+        CheckThat("no height at (-1, 1)", not data:HasHeight(-1, 1))
+        // Region (0, 0) covers samples 0 to 63, which is 0 up to 32 in the
+        // world at this spacing.
+        CheckThat("height at (31.9, 0)", data:HasHeight(31.9, 0))
+        CheckThat("no height at (32, 0)", not data:HasHeight(32, 0))
+
+        data:SetHeight(1.24, 3.9, 6)
+        CheckNumber("height set at a world position is in its sample", data:GetSampleHeight(2, 7), 6)
+        CheckNumber("anywhere in the same sample gives the same height", data:GetHeight(1.0, 3.5), 6)
+        CheckNumber("the next sample is not changed", data:GetHeight(1.5, 3.5), 0)
+    end
+end

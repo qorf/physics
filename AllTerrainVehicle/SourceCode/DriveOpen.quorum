@@ -1,0 +1,1079 @@
+use Libraries.Game.Game
+use Libraries.Game.InputMonitor
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.Camera
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Graphics.PointLight
+use Libraries.Game.Graphics.PixelMap
+use Libraries.Game.Graphics.Format
+use Libraries.Game.Graphics.Worlds.WorldTerrain
+use Libraries.Game.Graphics.Worlds.TerrainData
+use Libraries.Game.Graphics.Worlds.TerrainRegionModel
+use Libraries.Game.Graphics.Worlds.TerrainRegion
+use Libraries.Compute.Vector3
+use Libraries.System.File
+use Libraries.Compute.Matrix3
+use Libraries.Compute.Math
+use Libraries.Compute.BitwiseOperations
+use Libraries.Compute.Noise.PerlinNoise
+use Libraries.Compute.Random
+use Libraries.Containers.Array
+use Libraries.Game.Physics.PhysicsProperties3D
+use Libraries.Interface.Item3D
+use Libraries.Interface.Events.KeyboardEvent
+use Libraries.Game.Physics.Vehicles.Vehicle
+use Libraries.Game.Physics.Vehicles.Suspension
+use Libraries.Interface.Behaviors.Games.VehicleMovementBehavior
+use Libraries.Game.Graphics.FramesPerSecondLabel
+use RenderingChecks.RenderTreeCheck
+use Libraries.Game.Graphics.Trees.QuadTree3D
+use Libraries.Game.Graphics.Trees.Octree3D
+use Libraries.Game.Graphics.Label
+use Libraries.Game.Layer3D
+use Libraries.Game.Collision.Shapes.Box
+
+/*
+    A raycast vehicle driving over rolling hills. The hills are a WorldTerrain,
+    split into many square regions that are each drawn and collided with on
+    their own, so the vehicle crosses from region to region as it drives. The
+    heights come from a height map that is generated with Perlin noise, so no
+    image file is needed. Arrow keys drive and steer, the space bar brakes, and R puts the
+    vehicle back on its wheels in the middle of the map.
+
+    To give the physics something to show, small balls rain down on the
+    terrain at random places. Each one is a full physics object, so they roll
+    down the hills, pile up, bounce off the vehicle, and can be driven over.
+
+    Stacks of boxes stand at random places for the vehicle to crash into. The
+    ground under each stack is flattened into a small pad, so the stacks start
+    out standing instead of sliding down a slope.
+
+    The ground can be changed while driving: E raises a mound in front of the
+    vehicle and Q digs a hollow. Only the regions that change are rebuilt.
+*/
+class DriveOpen is Game
+    WorldTerrain terrain
+    Model chassis
+    Vehicle vehicle
+    VehicleMovementBehavior movement
+    PerlinNoise noise
+    BitwiseOperations ops
+    InputMonitor monitor
+    KeyboardEvent keys
+    Math math
+
+    // How many height samples run along each side of the terrain, and how far
+    // apart they are in the world. 512 samples half a unit apart make a square
+    // 256 units across, with triangles small enough that the wheels follow the
+    // ground closely.
+    integer mapSize = 512
+    number terrainScale = 0.5
+
+    // How many samples run along each side of one terrain region. Regions of
+    // 64 samples are 32 units across, so the map is 8 by 8 regions, and the
+    // vehicle crosses from one region to the next every few seconds. That
+    // tests that the regions' collision shapes work together.
+    integer regionSize = 64
+
+    // How far apart, in world units, the ground's texture repeats.
+    number textureRepeat = 4
+
+    // Changing the ground while driving. Holding E raises, and holding Q
+    // lowers, a circle editRadius across, centered editAhead units in front
+    // of the vehicle, by editAmount every editInterval seconds. Each change
+    // rebuilds the regions it touches. The renderer can't free the old
+    // meshes yet, so each change uses a little more memory.
+    number editRadius = 4
+    number editAhead = 7
+    number editAmount = 0.4
+    number editInterval = 0.15
+    number timeUntilEdit = 0
+
+    // Save check. While checkSaving is true, the terrain is saved to the
+    // folder saveFolder once it is built, loaded back into new TerrainData,
+    // and every sample is compared. The result is written to the console.
+    boolean checkSaving = true
+    text saveFolder = "SavedTerrain"
+
+    // How tall the highest possible ground is before the terrain is scaled.
+    // The noise mostly stays in the middle of its range, so the hills in
+    // practice rise and fall a few units around the middle height.
+    number heightScale = 24
+
+    // Where the terrain's corner sits. The terrain is centered on the origin
+    // and lowered so its middle height is close to 0. The corner must be a
+    // whole number of samples from the origin, since the terrain's samples
+    // are counted from there.
+    number baseX = -128
+    number baseY = -6
+    number baseZ = -128
+
+    // How far above the ground the chassis center is placed when the vehicle
+    // is reset. The wheels reach 1.1 units below the chassis center at rest,
+    // so a little more than that drops it gently onto its wheels.
+    number dropHeight = 1.4
+
+    // The chase camera sits this far behind the vehicle along its facing,
+    // and this far above it.
+    number cameraBehind = 12
+    number cameraAbove = 5
+
+    // The rain of balls. A new ball falls every dropInterval seconds, from
+    // dropHeightAbove units over the highest possible ground, at a random place
+    // over the terrain. No more than maximumDrops are in the scene at once.
+    // Once the limit is reached, the oldest ball is picked up and dropped
+    // again, so the rain keeps falling.
+    Array<Model> drops
+    Random random
+    integer maximumDrops = 200
+    number dropInterval = 0.05
+    number timeUntilDrop = 0
+    number dropDiameter = 0.2
+    number dropHeightAbove = 10
+
+    // The box stacks. Each stack is stackSize boxes along each side and
+    // stackSize boxes tall, and each box is boxSize along each side. The
+    // stacks are placed at random, but the same places every run, at least
+    // stackClearance from the vehicle's starting point and from each other,
+    // and no more than stackReach from the center of the map.
+    // The ground is flat within padRadius of a stack's center, and blends back
+    // into the hills over the next padBlend units.
+    Array<Vector3> stackSites
+    Random siteRandom
+    PhysicsProperties3D stackProperties
+    integer stackCount = 6
+    integer stackSize = 5
+    number boxSize = 0.5
+    number stackClearance = 14
+    number stackReach = 28
+    number padRadius = 2.5
+    number padBlend = 4
+
+    // Benchmark mode, for comparing performance between builds. The vehicle
+    // is not driven, the rain uses a fixed seed and a fixed time per frame,
+    // so every run does the same work frame by frame. After benchmarkFrames
+    // frames the results are written to the console and the game closes,
+    // which also makes the profiler save its snapshot. The first warmupFrames
+    // frames are reported separately, since they include loading and the
+    // Java compiler warming up.
+    boolean benchmark = false
+    integer benchmarkFrames = 1200
+    integer warmupFrames = 300
+    number benchmarkStep = 1.0 / 60.0
+    integer benchmarkSeed = 1234
+    integer frameCount = 0
+    number firstFrameSeconds = 0
+    number warmupSeconds = 0
+    number measuredSeconds = 0
+    number slowestFrameSeconds = 0
+
+    // A ball this far past any edge of the terrain, or this far below its
+    // base, has left the map and is removed.
+    number edgeMargin = 5
+    number fallLimit = 20
+
+    // Sleep check. While sleepReport is true, a summary of how many boxes and
+    // balls are asleep, awake but still, and moving is written to the console
+    // every reportInterval seconds. Turn rain off for a clean check, since
+    // falling balls wake whatever they land on.
+    boolean sleepReport = false
+    boolean rain = true
+    number reportInterval = 2
+    number timeUntilReport = 2
+    Array<Model> boxes
+
+    // The speeds at or below which the physics counts a body as still, in
+    // units per second and radians per second. These match the sleeping
+    // thresholds in CollisionGroup3D.
+    number linearSleepSpeed = 0.8
+    number angularSleepSpeed = 1
+    FramesPerSecondLabel fpsLabel
+    Label cullLabel
+
+    // Render tree check. While useRenderTree is true, every drawn item is
+    // added to a RenderTree3D as well as to the game. Each frame the tree is
+    // asked what the camera and the sun's shadows can see, and every
+    // renderCheckInterval frames its answers are checked by testing every
+    // item by hand. Drawing does not change. Every renderSnapshotInterval
+    // frames, the console shows how many items are in the tree and how many
+    // would be drawn from where the camera is then. A summary of the whole
+    // run is written at the end of a benchmark. See RenderTreeCheck.
+    // While renderTreeMovesAll is true, the tree is told every item moved,
+    // every frame. Otherwise it is only told about items whose physics is
+    // awake, and the wheels.
+    // While addPointLight is true, a point light hangs over the middle of
+    // the map, so the tree is also asked what is within its reach.
+    boolean useRenderTree = false
+    integer renderCheckInterval = 10
+    boolean renderTreeMovesAll = false
+    boolean addPointLight = true
+    integer renderSnapshotInterval = 200
+
+    // Which kind of render tree to test: 0 for DynamicVolumeRenderTree3D, 1 for
+    // QuadTree3D, 2 for Octree3D. The quadtree and octree cover the terrain, with
+    // room above it for the rain and around it for things that roll off.
+    integer renderTreeKind = 0
+
+    // How far from the camera objects are drawn into the sun's shadows when
+    // the layer culls, or 0 for the sun to work it out from its shadow
+    // cascades. The map is 128 units across. It is set on the sun, with
+    // DirectionalLight:SetCullingRange, and the layer reads it from there. It
+    // changes only what is drawn into the shadows, not the painter's
+    // cascades.
+    number sunCullingRange = 20
+
+    // If more than 0, the camera's far plane, in place of the default 1000.
+    // The painter fits its shadow cascades between the camera's near and far
+    // planes, so this also pulls the cascades in, which is the closest this
+    // game can come to a real shadow distance without changing the library.
+    // Anything farther away is not drawn at all.
+    number cameraFarDistance = 0
+    RenderTreeCheck renderCheck
+    DirectionalLight sunlight
+    PointLight lamp = undefined
+
+    action Main
+        // Terrain currently builds its mesh with the Vulkan renderer only.
+        
+        SetScreenSize(1000, 500)
+        UseVulkan(true)
+        StartGame()
+    end
+
+    action CreateGame
+        if cameraFarDistance > 0
+            GetCamera3D():SetFar(cameraFarDistance)
+        end
+
+        cullLabel:SetText("0% Culled")
+        Add(cullLabel)
+        EnablePhysics3D(true)
+        SetGravity3D(0, -9.8, 0)
+        Color colors
+
+        if benchmark
+            random:SetSeed(benchmarkSeed)
+        end
+
+        if renderTreeMovesAll
+            renderCheck:SetMovedChoice(renderCheck:MOVED_ALL)
+        end
+        renderCheck:SetCheckInterval(renderCheckInterval)
+        renderCheck:SetSnapshotInterval(renderSnapshotInterval)
+        if renderTreeKind = 1
+            QuadTree3D quadtree
+            quadtree:SetRegion(-140, -40, -140, 140, 40, 140)
+            renderCheck:SetTree(quadtree)
+        elseif renderTreeKind = 2
+            Octree3D octree
+            octree:SetRegion(-140, -40, -140, 140, 40, 140)
+            renderCheck:SetTree(octree)
+        end
+
+        sunlight:SetIntensity(2.5)
+        sunlight:SetColor(colors:LightGray())
+        sunlight:SetDirection(-1, -4, 2)
+        sunlight:SetCullingRange(sunCullingRange)
+        Add(sunlight)
+
+        // The stack sites are chosen first, because the terrain flattens the
+        // ground under them while it is built.
+        ChooseStackSites()
+        BuildTerrain()
+        BuildStacks()
+        BuildChassis()
+        BuildVehicle()
+        ResetVehicle()
+        PlaceCamera()
+        Add(fpsLabel)
+
+        if addPointLight
+            PointLight light
+            light:SetColor(colors:CustomColor(0.5, 0.5, 1, 1))
+            light:SetIntensity(50)
+            light:SetCullingRange(5)
+            light:SetPosition(0, GetGroundHeightAt(0, 0) + 9, 0)
+            Add(light)
+            lamp = light
+        end
+
+        if benchmark
+            // Nobody drives during a benchmark, so every run is the same.
+            movement:SetActive(false)
+        end
+    end
+
+    action Update(number seconds)
+        cullLabel:SetPosition(fpsLabel:GetX() + fpsLabel:GetWidth() + 20, fpsLabel:GetY())
+        Layer3D layer = GetCurrentLayer3D()
+        number cull = 100 * layer:GetCullPercentage()
+        text cullText = "" + cull
+        integer value = cullText:IndexOf(".")
+        cullText = cullText:GetSubtext(0, value + 2)
+        cullLabel:SetText("Culled: " + cullText + " %")
+        if benchmark
+            RecordFrame(seconds)
+            if frameCount >= benchmarkFrames
+                ReportBenchmark()
+                Exit()
+                return now
+            end
+        end
+
+        if monitor:IsKeyPressed(keys:R)
+            ResetVehicle()
+        end
+
+        timeUntilEdit = timeUntilEdit - seconds
+        if timeUntilEdit <= 0
+            if monitor:IsKeyPressed(keys:E)
+                EditGroundAhead(editAmount)
+                timeUntilEdit = editInterval
+            elseif monitor:IsKeyPressed(keys:Q)
+                EditGroundAhead(-editAmount)
+                timeUntilEdit = editInterval
+            end
+        end
+
+        // Driving off the edge of the map drops the vehicle into nothing, so
+        // bring it back once it has fallen well below the lowest ground.
+        if chassis:GetY() < baseY - fallLimit
+            ResetVehicle()
+        end
+
+        // In a benchmark, the rain advances by a fixed time each frame, so
+        // the same balls fall on the same frames no matter how fast it runs.
+        number rainSeconds = seconds
+        if benchmark
+            rainSeconds = benchmarkStep
+        end
+        if rain
+            UpdateRain(rainSeconds)
+        end
+
+        if sleepReport
+            timeUntilReport = timeUntilReport - seconds
+            if timeUntilReport <= 0
+                ReportSleep()
+                timeUntilReport = reportInterval
+            end
+        end
+        PlaceCamera()
+
+        if lamp not= undefined
+            lamp:SetPosition(chassis:GetX(), chassis:GetY() + 3, chassis:GetZ())
+        end
+        if useRenderTree
+            renderCheck:Update(GetCamera3D(), sunlight, lamp)
+        end
+    end
+
+    /*
+    This action adds an item to the game and, while useRenderTree is true,
+    to the render tree as well.
+
+    Attribute: Parameter item The item to add.
+    Attribute: Parameter isStatic True if the item is not expected to move.
+    Attribute: Parameter alwaysMoves True if the item moves without physics,
+    so the tree is told it moved every frame.
+    */
+    action AddToBoth(Item3D item, boolean isStatic, boolean alwaysMoves)
+        Add(item)
+        if useRenderTree
+            renderCheck:Add(item, isStatic, alwaysMoves)
+        end
+    end
+
+    /*
+    This action removes an item from the game and from the render tree.
+    */
+    action RemoveFromBoth(Item3D item)
+        Remove(item)
+        if useRenderTree
+            renderCheck:Remove(item)
+        end
+    end
+
+    /*
+    This action records how long one frame took. The first frame is kept
+    apart, since it includes everything that happened while the game loaded.
+    */
+    action RecordFrame(number seconds)
+        if frameCount = 0
+            firstFrameSeconds = seconds
+        elseif frameCount < warmupFrames
+            warmupSeconds = warmupSeconds + seconds
+        else
+            measuredSeconds = measuredSeconds + seconds
+            if seconds > slowestFrameSeconds
+                slowestFrameSeconds = seconds
+            end
+        end
+        frameCount = frameCount + 1
+    end
+
+    /*
+    This action writes the benchmark results to the console.
+    */
+    action ReportBenchmark
+        integer warmupCount = warmupFrames - 1
+        integer measuredCount = frameCount - warmupFrames
+
+        output "Benchmark finished after " + frameCount + " frames."
+        output "  First frame: " + math:Round(firstFrameSeconds * 1000, 1) + " ms"
+        if warmupCount > 0
+            output "  Warm-up, " + warmupCount + " frames: " + math:Round(warmupSeconds, 2) + " s, average "
+                + math:Round(1000 * warmupSeconds / warmupCount, 2) + " ms per frame"
+        end
+        if measuredCount > 0
+            output "  Measured, " + measuredCount + " frames: " + math:Round(measuredSeconds, 2) + " s, average "
+                + math:Round(1000 * measuredSeconds / measuredCount, 2) + " ms per frame ("
+                + math:Round(measuredCount / measuredSeconds, 1) + " frames per second)"
+            output "  Slowest measured frame: " + math:Round(slowestFrameSeconds * 1000, 1) + " ms"
+        end
+        if useRenderTree
+            renderCheck:Report()
+        end
+    end
+
+    /*
+    This action writes one line for the boxes and one for the balls, saying
+    how many are asleep, how many are awake but still, and how many are moving.
+    */
+    action ReportSleep
+        output "Boxes: " + DescribeSleep(boxes)
+        output "Balls: " + DescribeSleep(drops)
+    end
+
+    /*
+    This action counts how many of the given items are asleep, awake but
+    still, and moving, along with the fastest speed and spin among the awake
+    ones.
+    */
+    action DescribeSleep(Array<Model> items) returns text
+        integer asleep = 0
+        integer still = 0
+        integer moving = 0
+        number fastest = 0
+        number fastestSpin = 0
+
+        integer i = 0
+        repeat while i < items:GetSize()
+            Model item = items:Get(i)
+            if not item:IsSimulated()
+                asleep = asleep + 1
+            else
+                number speed = item:GetLinearVelocity():Length()
+                number spin = item:GetAngularVelocity():Length()
+                if speed <= linearSleepSpeed and spin <= angularSleepSpeed
+                    still = still + 1
+                else
+                    moving = moving + 1
+                end
+                if speed > fastest
+                    fastest = speed
+                end
+                if spin > fastestSpin
+                    fastestSpin = spin
+                end
+            end
+            i = i + 1
+        end
+
+        return items:GetSize() + " total, " + asleep + " asleep, " + still + " awake but still, "
+            + moving + " moving (fastest awake: " + math:Round(fastest, 2) + " units/s, "
+            + math:Round(fastestSpin, 2) + " rad/s)"
+    end
+
+    /*
+    This action drops new balls at a steady rate and removes any that have
+    left the map.
+    */
+    action UpdateRain(number seconds)
+        RemoveLostDrops()
+
+        timeUntilDrop = timeUntilDrop - seconds
+        repeat while timeUntilDrop <= 0
+            DropBall()
+            timeUntilDrop = timeUntilDrop + dropInterval
+        end
+    end
+
+    /*
+    This action drops one ball. While there is room under the limit it makes
+    a new ball. Once the limit is reached it reuses the oldest ball instead,
+    moving it to the back of the list as the newest.
+    */
+    action DropBall
+        Model ball = undefined
+        if drops:GetSize() < maximumDrops
+            ball = MakeBall()
+            AddToBoth(ball, false, false)
+        else
+            ball = drops:RemoveFromFront()
+        end
+        drops:Add(ball)
+
+        // A random place over the terrain, kept a little in from the edges,
+        // high above the tallest possible hill.
+        number size = (mapSize - 1) * terrainScale
+        number x = baseX + 1 + random:RandomNumber() * (size - 2)
+        number z = baseZ + 1 + random:RandomNumber() * (size - 2)
+        number y = baseY + heightScale * terrainScale + dropHeightAbove
+
+        Vector3 stop
+        ball:SetPosition(x, y, z)
+        ball:SetLinearVelocity(stop)
+        ball:SetAngularVelocity(stop)
+        ball:Simulate(true)
+    end
+
+    /*
+    This action makes a ball that responds fully to physics: it falls, rolls,
+    bounces, and pushes other objects, including the vehicle.
+    */
+    action MakeBall returns Model
+        Color color
+        Model ball
+        //ball:LoadBox(dropDiameter, dropDiameter, dropDiameter, color:CustomColor(0.3 + 0.7 * random:RandomNumber(), 0.3 + 0.7 * random:RandomNumber(), 0.3 + 0.7 * random:RandomNumber(), 1))
+        ball:LoadSphere(dropDiameter, dropDiameter, dropDiameter, color:CustomColor(0.3 + 0.7 * random:RandomNumber(), 0.3 + 0.7 * random:RandomNumber(), 0.3 + 0.7 * random:RandomNumber(), 1))
+        ball:EnablePhysics(true)
+        ball:SetResponsive()
+        ball:SetMass(1)
+        ball:SetRestitution(0.3)
+        ball:SetFriction(0.5)
+        // A little damping, since there is no rolling friction and a ball
+        // that reaches flat ground would otherwise roll forever.
+        ball:SetLinearDamping(0.05)
+        ball:SetAngularDamping(0.2)
+        ball:SetName("Rain Ball")
+        return ball
+    end
+
+    /*
+    This action removes every ball that has gone past an edge of the terrain
+    or fallen far below it. It walks the list backward so removing a ball does
+    not skip the one after it.
+    */
+    action RemoveLostDrops
+        number size = (mapSize - 1) * terrainScale
+        number lowX = baseX - edgeMargin
+        number highX = baseX + size + edgeMargin
+        number lowZ = baseZ - edgeMargin
+        number highZ = baseZ + size + edgeMargin
+        number lowY = baseY - fallLimit
+
+        integer i = drops:GetSize() - 1
+        repeat while i >= 0
+            Model ball = drops:Get(i)
+            if ball:GetX() < lowX or ball:GetX() > highX or ball:GetZ() < lowZ or ball:GetZ() > highZ or ball:GetY() < lowY
+                drops:RemoveAt(i)
+                RemoveFromBoth(ball)
+            end
+            i = i - 1
+        end
+    end
+
+    /*
+    This action builds the terrain from a generated height map. The map is
+    imported into the terrain's data, which splits it into regions, and then
+    each region gets a model with a mesh and a physics shape, so the
+    vehicle's wheel rays have ground to land on.
+    */
+    action BuildTerrain
+        TerrainData data = terrain:GetData()
+        data:SetRegionSize(regionSize)
+        data:SetVertexSpacing(terrainScale)
+
+        // The terrain counts samples from the world's origin, so the map's
+        // first pixel goes at the sample under its corner. Each height from 0
+        // to 1 becomes heightScale * terrainScale units tall, starting at
+        // baseY, the same heights the old Terrain gave.
+        integer startX = cast(integer, baseX / terrainScale)
+        integer startZ = cast(integer, baseZ / terrainScale)
+        data:ImportHeightMap(GenerateHeightMap(), startX, startZ, heightScale * terrainScale, baseY)
+        CheckImport(startX, startZ)
+
+        terrain:SetName("AllTerrainVehicle Hills")
+        terrain:SetTexture("Textures/grass.png")
+        terrain:SetTextureRepeat(textureRepeat)
+        terrain:SetFriction(1)
+        terrain:Build()
+        output "Terrain: " + data:GetRegionCount() + " regions, " + terrain:GetRegionModelCount() + " region models."
+        if checkSaving
+            CheckSaving()
+        end
+
+        // Each region model gives the render tree its own bounds, with
+        // GetRenderBounds, since its mesh starts at its corner, not its center.
+        integer i = 0
+        repeat while i < terrain:GetRegionModelCount()
+            AddToBoth(terrain:GetRegionModel(i), true, false)
+            i = i + 1
+        end
+    end
+
+    /*
+    This action checks that importing the height map put each height on the
+    right sample. It works out what each height should be from the noise,
+    the same way the map was made, and compares it with what the terrain's
+    data holds. The corners of the map are checked, along with samples
+    picked at random. The result is written to the console.
+
+    Attribute: Parameter startX The sample along x where the map's first pixel went.
+    Attribute: Parameter startZ The sample along z where the map's first pixel went.
+    */
+    action CheckImport(integer startX, integer startZ)
+        TerrainData data = terrain:GetData()
+        Random picker
+        picker:SetSeed(99)
+
+        integer checks = 0
+        integer matches = 0
+        integer i = 0
+        repeat while i < 104
+            integer column = 0
+            integer row = 0
+            if i = 1
+                column = mapSize - 1
+            elseif i = 2
+                row = mapSize - 1
+            elseif i = 3
+                column = mapSize - 1
+                row = mapSize - 1
+            elseif i > 3
+                column = picker:RandomIntegerBetween(0, mapSize - 1)
+                row = picker:RandomIntegerBetween(0, mapSize - 1)
+            end
+
+            // The map stores each height as a level out of 65536, so the
+            // expected height is rounded the same way.
+            integer level = EncodeHeight(GetHeightAtSample(column, row))
+            number expected = baseY + level / 65536.0 * heightScale * terrainScale
+            number actual = data:GetSampleHeight(startX + column, startZ + row)
+            checks = checks + 1
+            if math:AbsoluteValue(actual - expected) < 0.00001
+                matches = matches + 1
+            elseif checks - matches <= 5
+                output "Import check: sample (" + column + ", " + row + ") expected " + expected + " but found " + actual
+            end
+            i = i + 1
+        end
+        output "Import check: " + matches + " of " + checks + " samples match."
+    end
+
+    /*
+    This action builds the height map, one sample at a time, from the noise.
+    */
+    action GenerateHeightMap returns PixelMap
+        PixelMap map
+        Format format
+        format:SetValue(format:RGBA8888)
+        map:CreatePixelMap(mapSize, mapSize, format)
+
+        integer row = 0
+        repeat while row < mapSize
+            integer column = 0
+            repeat while column < mapSize
+                // Terrain reads the row as a z position and the column as an x
+                // position, so the pixels are written in that order.
+                number height = GetHeightAtSample(column, row)
+                map:SetPixel(row, column, PackHeight(EncodeHeight(height)))
+                column = column + 1
+            end
+            row = row + 1
+        end
+
+        return map
+    end
+
+    /*
+    This action returns the height of the ground at a sample position, from 0
+    to 1.
+    */
+    action GetHeightAtSample(number sampleX, number sampleZ) returns number
+        number height = GetHillHeight(sampleX, sampleZ)
+
+        // Flatten the ground near any stack. Inside the pad the ground is the
+        // pad's height. Past it, the ground eases back into the hills, using a
+        // smooth curve so there is no sharp edge for the wheels to catch.
+        number worldX = baseX + sampleX * terrainScale
+        number worldZ = baseZ + sampleZ * terrainScale
+        integer i = 0
+        repeat while i < stackSites:GetSize()
+            Vector3 site = stackSites:Get(i)
+            number dx = worldX - site:GetX()
+            number dz = worldZ - site:GetZ()
+            number distance = math:SquareRoot(dx * dx + dz * dz)
+            if distance < padRadius
+                return site:GetY()
+            elseif distance < padRadius + padBlend
+                number t = (distance - padRadius) / padBlend
+                number blend = t * t * (3 - 2 * t)
+                height = site:GetY() + (height - site:GetY()) * blend
+            end
+            i = i + 1
+        end
+        return height
+    end
+
+    /*
+    This action returns the height of the hills at a sample position, from 0
+    to 1, before any ground is flattened for the stacks.
+    */
+    action GetHillHeight(number sampleX, number sampleZ) returns number
+        return noise:ToUnitRange(noise:GetAdditiveNoise(sampleX, sampleZ))
+    end
+
+    /*
+    This action picks where the box stacks stand. It tries random places in a
+    ring around the center of the map, between stackClearance and stackReach
+    from the vehicle's starting point, keeping ones that are away from the
+    other stacks. Each site stores the height of
+    the hills at its center, from 0 to 1, as its y value. That is the height
+    its pad is flattened to.
+    */
+    action ChooseStackSites
+        // Rolling hills about every forty units, with three finer layers of
+        // bumps laid over them. This is set up here because choosing the
+        // sites already needs the height of the hills.
+        noise:SetSeed(2026)
+        noise:SetFrequency(0.0125)
+        noise:SetOctaves(4)
+        siteRandom:SetSeed(7)
+
+        integer attempts = 0
+        repeat while stackSites:GetSize() < stackCount and attempts < 500
+            number angle = siteRandom:RandomNumber() * 2 * math:pi
+            number reach = stackClearance + siteRandom:RandomNumber() * (stackReach - stackClearance)
+            number x = reach * math:Cosine(angle)
+            number z = reach * math:Sine(angle)
+
+            boolean fits = true
+            integer i = 0
+            repeat while fits and i < stackSites:GetSize()
+                Vector3 other = stackSites:Get(i)
+                number dx = x - other:GetX()
+                number dz = z - other:GetZ()
+                if math:SquareRoot(dx * dx + dz * dz) < stackClearance
+                    fits = false
+                end
+                i = i + 1
+            end
+
+            if fits
+                Vector3 site
+                site:Set(x, GetHillHeight((x - baseX) / terrainScale, (z - baseZ) / terrainScale), z)
+                stackSites:Add(site)
+            end
+            attempts = attempts + 1
+        end
+    end
+
+    /*
+    This action builds a stack of boxes on each pad. The boxes respond fully
+    to physics, so the vehicle can knock them over and scatter them.
+    */
+    action BuildStacks
+        stackProperties:SetResponsiveness(stackProperties:RESPONSIVE)
+        stackProperties:SetFriction(0.5)
+        stackProperties:SetRestitution(0.5)
+
+        integer i = 0
+        repeat while i < stackSites:GetSize()
+            Vector3 site = stackSites:Get(i)
+            BuildStack(site:GetX(), GetGroundHeightAt(site:GetX(), site:GetZ()), site:GetZ())
+            i = i + 1
+        end
+    end
+
+    /*
+    This action builds one stack of boxes, centered on the given point, with
+    its lowest layer resting on the ground at the given height.
+    */
+    action BuildStack(number centerX, number groundY, number centerZ)
+        Color color
+        number start = -(stackSize - 1) * boxSize / 2
+
+        integer level = 0
+        repeat while level < stackSize
+            integer row = 0
+            repeat while row < stackSize
+                integer column = 0
+                repeat while column < stackSize
+                    Model box
+                    box:LoadBox(boxSize, boxSize, boxSize, color:CustomColor(random:RandomNumber(), random:RandomNumber(), random:RandomNumber(), 1))
+                    box:SetPosition(centerX + start + column * boxSize, groundY + boxSize / 2 + level * boxSize, centerZ + start + row * boxSize)
+                    box:EnablePhysics(true)
+                    box:SetPhysicsProperties(stackProperties)
+                    box:Simulate(false)
+                    box:SetName("Stack Box")
+                    AddToBoth(box, true, false)
+                    boxes:Add(box)
+                    column = column + 1
+                end
+                row = row + 1
+            end
+            level = level + 1
+        end
+    end
+
+    /*
+    This action returns how high the ground is at a position in the world. It
+    asks the terrain, which follows the same triangles that are drawn and
+    that the physics uses, so things placed here rest right on the ground.
+    The terrain must have been built first.
+    */
+    action GetGroundHeightAt(number worldX, number worldZ) returns number
+        return terrain:GetData():GetSurfaceHeight(worldX, worldZ)
+    end
+
+    /*
+    This action returns the direction the vehicle faces, flattened so it is
+    level, as a vector one unit long.
+    */
+    action GetHeading returns Vector3
+        // The vehicle drives along its own z axis, the third column of its
+        // rotation. Only the level part of that direction is used.
+        Matrix3 basis = chassis:GetCenterOfMassTransform():GetBasis()
+        Vector3 forward = basis:GetColumn(2)
+        number faceX = forward:GetX()
+        number faceZ = forward:GetZ()
+        number flat = math:SquareRoot(faceX * faceX + faceZ * faceZ)
+        Vector3 heading
+        if flat < 0.0001
+            // Pointing straight up or down, so there is no heading. Any fixed
+            // direction works until the vehicle levels out again.
+            heading:Set(0, 0, 1)
+        else
+            heading:Set(faceX / flat, 0, faceZ / flat)
+        end
+        return heading
+    end
+
+    /*
+    This action raises or lowers the ground in a circle in front of the
+    vehicle, then rebuilds the regions that changed. The console shows where
+    the change was and how many regions were rebuilt.
+
+    Attribute: Parameter amount How much to raise the middle of the circle. A negative amount lowers it.
+    */
+    action EditGroundAhead(number amount)
+        Vector3 heading = GetHeading()
+        number x = chassis:GetX() + heading:GetX() * editAhead
+        number z = chassis:GetZ() + heading:GetZ() * editAhead
+        TerrainData data = terrain:GetData()
+        if not data:HasHeight(x, z)
+            return now
+        end
+        data:RaiseArea(x, z, editRadius, amount)
+        integer rebuilt = terrain:Rebuild()
+        output "Changed the ground at (" + math:Round(x, 1) + ", " + math:Round(z, 1) + "), rebuilt " + rebuilt + " regions. " +
+            "Slope there: " + math:Round(data:GetSlope(x, z), 1) + " degrees."
+    end
+
+    /*
+    This action saves the terrain, loads it back into new TerrainData, and
+    compares every sample, to check that saving and loading keep the
+    heights. The saved file is kept in saveFolder. The result is written to
+    the console.
+    */
+    action CheckSaving
+        TerrainData data = terrain:GetData()
+        File folder
+        folder:SetPath(saveFolder)
+        data:Save(folder)
+
+        TerrainData loaded
+        loaded:Load(folder)
+
+        integer checks = 0
+        integer missing = 0
+        number largestDifference = 0
+        integer i = 0
+        repeat while i < data:GetRegionCount()
+            TerrainRegion region = data:GetRegionAtIndex(i)
+            TerrainRegion loadedRegion = loaded:GetRegion(region:GetLocationX(), region:GetLocationZ())
+            if loadedRegion = undefined
+                missing = missing + 1
+            else
+                integer z = 0
+                repeat while z < regionSize
+                    integer x = 0
+                    repeat while x < regionSize
+                        number difference = math:AbsoluteValue(region:GetHeight(x, z) - loadedRegion:GetHeight(x, z))
+                        if difference > largestDifference
+                            largestDifference = difference
+                        end
+                        checks = checks + 1
+                        x = x + 1
+                    end
+                    z = z + 1
+                end
+            end
+            i = i + 1
+        end
+        output "Save check: " + loaded:GetRegionCount() + " of " + data:GetRegionCount() + " regions loaded from " +
+            folder:GetAbsolutePath() + ", " + missing + " missing. " + checks + " samples compared, largest difference " +
+            largestDifference + "."
+    end
+
+    /*
+    This action turns a height from 0 to 1 into the sixteen bits a height map
+    can hold. Terrain reads it back as two bytes divided by 65536, so the top
+    is 65535, and anything outside the range is limited rather than wrapped.
+    */
+    action EncodeHeight(number height) returns integer
+        integer level = cast(integer, height * 65536)
+        if level < 0
+            level = 0
+        end
+        if level > 65535
+            level = 65535
+        end
+        return level
+    end
+
+    /*
+    This action packs a sixteen bit height into a pixel. Red holds the coarse
+    byte and green the fine byte. Blue repeats the coarse byte so the map still
+    looks like a height map if it is viewed as a picture.
+    */
+    action PackHeight(integer level) returns integer
+        integer coarse = ops:ShiftRight(level, 8)
+        integer fine = ops:And(level, 255)
+
+        integer code = ops:ShiftLeft(coarse, 24)
+        code = ops:Or(code, ops:ShiftLeft(fine, 16))
+        code = ops:Or(code, ops:ShiftLeft(coarse, 8))
+        return ops:Or(code, 255)
+    end
+
+    action BuildChassis
+        // The ToyCar model (Car/ToyCarCentered.gltf) is a copy of
+        // Car/ToyCar.gltf without the blanket the toy sits on, and with its
+        // origin moved to the centre of the body's box, since a collision box
+        // is centred on its item. Its wheels are part of the body, so they
+        // are drawn but do not turn. The vehicle's wheels are invisible rays.
+        chassis:Load("Car/ToyCarCentered.gltf")
+
+        // The toy is about 4 cm long. This scale makes its wheels 0.4 in
+        // radius, the size the suspension was tuned for.
+        chassis:SetScale(152, 152, 152)
+
+        // The size in the model's own units, before scaling. It is set by
+        // hand because a loaded model can measure itself too small, and the
+        // layer culls by it. It is a little taller than the body, so the
+        // tires are inside it.
+        chassis:SetDimensions(0.019, 0.0135, 0.0385)
+
+        // Physics uses a box around the body, in world units. It is set after
+        // SetScale, which would otherwise scale it too.
+        Box shape
+        shape:Set(2.82, 1.55, 5.84)
+        chassis:SetShape(shape)
+
+        chassis:EnablePhysics(true)
+        chassis:SetResponsive()
+        chassis:SetMass(800)
+        chassis:SetFriction(0.6)
+        chassis:SetRestitution(0)
+        chassis:SetLinearDamping(0.05)
+        chassis:SetAngularDamping(0.8)
+        chassis:SetName("Vehicle Chassis")
+        AddToBoth(chassis, false, false)
+    end
+
+    action BuildVehicle
+        vehicle:SetChassis(chassis)
+        // The wheels are placed where the ToyCar's wheels are, measured from
+        // the centre of its body: 1.12 to each side, 2.06 ahead and 1.58
+        // behind, with their centres 0.59 below. The springs sag about
+        // 9.8 / (4 * 20) = 0.12 under the car, so with a rest length of 0.4
+        // the hard points sit 0.59 - (0.4 - 0.12) = 0.31 below the centre,
+        // which puts the tires on the ground at rest. Tune this by eye. The
+        // wheels are about as far out as the body's centre is above the
+        // ground, so the car only tips on slopes steeper than about 45
+        // degrees.
+        vehicle:Add(AddWheel(MakeVector(-1.12, -0.31, 2.06), true))
+        vehicle:Add(AddWheel(MakeVector(1.12, -0.31, 2.06), true))
+        vehicle:Add(AddWheel(MakeVector(-1.12, -0.31, -1.58), false))
+        vehicle:Add(AddWheel(MakeVector(1.12, -0.31, -1.58), false))
+        GetCurrentLayer3D():Add(vehicle)
+
+        // The movement behavior drives the vehicle from the arrow keys, with the
+        // space bar as the brake. No drive wheels are chosen, so all four
+        // wheels drive, which helps on hills.
+        movement:SetVehicle(vehicle)
+        movement:SetEngineForce(3000)
+        movement:SetReverseForce(2000)
+        movement:SetMaximumSteering(0.45)
+        chassis:AddBehavior(movement)
+    end
+
+    action AddWheel(Vector3 connection, boolean frontWheel) returns Suspension
+        // The wheel has no visual item. The car's drawn wheels are part of
+        // its body.
+        Suspension wheel
+        wheel:SetConnectionPoint(connection)
+        wheel:SetDirection(MakeVector(0, -1, 0))
+        wheel:SetAxle(MakeVector(1, 0, 0))
+        wheel:SetRestLength(0.4)
+        wheel:SetRadius(0.4)
+        wheel:SetSteeringEnabled(frontWheel)
+        // Softer than the flat-ground demo, so the wheels soak up bumps instead
+        // of bouncing the chassis over them. The grip is close to Bullet's
+        // default, so the tires slide before the vehicle tips over.
+        wheel:SetSuspensionStiffness(20)
+        wheel:SetDampingCompression(2.5)
+        wheel:SetDampingRelaxation(2.0)
+        wheel:SetFrictionSlip(10)
+        // Apply the tires' sideways push almost level with the chassis center
+        // instead of at the ground, so turning and side slopes barely roll the
+        // vehicle. 1 would push at the ground; 0 removes the rolling entirely.
+        wheel:SetRollInfluence(0.02)
+        return wheel
+    end
+
+    /*
+    This action puts the vehicle upright in the middle of the map, a little
+    above the ground there, and stops it moving.
+    */
+    action ResetVehicle
+        Vector3 stop
+        chassis:SetYawPitchRoll(0, 0, 0)
+        chassis:SetPosition(0, GetGroundHeightAt(0, 0) + dropHeight, 0)
+        chassis:SetLinearVelocity(stop)
+        chassis:SetAngularVelocity(stop)
+        chassis:Simulate(true)
+    end
+
+    /*
+    This action stands the camera behind the vehicle along its facing and
+    points it at the vehicle, so the view turns as the vehicle turns.
+    */
+    action PlaceCamera
+        Camera camera = GetCamera3D()
+
+        // Only the level part of the vehicle's direction is used, so the
+        // camera does not swing up and down as the vehicle climbs.
+        Vector3 heading = GetHeading()
+        number faceX = heading:GetX()
+        number faceZ = heading:GetZ()
+
+        camera:SetPosition(chassis:GetX() - faceX * cameraBehind,
+            chassis:GetY() + cameraAbove,
+            chassis:GetZ() - faceZ * cameraBehind)
+
+        // Set the camera's up before aiming it, so no roll builds up over time.
+        camera:SetUp(0, 1, 0)
+        camera:LookAt(chassis:GetX(), chassis:GetY(), chassis:GetZ())
+    end
+
+    action MakeVector(number x, number y, number z) returns Vector3
+        Vector3 result
+        result:Set(x, y, z)
+        return result
+    end
+end

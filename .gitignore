@@ -5,6 +5,7 @@
 Build/
 Run/
 *.snapshot
+SavedTerrain/
 
 # Log file
 *.log

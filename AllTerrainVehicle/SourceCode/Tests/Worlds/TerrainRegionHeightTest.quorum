@@ -1,0 +1,72 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainRegion
+
+/*
+Tests TerrainRegion's heights: a new region is flat at 0, a height set at one
+sample is read back from that sample only, setting heights widens the height
+range, Fill flattens everything, and CalculateHeightRange finds the exact
+range again after heights are lowered. Also checks the modified flag.
+
+Attribute: Example
+use Worlds.Tests.TerrainRegionHeightTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainRegionHeightTest test
+tester:Run(test)
+*/
+class TerrainRegionHeightTest is WorldsTest
+    on create
+        SetName("Terrain region heights")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        TerrainRegion region
+        region:SetRegionSize(4)
+        CheckWhole("region size", region:GetRegionSize(), 4)
+        CheckNumber("a new region is flat", region:GetHeight(3, 3), 0)
+        CheckNumber("a new region's lowest height", region:GetLowestHeight(), 0)
+        CheckNumber("a new region's highest height", region:GetHighestHeight(), 0)
+
+        // Each sample is stored on its own, so (1, 2) and (2, 1) are different.
+        region:SetModified(false)
+        region:SetHeight(1, 2, 5.5)
+        CheckNumber("height set at (1, 2)", region:GetHeight(1, 2), 5.5)
+        CheckNumber("(2, 1) is not changed", region:GetHeight(2, 1), 0)
+        CheckThat("setting a height marks the region modified", region:IsModified())
+
+        // The range grows to include new heights.
+        region:SetHeight(0, 0, -2)
+        CheckNumber("lowest height after a low sample", region:GetLowestHeight(), -2)
+        CheckNumber("highest height after a high sample", region:GetHighestHeight(), 5.5)
+
+        // Lowering the high sample leaves the range wide until it is
+        // calculated again.
+        region:SetHeight(1, 2, 1)
+        CheckNumber("the range only grows when heights are set", region:GetHighestHeight(), 5.5)
+        region:CalculateHeightRange()
+        CheckNumber("exact highest height", region:GetHighestHeight(), 1)
+        CheckNumber("exact lowest height", region:GetLowestHeight(), -2)
+
+        // Fill sets every sample.
+        region:Fill(3)
+        CheckNumber("filled corner (0, 0)", region:GetHeight(0, 0), 3)
+        CheckNumber("filled corner (3, 3)", region:GetHeight(3, 3), 3)
+        CheckNumber("filled lowest height", region:GetLowestHeight(), 3)
+        CheckNumber("filled highest height", region:GetHighestHeight(), 3)
+
+        // Contains is true from 0 to one less than the size.
+        CheckThat("contains (0, 0)", region:Contains(0, 0))
+        CheckThat("contains (3, 3)", region:Contains(3, 3))
+        CheckThat("does not contain (4, 0)", not region:Contains(4, 0))
+        CheckThat("does not contain (0, -1)", not region:Contains(0, -1))
+
+        region:SetLocation(-2, 5)
+        CheckWhole("location x", region:GetLocationX(), -2)
+        CheckWhole("location z", region:GetLocationZ(), 5)
+    end
+end

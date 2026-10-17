@@ -1,0 +1,30 @@
+use Libraries.Testing.Tester
+use Libraries.Testing.Test
+use Libraries.Containers.Iterator
+use Libraries.Language.Compile.Test.WorldsTester
+
+/*
+RunWorldTests runs the terrain and world tests in this project and writes
+which of them failed. It works like RunPhysicsTests, so the tests in
+Tests/Worlds and Tests/WorldsTester.quorum can be copied into Quorum
+unchanged. To run it, make this file the project's main file.
+*/
+class RunWorldTests
+    action Main
+        Tester tester
+        WorldsTester worlds
+        worlds:SetTester(tester)
+        worlds:Test()
+
+        output worlds:GetName() + ": " + tester:GetPassingSize() + " of " + tester:GetSize() + " passed."
+
+        Iterator<Test> failures = tester:GetFailedTestsIterator()
+        repeat while failures:HasNext()
+            Test test = failures:Next()
+            output "FAILED: " + test:GetName()
+            if test:GetMessage() not= ""
+                output "    " + test:GetMessage()
+            end
+        end
+    end
+end

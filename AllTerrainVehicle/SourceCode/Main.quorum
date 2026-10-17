@@ -199,7 +199,7 @@ class Main is Game
     action Main
         // Terrain currently builds its mesh with the Vulkan renderer only.
         
-        SetScreenSize(2000, 1000)
+        SetScreenSize(1000, 500)
         UseVulkan(true)
         StartGame()
     end

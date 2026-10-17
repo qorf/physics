@@ -1,0 +1,53 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainData
+use Libraries.Compute.BitwiseOperations
+
+/*
+Tests reading heights from height map pixels, the way ImportHeightMap reads
+each pixel. Red holds the coarse part of the height and green the fine part,
+so a level out of 65536 is read back as that fraction of 1. Blue and alpha
+do not change the height.
+
+This test builds the pixels as numbers instead of using a PixelMap, because
+PixelMap needs the game's native library, which is only loaded once a game
+starts. ImportHeightMap itself is checked in DriveOpen, where a game is
+running.
+
+Attribute: Example
+use Worlds.Tests.TerrainDataPixelTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainDataPixelTest test
+tester:Run(test)
+*/
+class TerrainDataPixelTest is WorldsTest
+    on create
+        SetName("Terrain data height map pixels")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        TerrainData data
+        CheckNumber("level 0", data:GetHeightFromPixel(PackHeight(0)), 0)
+        CheckNumber("level 16384 is a quarter", data:GetHeightFromPixel(PackHeight(16384)), 0.25)
+        CheckNumber("level 32768 is a half", data:GetHeightFromPixel(PackHeight(32768)), 0.5)
+        CheckNumber("level 49152 is three quarters", data:GetHeightFromPixel(PackHeight(49152)), 0.75)
+        CheckNumber("level 65535 is just under 1", data:GetHeightFromPixel(PackHeight(65535)), 65535 / 65536.0)
+
+        // Green alone is the fine part: level 1 is 1 / 65536. That is smaller
+        // than the test's tolerance, so the height is multiplied back up
+        // before it is checked.
+        CheckNumber("level 1 is the smallest step", data:GetHeightFromPixel(PackHeight(1)) * 65536, 1)
+        CheckNumber("level 257 is one coarse and one fine step", data:GetHeightFromPixel(PackHeight(257)) * 65536, 257)
+
+        // Blue and alpha are ignored. This is level 32768 with blue and alpha
+        // both 0, and it is still a half.
+        BitwiseOperations bits
+        integer redOnly = bits:ShiftLeft(128, 24)
+        CheckNumber("blue and alpha do not change the height", data:GetHeightFromPixel(redOnly), 0.5)
+    end
+end

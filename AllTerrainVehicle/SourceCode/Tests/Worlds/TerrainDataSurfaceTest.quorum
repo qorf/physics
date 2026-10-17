@@ -1,0 +1,67 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainData
+
+/*
+Tests TerrainData:GetSurfaceHeight, the height of the ground between
+samples. On a flat slope, both triangles of every cell lie on the slope, so
+the answer must match the slope everywhere, including at negative
+positions. On a single bent cell, the answer must follow the cell's two
+triangles: its left triangle has the corners at its own sample and the next
+ones along x and along z, and its right triangle has the other three.
+
+Attribute: Example
+use Worlds.Tests.TerrainDataSurfaceTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainDataSurfaceTest test
+tester:Run(test)
+*/
+class TerrainDataSurfaceTest is WorldsTest
+    on create
+        SetName("Terrain data surface height")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        TerrainData data
+        data:SetRegionSize(64)
+        data:SetVertexSpacing(0.5)
+        data:AddRegion(-1, 0)
+        data:AddRegion(0, 0)
+
+        // A slope: the height is 1 + 0.5x + 0.25z in world units.
+        integer z = 0
+        repeat while z < 64
+            integer x = -64
+            repeat while x < 64
+                data:SetSampleHeight(x, z, 1 + 0.5 * (x * 0.5) + 0.25 * (z * 0.5))
+                x = x + 1
+            end
+            z = z + 1
+        end
+
+        CheckNumber("on a sample", data:GetSurfaceHeight(2, 3), 1 + 1 + 0.75)
+        CheckNumber("in a left triangle", data:GetSurfaceHeight(2.1, 3.1), 1 + 0.5 * 2.1 + 0.25 * 3.1)
+        CheckNumber("in a right triangle", data:GetSurfaceHeight(2.4, 3.4), 1 + 0.5 * 2.4 + 0.25 * 3.4)
+        CheckNumber("at a negative position", data:GetSurfaceHeight(-7.3, 10.2), 1 + 0.5 * -7.3 + 0.25 * 10.2)
+        CheckNumber("across the edge between regions", data:GetSurfaceHeight(-0.2, 4.45), 1 + 0.5 * -0.2 + 0.25 * 4.45)
+
+        // A single bent cell: three corners at 0 and the far corner at 4.
+        TerrainData bent
+        bent:SetRegionSize(64)
+        bent:AddRegion(0, 0)
+        bent:SetSampleHeight(11, 21, 4)
+        // The cell from sample (10, 20) to (11, 21), with a spacing of 1.
+        CheckNumber("left triangle stays flat", bent:GetSurfaceHeight(10.25, 20.25), 0)
+        CheckNumber("on the line between the triangles", bent:GetSurfaceHeight(10.5, 20.5), 0)
+        CheckNumber("right triangle rises to the far corner", bent:GetSurfaceHeight(10.75, 20.75), 2)
+        CheckNumber("at the far corner", bent:GetSurfaceHeight(11, 21), 4)
+
+        // Where there is no region.
+        CheckNumber("no region gives 0", bent:GetSurfaceHeight(-5, 5), 0)
+    end
+end

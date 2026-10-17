@@ -1,0 +1,101 @@
+package Worlds.Tests
+
+use Libraries.Testing.Test
+use Libraries.Compute.BitwiseOperations
+
+/*
+WorldsTest is the parent of the terrain and world tests. It is a Test, so a
+Tester can run any of them, and it adds checks that describe what failed. A
+test calls these checks instead of Test's Check actions directly. Each one
+still calls Check, so the Tester sees the result, and each failure is also
+described in the test's message.
+
+Attribute: Example
+use Worlds.Tests.TerrainRegionHeightTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainRegionHeightTest test
+tester:Run(test)
+*/
+class WorldsTest is Test
+    // How far apart two numbers may be and still count as equal.
+    constant number TOLERANCE = 0.0001
+
+    // Notes about the test, such as which checks failed. They become the
+    // test's message.
+    text notes = ""
+
+    BitwiseOperations helperBits
+
+    /*
+    This action adds a line to the test's message.
+
+    Attribute: Parameter note The line to add.
+    */
+    action AddNote(text note)
+        if notes = ""
+            notes = note
+        else
+            notes = notes + "; " + note
+        end
+        SetMessage(notes)
+    end
+
+    /*
+    This action checks that a condition is true.
+
+    Attribute: Parameter name What is being checked, shown if it fails.
+    Attribute: Parameter condition The condition that should be true.
+    */
+    action CheckThat(text name, boolean condition)
+        if not Check(condition, true)
+            AddNote("failed: " + name)
+        end
+    end
+
+    /*
+    This action checks that a number is within TOLERANCE of what was expected.
+
+    Attribute: Parameter name What is being checked, shown if it fails.
+    Attribute: Parameter actual The number found.
+    Attribute: Parameter expected The number expected.
+    */
+    action CheckNumber(text name, number actual, number expected)
+        if not Check(actual, expected, TOLERANCE)
+            AddNote("failed: " + name + " (expected " + expected + ", got " + actual + ")")
+        end
+    end
+
+    /*
+    This action checks that an integer is exactly what was expected.
+
+    Attribute: Parameter name What is being checked, shown if it fails.
+    Attribute: Parameter actual The integer found.
+    Attribute: Parameter expected The integer expected.
+    */
+    action CheckWhole(text name, integer actual, integer expected)
+        if not Check(actual = expected, true)
+            AddNote("failed: " + name + " (expected " + expected + ", got " + actual + ")")
+        end
+    end
+
+    /*
+    This action packs a height level, from 0 to 65535, into a height map
+    pixel the way Terrain reads it: red holds the coarse part and green the
+    fine part. Blue repeats the coarse part so the image looks gray, and
+    alpha is full. This is the same packing the game's own height map uses.
+
+    Attribute: Parameter level The height level, from 0 to 65535.
+    Attribute: Returns The pixel, ready for PixelMap's SetPixel.
+    */
+    action PackHeight(integer level) returns integer
+        integer coarse = helperBits:ShiftRight(level, 8)
+        integer fine = helperBits:And(level, 255)
+
+        integer code = helperBits:ShiftLeft(coarse, 24)
+        code = helperBits:Or(code, helperBits:ShiftLeft(fine, 16))
+        code = helperBits:Or(code, helperBits:ShiftLeft(coarse, 8))
+        return helperBits:Or(code, 255)
+    end
+end

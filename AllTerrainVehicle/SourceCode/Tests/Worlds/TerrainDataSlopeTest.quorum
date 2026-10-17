@@ -1,0 +1,67 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainData
+use Libraries.Compute.Vector3
+
+/*
+Tests TerrainData's GetNormal, GetSlope and IsInSlope. Flat ground faces
+straight up and has a slope of 0. Ground that rises one unit for every unit
+along x faces up and back along x, at 45 degrees. Where there is no region,
+the normal is straight up and no slope range matches.
+
+Attribute: Example
+use Worlds.Tests.TerrainDataSlopeTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainDataSlopeTest test
+tester:Run(test)
+*/
+class TerrainDataSlopeTest is WorldsTest
+    on create
+        SetName("Terrain data normals and slopes")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        TerrainData data
+        data:SetRegionSize(64)
+        data:SetVertexSpacing(0.5)
+        data:AddRegion(0, 0)
+
+        // Flat ground.
+        Vector3 flat = data:GetNormal(5, 5)
+        CheckNumber("flat normal x", flat:GetX(), 0)
+        CheckNumber("flat normal y", flat:GetY(), 1)
+        CheckNumber("flat normal z", flat:GetZ(), 0)
+        CheckNumber("flat slope", data:GetSlope(5, 5), 0)
+        CheckThat("flat is between 0 and 5 degrees", data:IsInSlope(5, 5, 0, 5))
+        CheckThat("flat is not between 10 and 90 degrees", not data:IsInSlope(5, 5, 10, 90))
+
+        // Ground that rises one unit per unit along x.
+        integer z = 0
+        repeat while z < 64
+            integer x = 0
+            repeat while x < 64
+                data:SetSampleHeight(x, z, x * 0.5)
+                x = x + 1
+            end
+            z = z + 1
+        end
+        Vector3 tilted = data:GetNormal(10.2, 10.2)
+        CheckNumber("tilted normal x", tilted:GetX(), -0.7071067811865476)
+        CheckNumber("tilted normal y", tilted:GetY(), 0.7071067811865476)
+        CheckNumber("tilted normal z", tilted:GetZ(), 0)
+        CheckNumber("tilted slope", data:GetSlope(10.2, 10.2), 45)
+        CheckThat("45 degrees is between 40 and 50", data:IsInSlope(10.2, 10.2, 40, 50))
+        CheckThat("45 degrees is not between 0 and 30", not data:IsInSlope(10.2, 10.2, 0, 30))
+        CheckThat("the full range always matches", data:IsInSlope(10.2, 10.2, 0, 90))
+
+        // Where there is no region.
+        Vector3 none = data:GetNormal(-5, 5)
+        CheckNumber("no region normal y", none:GetY(), 1)
+        CheckThat("no region is in no slope range", not data:IsInSlope(-5, 5, 0, 90))
+    end
+end

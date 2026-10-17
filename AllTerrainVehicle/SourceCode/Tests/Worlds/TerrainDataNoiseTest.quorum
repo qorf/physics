@@ -1,0 +1,59 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainData
+use Libraries.Compute.Noise.PerlinNoise
+
+/*
+Tests filling TerrainData from a noise generator. Each sample's height must
+be the generator's additive noise at that sample, moved to between 0 and 1,
+times the height scale, plus the offset. The rectangle here crosses from
+region -1 into region 0, so both regions must be added, and samples outside
+the rectangle stay flat.
+
+Attribute: Example
+use Worlds.Tests.TerrainDataNoiseTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainDataNoiseTest test
+tester:Run(test)
+*/
+class TerrainDataNoiseTest is WorldsTest
+    on create
+        SetName("Terrain data from noise")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        PerlinNoise noise
+        noise:SetSeed(2026)
+        noise:SetFrequency(0.0125)
+        noise:SetOctaves(4)
+
+        TerrainData data
+        data:SetRegionSize(64)
+        // Samples -2 to 2 along x, and 10 to 12 along z.
+        data:GenerateHeights(noise, -2, 10, 5, 3, 10, 1)
+
+        CheckWhole("two regions are added", data:GetRegionCount(), 2)
+        CheckThat("region (-1, 0) is added", data:HasRegion(-1, 0))
+        CheckThat("region (0, 0) is added", data:HasRegion(0, 0))
+
+        integer z = 10
+        repeat while z <= 12
+            integer x = -2
+            repeat while x <= 2
+                number expected = noise:ToUnitRange(noise:GetAdditiveNoise(x, z)) * 10 + 1
+                CheckNumber("height at (" + x + ", " + z + ")", data:GetSampleHeight(x, z), expected)
+                x = x + 1
+            end
+            z = z + 1
+        end
+
+        CheckNumber("a sample outside the rectangle stays flat", data:GetSampleHeight(3, 10), 0)
+        CheckThat("the heights are between the offset and the scale plus offset",
+            data:GetLowestHeight() >= 0 and data:GetHighestHeight() <= 11)
+    end
+end

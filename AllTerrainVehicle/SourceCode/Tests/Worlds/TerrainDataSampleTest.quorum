@@ -1,0 +1,72 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainData
+
+/*
+Tests finding samples in TerrainData. A sample belongs to the region whose
+square covers it, and samples below 0 belong to regions below 0, so with a
+region size of 64, sample -1 is in region -1 and sample -65 is in region -2.
+Heights set on one side of a region's edge stay on that side. Where there is
+no region, a sample's height is 0 and setting it changes nothing.
+
+Attribute: Example
+use Worlds.Tests.TerrainDataSampleTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainDataSampleTest test
+tester:Run(test)
+*/
+class TerrainDataSampleTest is WorldsTest
+    on create
+        SetName("Terrain data samples")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        TerrainData data
+        data:SetRegionSize(64)
+
+        CheckWhole("sample 0 is in region 0", data:GetRegionLocation(0), 0)
+        CheckWhole("sample 63 is in region 0", data:GetRegionLocation(63), 0)
+        CheckWhole("sample 64 is in region 1", data:GetRegionLocation(64), 1)
+        CheckWhole("sample -1 is in region -1", data:GetRegionLocation(-1), -1)
+        CheckWhole("sample -64 is in region -1", data:GetRegionLocation(-64), -1)
+        CheckWhole("sample -65 is in region -2", data:GetRegionLocation(-65), -2)
+
+        data:AddRegion(0, 0)
+        data:AddRegion(-1, 0)
+
+        CheckThat("sample (0, 0) has a height", data:HasSample(0, 0))
+        CheckThat("sample (-1, 0) has a height", data:HasSample(-1, 0))
+        CheckThat("sample (64, 0) has no height", not data:HasSample(64, 0))
+        CheckThat("sample (0, -1) has no height", not data:HasSample(0, -1))
+
+        // Samples on each side of the edge between the two regions.
+        data:SetSampleHeight(0, 5, 2)
+        data:SetSampleHeight(-1, 5, 7)
+        CheckNumber("sample (0, 5)", data:GetSampleHeight(0, 5), 2)
+        CheckNumber("sample (-1, 5)", data:GetSampleHeight(-1, 5), 7)
+        CheckNumber("sample (0, 5) is stored in region (0, 0) at (0, 5)", data:GetRegion(0, 0):GetHeight(0, 5), 2)
+        CheckNumber("sample (-1, 5) is stored in region (-1, 0) at (63, 5)", data:GetRegion(-1, 0):GetHeight(63, 5), 7)
+
+        // The far corners of each region.
+        data:SetSampleHeight(63, 63, 4)
+        data:SetSampleHeight(-64, 0, -3)
+        CheckNumber("sample (63, 63)", data:GetSampleHeight(63, 63), 4)
+        CheckNumber("sample (-64, 0)", data:GetSampleHeight(-64, 0), -3)
+        CheckNumber("sample (-64, 0) is stored in region (-1, 0) at (0, 0)", data:GetRegion(-1, 0):GetHeight(0, 0), -3)
+
+        // Where there is no region.
+        CheckNumber("no region gives a height of 0", data:GetSampleHeight(100, 0), 0)
+        data:SetSampleHeight(100, 0, 9)
+        CheckNumber("setting a height with no region changes nothing", data:GetSampleHeight(100, 0), 0)
+        CheckWhole("setting a height with no region adds no region", data:GetRegionCount(), 2)
+
+        // The height range covers every region.
+        CheckNumber("lowest height across regions", data:GetLowestHeight(), -3)
+        CheckNumber("highest height across regions", data:GetHighestHeight(), 7)
+    end
+end

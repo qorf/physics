@@ -1,0 +1,70 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainRegion
+use Libraries.Game.Graphics.Worlds.TerrainData
+
+/*
+Tests how TerrainRegion packs heights into pixels for saving. A height is
+stored as a level from 0 to 16777215 between a lowest and highest height,
+so reading it back gives the height to within a tiny fraction of the range.
+The lowest height is level 0, the highest is the top level, and heights
+outside the range are limited to it. When the range is empty, everything
+reads back as the lowest height. Because red and green are the coarse and
+fine parts, a saved pixel also reads as a 16-bit height map pixel.
+
+This test does not use PixelMap, which needs a running game. Saving and
+loading whole files is checked in DriveOpen.
+
+Attribute: Example
+use Worlds.Tests.TerrainRegionPixelTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainRegionPixelTest test
+tester:Run(test)
+*/
+class TerrainRegionPixelTest is WorldsTest
+    on create
+        SetName("Terrain region height pixels")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        TerrainRegion region
+        number lowest = -6.25
+        number highest = 17.5
+
+        CheckNumber("lowest height reads back", RoundTrip(region, -6.25, lowest, highest), -6.25)
+        CheckNumber("highest height reads back", RoundTrip(region, 17.5, lowest, highest), 17.5)
+        CheckNumber("a height between reads back", RoundTrip(region, 3.14159, lowest, highest), 3.14159)
+        CheckNumber("another height between reads back", RoundTrip(region, -0.001, lowest, highest), -0.001)
+        CheckNumber("below the range reads as the lowest", RoundTrip(region, -10, lowest, highest), -6.25)
+        CheckNumber("above the range reads as the highest", RoundTrip(region, 20, lowest, highest), 17.5)
+        CheckNumber("an empty range reads as the lowest", RoundTrip(region, 4, 2, 2), 2)
+
+        // Alpha is always full, and the lowest height is level 0.
+        integer code = region:GetPixelFromHeight(-6.25, lowest, highest)
+        CheckWhole("the lowest height's pixel is black with full alpha", code, 255)
+
+        // The pixel also reads as a 16-bit height map: halfway up the range
+        // is a half.
+        TerrainData data
+        integer middle = region:GetPixelFromHeight((lowest + highest) / 2, lowest, highest)
+        CheckNumber("a saved pixel reads as a 16-bit height", data:GetHeightFromPixel(middle), 0.5)
+    end
+
+    /*
+    This action packs a height into a pixel and reads it back.
+
+    Attribute: Parameter region The region whose packing actions are used.
+    Attribute: Parameter height The height to pack.
+    Attribute: Parameter lowest The bottom of the range.
+    Attribute: Parameter highest The top of the range.
+    Attribute: Returns The height read back from the pixel.
+    */
+    action RoundTrip(TerrainRegion region, number height, number lowest, number highest) returns number
+        return region:GetHeightFromPixel(region:GetPixelFromHeight(height, lowest, highest), lowest, highest)
+    end
+end

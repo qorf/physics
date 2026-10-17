@@ -1,0 +1,250 @@
+package Libraries.Game.Graphics.Worlds
+
+use Libraries.Containers.Array
+use Libraries.Game.Graphics.Texture
+
+/*
+A WorldTerrain is ground for a large world. It holds a TerrainData, which
+has all of the heights, split into regions. Build makes one TerrainRegionModel
+for each region, which draws that region and gives it a collision shape.
+
+The models are not added to the game automatically, so a game can add them
+however it likes, for example to a particular layer. After Build, add each
+one with GetRegionModelCount and GetRegionModel.
+
+This class plays the part of the Terrain3D node in Terrain3D, which holds a
+Terrain3DData and builds the drawing and collision for it.
+
+Attribute: Example
+use Libraries.Game.Game
+use Libraries.Game.Graphics.Worlds.WorldTerrain
+use Libraries.Game.Graphics.Worlds.TerrainData
+use Libraries.Compute.Noise.PerlinNoise
+
+class Main is Game
+    WorldTerrain terrain
+
+    action Main
+        StartGame()
+    end
+
+    action CreateGame
+        EnablePhysics3D(true)
+        PerlinNoise noise
+        noise:SetFrequency(0.02)
+        TerrainData data = terrain:GetData()
+        data:SetRegionSize(64)
+        data:GenerateHeights(noise, -128, -128, 256, 256, 10, 0)
+
+        terrain:SetTexture("Textures/grass.png")
+        terrain:Build()
+        integer i = 0
+        repeat while i < terrain:GetRegionModelCount()
+            Add(terrain:GetRegionModel(i))
+            i = i + 1
+        end
+    end
+end
+*/
+class WorldTerrain
+    TerrainData terrainData
+    Array<TerrainRegionModel> regionModels
+
+    // The texture laid over the ground, shared by every region, and how far
+    // apart in world units it repeats.
+    Texture texture = undefined
+    number textureRepeat = 4
+
+    // The name given to the region models, followed by each one's location.
+    text name = "World Terrain"
+
+    // How much the ground grips what rests on it, given to every region.
+    number friction = 1
+
+    /*
+    This action returns the terrain's data, which holds all of its heights.
+    Change the heights here, then call Build.
+
+    Attribute: Returns The terrain's data.
+    */
+    action GetData returns TerrainData
+        return terrainData
+    end
+
+    /*
+    This action loads a texture from a file and lays it over the ground. It
+    takes effect the next time Build is called.
+
+    Attribute: Parameter path The texture file's path.
+    */
+    action SetTexture(text path)
+        Texture loaded
+        loaded:LoadFromFile(path)
+        texture = loaded
+    end
+
+    /*
+    This action lays a texture over the ground. It takes effect the next time
+    Build is called.
+
+    Attribute: Parameter texture The texture, or undefined for none.
+    */
+    action SetTexture(Texture texture)
+        me:texture = texture
+    end
+
+    /*
+    This action returns the texture laid over the ground.
+
+    Attribute: Returns The texture, or undefined if there is none.
+    */
+    action GetTexture returns Texture
+        return texture
+    end
+
+    /*
+    This action sets how far apart, in world units, the texture repeats. A
+    larger value stretches the texture over more ground. The default is 4.
+
+    Attribute: Parameter distance The distance between repeats. It must be more than 0.
+    */
+    action SetTextureRepeat(number distance)
+        if distance <= 0
+            alert("The texture repeat must be more than 0, but was given " + distance + ".")
+        end
+        textureRepeat = distance
+    end
+
+    /*
+    This action returns how far apart, in world units, the texture repeats.
+
+    Attribute: Returns The distance between repeats.
+    */
+    action GetTextureRepeat returns number
+        return textureRepeat
+    end
+
+    /*
+    This action sets the name given to the region models. Each model is named
+    this, followed by its region's location.
+
+    Attribute: Parameter name The name.
+    */
+    action SetName(text name)
+        me:name = name
+    end
+
+    /*
+    This action returns the name given to the region models.
+
+    Attribute: Returns The name.
+    */
+    action GetName returns text
+        return name
+    end
+
+    /*
+    This action sets how much the ground grips what rests on it. It takes
+    effect the next time Build is called. The default is 1.
+
+    Attribute: Parameter friction The friction.
+    */
+    action SetFriction(number friction)
+        me:friction = friction
+    end
+
+    /*
+    This action returns how much the ground grips what rests on it.
+
+    Attribute: Returns The friction.
+    */
+    action GetFriction returns number
+        return friction
+    end
+
+    /*
+    This action makes a model for every region in the data, with a mesh and a
+    collision shape, and then clears the data's edited area. Any models from
+    an earlier build are replaced, so remove them from the game first.
+
+    The renderer cannot yet free a model's mesh, so building again keeps the
+    old meshes' memory in use. See VulkanChanges.md.
+    */
+    action Build
+        regionModels:Empty()
+        integer i = 0
+        repeat while i < terrainData:GetRegionCount()
+            TerrainRegion region = terrainData:GetRegionAtIndex(i)
+            TerrainRegionModel model
+            model:SetName(name + " (" + region:GetLocationX() + ", " + region:GetLocationZ() + ")")
+            model:Build(terrainData, region, texture, textureRepeat)
+
+            // The same order a game uses for Terrain: physics first, then the
+            // scale and position.
+            model:EnablePhysics(true)
+            model:SetMass(0)
+            model:SetFriction(friction)
+            model:PlaceInWorld()
+
+            regionModels:Add(model)
+            i = i + 1
+        end
+        terrainData:ClearEditedArea()
+    end
+
+    /*
+    This action brings the region models up to date after heights have
+    changed. Only the models touched by the data's edited area are rebuilt,
+    and then the edited area is cleared. The models stay in the game, so
+    nothing needs to be added or removed.
+
+    Regions added to or removed from the data since the last Build are not
+    handled here. Call Build again for those.
+
+    Each rebuilt model gets a new mesh, and the renderer cannot yet free the
+    old one, so its memory stays in use. See VulkanChanges.md.
+
+    Attribute: Returns How many region models were rebuilt.
+    */
+    action Rebuild returns integer
+        if not terrainData:HasEditedArea()
+            return 0
+        end
+        integer minimumX = terrainData:GetEditedMinimumX()
+        integer minimumZ = terrainData:GetEditedMinimumZ()
+        integer maximumX = terrainData:GetEditedMaximumX()
+        integer maximumZ = terrainData:GetEditedMaximumZ()
+
+        integer rebuilt = 0
+        integer i = 0
+        repeat while i < regionModels:GetSize()
+            TerrainRegionModel model = regionModels:Get(i)
+            if model:IsAffectedBy(minimumX, minimumZ, maximumX, maximumZ)
+                model:Rebuild(texture, textureRepeat)
+                rebuilt = rebuilt + 1
+            end
+            i = i + 1
+        end
+        terrainData:ClearEditedArea()
+        return rebuilt
+    end
+
+    /*
+    This action returns how many region models the last Build made.
+
+    Attribute: Returns The number of region models.
+    */
+    action GetRegionModelCount returns integer
+        return regionModels:GetSize()
+    end
+
+    /*
+    This action returns one of the region models the last Build made.
+
+    Attribute: Parameter index Which model, from 0 to one less than GetRegionModelCount.
+    Attribute: Returns The region model.
+    */
+    action GetRegionModel(integer index) returns TerrainRegionModel
+        return regionModels:Get(index)
+    end
+end
