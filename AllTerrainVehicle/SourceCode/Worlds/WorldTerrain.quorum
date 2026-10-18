@@ -2,9 +2,11 @@ package Libraries.Game.Graphics.Worlds
 
 use Libraries.Containers.Array
 use Libraries.Game.Graphics.Texture
+use Libraries.Game.Graphics.Color
 use Libraries.Game.Layer3D
 use Libraries.Containers.Integer32BitArray
 use Libraries.System.File
+use Libraries.Compute.Math
 
 /*
 A WorldTerrain is ground for a large world. It holds a TerrainData, which
@@ -22,6 +24,11 @@ Collision works in one of three ways, as in Terrain3D:
    a TerrainCollision keeps small collision pieces near a target, such as
    the player. Call Update every frame with the target's position.
 3. COLLISION_DISABLED: no collision at all.
+
+Far regions can be drawn with less detail, by setting a far radius before
+StartStreaming. Regions past the draw radius and within the far radius are
+drawn by a TerrainRegionFarModel, which uses only every few samples, so the
+world has a horizon at little cost.
 
 For a world larger than should be in memory at once, call StartStreaming
 instead of Build. Then only regions near the target are loaded, from a
@@ -100,12 +107,32 @@ class WorldTerrain
     Array<TerrainRegionModel> modelMap
     Integer32BitArray activeMap
 
+    // Distant terrain. While streaming with a far radius more than 0,
+    // regions between the draw radius and the far radius are drawn by a
+    // TerrainRegionFarModel, with a vertex every farStep samples and skirts
+    // skirtDepth units deep. Far models are kept by location in farModelMap,
+    // and farActiveMap marks which are in the layer, like the full models.
+    number farRadius = 0
+    integer farStep = 4
+    number skirtDepth = 1
+
+    // A color the far models' texture is multiplied by, or undefined for
+    // none. Useful for seeing which regions are drawn with less detail.
+    Color farTint = undefined
+    Array<TerrainRegionFarModel> farModels
+    Array<TerrainRegionFarModel> farModelMap
+    Integer32BitArray farActiveMap
+
     // The region map's size, matching TerrainData's.
     integer mapSize = 32
+
+    Math math
 
     on create
         modelMap:SetSize(mapSize * mapSize)
         activeMap:SetSize(mapSize * mapSize)
+        farModelMap:SetSize(mapSize * mapSize)
+        farActiveMap:SetSize(mapSize * mapSize)
     end
 
     /*
@@ -332,7 +359,9 @@ class WorldTerrain
         end
 
         // While streaming, models out of the layer that the change touches,
-        // such as one sharing an edge, are rebuilt when they come back.
+        // such as one sharing an edge, are rebuilt when they come back. Far
+        // models the change touches are rebuilt before they are next shown;
+        // one being shown now is taken out, so the next update rebuilds it.
         if streaming
             i = 0
             repeat while i < modelMap:GetSize()
@@ -340,6 +369,18 @@ class WorldTerrain
                 if cached not= undefined and activeMap:Get(i) = 0
                     if cached:IsAffectedBy(minimumX, minimumZ, maximumX, maximumZ)
                         cached:SetNeedsRebuild(true)
+                    end
+                end
+
+                TerrainRegionFarModel far = farModelMap:Get(i)
+                if far not= undefined
+                    if far:IsAffectedBy(minimumX, minimumZ, maximumX, maximumZ)
+                        far:SetNeedsRebuild(true)
+                        if farActiveMap:Get(i) = 1
+                            drawLayer:Remove(far)
+                            farModels:Remove(far)
+                            farActiveMap:Set(i, 0)
+                        end
                     end
                 end
                 i = i + 1
@@ -445,6 +486,117 @@ class WorldTerrain
             alert("At least 1 model must be built per update, but was given " + count + ".")
         end
         buildsPerUpdate = count
+    end
+
+    /*
+    This action sets how far, in world units, regions are drawn with less
+    detail while streaming. Regions past the draw radius and within this
+    radius are drawn by far models. Set it before StartStreaming. The default
+    is 0, which draws nothing past the draw radius.
+
+    Attribute: Parameter radius The far radius, or 0 for none.
+    */
+    action SetFarRadius(number radius)
+        if radius < 0
+            alert("The far radius can't be less than 0, but was given " + radius + ".")
+        end
+        farRadius = radius
+    end
+
+    /*
+    This action returns how far, in world units, regions are drawn with less
+    detail while streaming.
+
+    Attribute: Returns The far radius, or 0 for none.
+    */
+    action GetFarRadius returns number
+        return farRadius
+    end
+
+    /*
+    This action sets how many samples apart the vertices of far models are.
+    It must divide the region size evenly. The default is 4. Set it before
+    StartStreaming.
+
+    Attribute: Parameter step The number of samples between vertices.
+    */
+    action SetFarStep(integer step)
+        if step < 1
+            alert("The far step must be at least 1, but was given " + step + ".")
+        end
+        farStep = step
+    end
+
+    /*
+    This action returns how many samples apart the vertices of far models
+    are.
+
+    Attribute: Returns The number of samples between vertices.
+    */
+    action GetFarStep returns integer
+        return farStep
+    end
+
+    /*
+    This action sets how far, in world units, the skirts of far models hang
+    down. Deeper skirts hide larger cracks between far models and their
+    neighbors. The default is 1. Set it before StartStreaming.
+
+    Attribute: Parameter depth The skirt depth. It must be more than 0.
+    */
+    action SetSkirtDepth(number depth)
+        if depth <= 0
+            alert("The skirt depth must be more than 0, but was given " + depth + ".")
+        end
+        skirtDepth = depth
+    end
+
+    /*
+    This action sets a color the far models' texture is multiplied by, so it
+    is easy to see which regions are drawn with less detail. Far models
+    already built are changed too. Pass undefined for no tint, which is the
+    default.
+
+    Attribute: Parameter tint The color, or undefined for none.
+    */
+    action SetFarTint(Color tint)
+        farTint = tint
+        integer i = 0
+        repeat while i < farModelMap:GetSize()
+            TerrainRegionFarModel far = farModelMap:Get(i)
+            if far not= undefined
+                far:GetResources():SetColor(farTint)
+            end
+            i = i + 1
+        end
+    end
+
+    /*
+    This action returns the color the far models' texture is multiplied by.
+
+    Attribute: Returns The color, or undefined for none.
+    */
+    action GetFarTint returns Color
+        return farTint
+    end
+
+    /*
+    This action returns how deep, in world units, the skirts of far models
+    hang down.
+
+    Attribute: Returns The skirt depth.
+    */
+    action GetSkirtDepth returns number
+        return skirtDepth
+    end
+
+    /*
+    This action returns how many far models are in the layer.
+
+    Attribute: Returns The number of far models being drawn.
+    */
+    action GetFarModelCount returns integer
+        return farModels:GetSize()
     end
 
     /*
@@ -595,7 +747,138 @@ class WorldTerrain
             end
             i = i + 1
         end
+
+        if farRadius > 0
+            if UpdateFarModels(targetX, targetZ, limit - builds)
+                changed = true
+            end
+        end
         return changed
+    end
+
+    /*
+    This action takes far models out of the layer where a region is now drawn
+    in full, or has gone out of reach, and puts far models in for regions
+    within the far radius that aren't drawn in full. A far model that hasn't
+    been built yet, or is out of date, is built first, which counts against
+    the limit.
+
+    Attribute: Parameter targetX The target's position along x, in world units.
+    Attribute: Parameter targetZ The target's position along z, in world units.
+    Attribute: Parameter limit The most far models to build.
+    Attribute: Returns True if any far model was added or removed.
+    */
+    private action UpdateFarModels(number targetX, number targetZ, integer limit) returns boolean
+        boolean changed = false
+        number width = streamer:GetRegionWorldSize()
+        number removeRadius = farRadius + width / 2
+
+        integer i = farModels:GetSize() - 1
+        repeat while i >= 0
+            TerrainRegionFarModel shown = farModels:Get(i)
+            integer shownX = shown:GetLocationX()
+            integer shownZ = shown:GetLocationZ()
+            integer shownIndex = GetMapIndex(shownX, shownZ)
+            if activeMap:Get(shownIndex) = 1 or not terrainData:HasRegionAnywhere(shownX, shownZ) or
+                    streamer:GetDistanceToRegion(shownX, shownZ, targetX, targetZ) > removeRadius
+                drawLayer:Remove(shown)
+                farModels:RemoveAt(i)
+                farActiveMap:Set(shownIndex, 0)
+                changed = true
+            end
+            i = i - 1
+        end
+
+        // Only the region locations the far radius can reach are looked at.
+        integer firstX = ClampLocation(cast(integer, math:Floor((targetX - farRadius) / width)))
+        integer lastX = ClampLocation(cast(integer, math:Floor((targetX + farRadius) / width)))
+        integer firstZ = ClampLocation(cast(integer, math:Floor((targetZ - farRadius) / width)))
+        integer lastZ = ClampLocation(cast(integer, math:Floor((targetZ + farRadius) / width)))
+
+        integer builds = 0
+        integer locationZ = firstZ
+        repeat while locationZ <= lastZ
+            integer locationX = firstX
+            repeat while locationX <= lastX
+                integer index = GetMapIndex(locationX, locationZ)
+                if activeMap:Get(index) = 0 and farActiveMap:Get(index) = 0 and
+                        terrainData:HasRegionAnywhere(locationX, locationZ) and
+                        streamer:GetDistanceToRegion(locationX, locationZ, targetX, targetZ) <= farRadius
+                    TerrainRegionFarModel far = farModelMap:Get(index)
+                    boolean ready = false
+                    if far = undefined or far:NeedsRebuild()
+                        if builds < limit
+                            far = BuildFarModel(locationX, locationZ)
+                            builds = builds + 1
+                            ready = true
+                        end
+                    else
+                        ready = true
+                    end
+                    if ready
+                        far:SetCollidable(false)
+                        drawLayer:Add(far)
+                        farModels:Add(far)
+                        farActiveMap:Set(index, 1)
+                        changed = true
+                    end
+                end
+                locationX = locationX + 1
+            end
+            locationZ = locationZ + 1
+        end
+        return changed
+    end
+
+    /*
+    This action builds, or rebuilds, the far model for a region. If the
+    region isn't loaded, it is loaded just long enough to build from, and
+    then unloaded again, since the far model doesn't need it afterward.
+
+    Attribute: Parameter locationX The region location along x.
+    Attribute: Parameter locationZ The region location along z.
+    Attribute: Returns The far model, kept in farModelMap.
+    */
+    private action BuildFarModel(integer locationX, integer locationZ) returns TerrainRegionFarModel
+        integer index = GetMapIndex(locationX, locationZ)
+        TerrainRegionFarModel far = farModelMap:Get(index)
+        if far = undefined
+            TerrainRegionFarModel made
+            made:SetName(name + " far (" + locationX + ", " + locationZ + ")")
+            far = made
+            farModelMap:Set(index, far)
+        end
+
+        boolean loadedHere = false
+        TerrainRegion region = terrainData:GetRegion(locationX, locationZ)
+        if region = undefined
+            region = terrainData:LoadRegion(streamer:GetFolder(), locationX, locationZ)
+            loadedHere = true
+        end
+        far:Build(terrainData, region, texture, textureRepeat, farStep, skirtDepth)
+        far:GetResources():SetColor(farTint)
+        if loadedHere
+            terrainData:UnloadRegion(locationX, locationZ)
+        end
+        return far
+    end
+
+    /*
+    This action keeps a region location inside the region map, from -16 to
+    15.
+
+    Attribute: Parameter location A region location along one axis.
+    Attribute: Returns The nearest location inside the region map.
+    */
+    private action ClampLocation(integer location) returns integer
+        integer half = mapSize / 2
+        if location < -half
+            return -half
+        end
+        if location > half - 1
+            return half - 1
+        end
+        return location
     end
 
     /*

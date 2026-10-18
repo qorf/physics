@@ -122,6 +122,24 @@ class DriveOpen is Game
     boolean streamTerrain = true
     number drawRadius = 40
 
+    // Distant terrain. While streaming, regions past drawRadius and within
+    // farRadius world units are drawn with less detail: a vertex every
+    // farStep samples instead of every sample. 200 reaches every corner of
+    // the map from its middle. Set farRadius to 0 to draw nothing past
+    // drawRadius.
+    number farRadius = 200
+    integer farStep = 4
+
+    // How far the far models' skirts hang down, in world units. Taller hills
+    // can leave larger cracks where a far region meets a full one, so the
+    // skirts are deeper than the default of 1.
+    number farSkirtDepth = 6
+
+    // While tintFarTerrain is true, far models are drawn tinted red, so it is
+    // easy to see which regions are drawn with less detail, and to watch
+    // them change to full detail as the vehicle comes near.
+    boolean tintFarTerrain = true
+
     // Save check. While checkSaving is true, the terrain is saved to the
     // folder saveFolder once it is built, loaded back into new TerrainData,
     // and every sample is compared. The result is written to the console.
@@ -130,8 +148,17 @@ class DriveOpen is Game
 
     // How tall the highest possible ground is before the terrain is scaled.
     // The noise mostly stays in the middle of its range, so the hills in
-    // practice rise and fall a few units around the middle height.
-    number heightScale = 24
+    // practice rise and fall well short of this around the middle height.
+    // It was 24, which made hills only a few units tall. 80 makes them tall
+    // enough to see in the distance.
+    number heightScale = 80
+
+    // How often the hills repeat, per sample. How steep the hills are
+    // depends on their height times this. It was 0.0125 (a hill about every
+    // 40 units). 0.005 is a hill about every 100 units, so with the taller
+    // hills the slopes are only a little steeper than before, and the
+    // vehicle can still climb them.
+    number hillFrequency = 0.005
 
     // Where the terrain's corner sits. The terrain is centered on the origin
     // and lowered so its middle height is close to 0. The corner must be a
@@ -255,11 +282,13 @@ class DriveOpen is Game
     // cascades.
     number sunCullingRange = 20
 
-    // If more than 0, the camera's far plane, in place of the default 1000.
-    // The painter fits its shadow cascades between the camera's near and far
-    // planes, so this also pulls the cascades in, which is the closest this
-    // game can come to a real shadow distance without changing the library.
-    // Anything farther away is not drawn at all.
+    // If more than 0, the camera's far plane, in place of the default 100
+    // that PerspectiveCamera sets. The painter fits its shadow cascades
+    // between the camera's near and far planes, so this also changes the
+    // cascades, which is the closest this game can come to a real shadow
+    // distance without changing the library. Anything farther away is not
+    // drawn at all. While distant terrain is on and this is 0, the far
+    // plane is set past the far radius instead, so the distance can be seen.
     number cameraFarDistance = 0
     RenderTreeCheck renderCheck
     DirectionalLight sunlight
@@ -276,6 +305,10 @@ class DriveOpen is Game
     action CreateGame
         if cameraFarDistance > 0
             GetCamera3D():SetFar(cameraFarDistance)
+        elseif streamTerrain and farRadius > 0
+            // The camera sits cameraBehind units behind the vehicle, so the
+            // far plane reaches a little past the far radius from there.
+            GetCamera3D():SetFar(farRadius + cameraBehind + 20)
         end
 
         cullLabel:SetText("0% Culled")
@@ -295,11 +328,11 @@ class DriveOpen is Game
         renderCheck:SetSnapshotInterval(renderSnapshotInterval)
         if renderTreeKind = 1
             QuadTree3D quadtree
-            quadtree:SetRegion(-140, -40, -140, 140, 40, 140)
+            quadtree:SetRegion(-140, -40, -140, 140, 80, 140)
             renderCheck:SetTree(quadtree)
         elseif renderTreeKind = 2
             Octree3D octree
-            octree:SetRegion(-140, -40, -140, 140, 40, 140)
+            octree:SetRegion(-140, -40, -140, 140, 80, 140)
             renderCheck:SetTree(octree)
         end
 
@@ -665,9 +698,16 @@ class DriveOpen is Game
                 data:Save(folder)
             end
             terrain:SetDrawRadius(drawRadius)
+            terrain:SetFarRadius(farRadius)
+            terrain:SetFarStep(farStep)
+            terrain:SetSkirtDepth(farSkirtDepth)
+            if tintFarTerrain
+                Color tint
+                terrain:SetFarTint(tint:CustomColor(1, 0.55, 0.55, 1))
+            end
             terrain:StartStreaming(folder, GetCurrentLayer3D(), 0, 0)
             output "Streaming: " + data:GetRegionCount() + " regions loaded, " + terrain:GetRegionModelCount() +
-                " drawn, from " + folder:GetAbsolutePath()
+                " drawn in full, " + terrain:GetFarModelCount() + " drawn far, from " + folder:GetAbsolutePath()
         else
             terrain:Build()
             output "Terrain: " + terrain:GetRegionModelCount() + " region models."
@@ -811,11 +851,11 @@ class DriveOpen is Game
     its pad is flattened to.
     */
     action ChooseStackSites
-        // Rolling hills about every forty units, with three finer layers of
+        // Rolling hills, hillFrequency apart, with three finer layers of
         // bumps laid over them. This is set up here because choosing the
         // sites already needs the height of the hills.
         noise:SetSeed(2026)
-        noise:SetFrequency(0.0125)
+        noise:SetFrequency(hillFrequency)
         noise:SetOctaves(4)
         siteRandom:SetSeed(7)
 
@@ -910,7 +950,8 @@ class DriveOpen is Game
             integer saved = streamer:GetLastSavedCount()
             if loaded > 0 or unloaded > 0
                 report = "Streaming: loaded " + loaded + ", unloaded " + unloaded + ", saved " + saved + "; " +
-                    terrain:GetData():GetRegionCount() + " regions loaded, " + terrain:GetRegionModelCount() + " drawn. "
+                    terrain:GetData():GetRegionCount() + " regions loaded, " + terrain:GetRegionModelCount() + " drawn in full, " +
+                    terrain:GetFarModelCount() + " drawn far. "
             end
         end
         if dynamicCollision
@@ -1076,8 +1117,19 @@ class DriveOpen is Game
 
         // Physics uses a box around the body, in world units. It is set after
         // SetScale, which would otherwise scale it too.
+        //
+        // The box is smaller than the body, so it doesn't catch on hills. The
+        // tires touch the ground about 0.99 below the chassis center, and the
+        // box is centered on it. A box 1.55 tall and 5.84 long cleared the
+        // ground by only 0.2, and reached 0.86 past the front wheels, so its
+        // front corner hit any slope steeper than about 14 degrees before the
+        // wheels did. At 1.2 tall and 5.2 long it clears the ground by about
+        // 0.39, and reaches 0.54 past the front wheels and 1.02 past the
+        // back ones, so the vehicle can drive onto slopes of about 36 degrees
+        // and off them at about 21. The drawn body may dip into the ground a
+        // little on the steepest changes of slope.
         Box shape
-        shape:Set(2.82, 1.55, 5.84)
+        shape:Set(2.82, 1.2, 5.2)
         chassis:SetShape(shape)
 
         chassis:EnablePhysics(true)
@@ -1112,8 +1164,12 @@ class DriveOpen is Game
         // space bar as the brake. No drive wheels are chosen, so all four
         // wheels drive, which helps on hills.
         movement:SetVehicle(vehicle)
-        movement:SetEngineForce(3000)
-        movement:SetReverseForce(2000)
+        // The engine must beat gravity pulling the 800 kg vehicle back down
+        // the slope, which is 800 * 9.8 * sin(slope): about 3900 at 30
+        // degrees, which the taller hills reach in places. 3000 couldn't
+        // climb them.
+        movement:SetEngineForce(5000)
+        movement:SetReverseForce(3000)
         movement:SetMaximumSteering(0.45)
         chassis:AddBehavior(movement)
     end

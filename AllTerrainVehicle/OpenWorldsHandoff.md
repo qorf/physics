@@ -21,9 +21,9 @@ Last updated: 2026-10-17
 `OpenWorldTier2Handoff.md`, and on hold by the user's choice. **Tier 3
 (open worlds)** is planned in `OpenWorldTier3Handoff.md`; step 1 (collision
 only near the player) is done and checked. Step 2 (streaming regions, with
-settings saved as JSON) is done and checked. Next in the plan is step 3, a
-floating origin experiment, then the library change S1 (freeing GPU
-memory). All code goes in AllTerrainVehicle first, and
+settings saved as JSON) is done and checked. Step 3 (floating origin) is
+deferred as not needed yet. Distant terrain (coarse far models with skirts)
+is written and waiting for a run. All code goes in AllTerrainVehicle first, and
 the standard library is not changed unless the user asks.
 
 ## Next steps

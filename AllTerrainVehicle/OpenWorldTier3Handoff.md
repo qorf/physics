@@ -5,8 +5,8 @@ drawn and collided with at a cost that doesn't grow with the world's size.
 Updated after every completed operation, so work can move between machines.
 The overall picture is in `OpenWorlds.md` and `OpenWorldsHandoff.md`.
 
-Last updated: 2026-10-17, after step 2 (streaming region data) was checked
-by the user. The user put Tier 2 (texturing) on hold and
+Last updated: 2026-10-17, after distant terrain (far models) was written.
+**Not yet compiled.** The user put Tier 2 (texturing) on hold and
 started Tier 3.
 
 ## Where we are
@@ -22,7 +22,140 @@ started Tier 3.
   surviving its region being unloaded and loaded again. Includes the user's request (2026-10-17) to
   save the settings as JSON (`terrain.json`), read with the standard
   library's `JavaScriptObjectNotation`.
-- Steps 3 onward: planned (see "Suggested order" below).
+- **Step 3, floating origin: deferred.** The region grid tops out at about
+  8 km, where 32-bit floats are still precise to about 1 mm, so there is
+  nothing to fix yet (explained to the user 2026-10-17).
+- **Distant terrain with less detail: written, waiting for a run.** No
+  library changes. The user chose it from the list of work that needs no
+  library changes.
+
+### Distant terrain: what was written
+
+- **`TerrainRegionFarModel`** (new) `is TerrainPatch`.
+  - **Coarse mesh:** a vertex every `step` samples (default 4), so a
+    64-sample region is 17 by 17 vertices instead of 65 by 65. It reaches the
+    next region's first sample (clamped where that isn't loaded), with
+    normals from neighbors one step away. Same world-based texture
+    coordinates as the full models.
+  - **Skirts:** each of the four edges has a strip hanging `skirtDepth`
+    (default 1) straight down, drawn facing both ways, since back faces
+    are culled. They hide cracks where a far model meets a full model, or a
+    neighbor built while its own neighbor wasn't loaded.
+  - **No collision.** Placed lower by the skirt depth, since its vertices
+    are measured up from the skirt bottom (`PlaceInWorld` override).
+  - Has `SetNeedsRebuild` and `NeedsRebuild`.
+- **`WorldTerrain`:**
+  - `SetFarRadius` (default 0, which is off), `SetFarStep`,
+    `SetSkirtDepth`, `GetFarModelCount`.
+  - While streaming, after the full models are updated,
+    `UpdateFarModels`:
+    - takes far models out where a full model is now shown, or past the far
+      radius plus half a region;
+    - puts far models in for regions in reach that aren't drawn in full.
+  - A far model is built once per region (`farModelMap`) and reused. If the
+    region isn't loaded, `BuildFarModel` loads it just long enough to build,
+    then unloads it.
+  - Builds share the per-update limit with the full models; full models
+    come first.
+  - The full model replaces the far one only once it is ready, so there are
+    no holes while it builds.
+  - Edits mark affected far models to rebuild. One being shown is taken
+    out, so the next update rebuilds it.
+- **DriveOpen:** `farRadius = 200` (every corner of the map from the
+  middle), `farStep = 4`. The streaming lines also report how many regions
+  are drawn far.
+
+### Distant terrain run 1
+
+- The user saw nothing in the distance.
+- Cause: the game's default camera is a `PerspectiveCamera`, which sets its
+  far plane to **100** when created (`PerspectiveCamera.quorum:18`). The
+  camera is 12 units behind the vehicle, so nothing beyond about 88 units
+  ahead was drawn. That left only a thin band past the full-detail regions
+  (shown out to 40 to 56 units) where far models could appear, often hidden
+  by hills. DriveOpen's comment wrongly said the default was 1000; fixed.
+- Fix: when distant terrain is on and `cameraFarDistance` is 0, DriveOpen
+  sets the far plane to `farRadius + cameraBehind + 20` (232).
+- **Side effect to watch:** the painter fits the sun's shadow cascades
+  between the camera's near and far planes, so shadows near the vehicle may
+  look softer or blockier. Setting `cameraFarDistance` overrides this.
+- Whether the far models themselves were built isn't known yet. The
+  startup line (`... drawn far ...`) will say.
+
+### Distant terrain run 2 (console only)
+
+- Startup: `32 regions loaded, 12 drawn in full, 52 drawn far`, as
+  expected, so far models are built. Save check difference 2.4e-7.
+- Driving toward an edge: regions load ahead and unload behind, full and
+  far counts trade places, and near the map's edge the totals drop (corner
+  regions pass beyond the far radius; full drops to 8 and far to 46).
+  Collision pieces fall from 113 to 28 as the vehicle nears the edge.
+- No errors. Not yet reported: whether the distance is now visible, cracks
+  between full and far regions, shadows, and frame rate.
+
+### Distant terrain: tint and taller hills
+
+- The user saw only roughly flat ground in the distance. That is what far
+  models should look like with DriveOpen's old hills (`heightScale` 24, so
+  only a few units of rise, seen from a camera 5 units up), so it couldn't
+  be told apart from before.
+- Added `WorldTerrain:SetFarTint(Color)` / `GetFarTint`, which use the
+  per-model color override, `GetResources():SetColor`. It multiplies the
+  texture. Applied after each far build, and to already-built far models
+  when set. Also `GetSkirtDepth`.
+- DriveOpen:
+  - `tintFarTerrain = true`, a reddish tint (1, 0.55, 0.55).
+  - `heightScale` raised from 24 to 120.
+  - `farSkirtDepth = 6`, since steeper hills leave larger cracks.
+  - The render tree check's region top raised from 40 to 80.
+- **Waiting for a run.** Expected: red-tinted hills out to the map's edge,
+  turning to untinted full detail about 40 units from the vehicle.
+
+### Hills the vehicle can climb
+
+- With `heightScale` 120 the distant hills were visible (the tint
+  works), but the vehicle couldn't climb the slopes.
+- Steepness goes with height times noise frequency: originally 24 × 0.0125
+  = 0.3, then 120 × 0.0125 = 1.5.
+- Now `heightScale` = 80 and a new `hillFrequency` = 0.005 (a hill about
+  every 100 units instead of 40): 80 × 0.005 = 0.4. That is tall, wide hills
+  that are a little steeper than the original. **Waiting for a run.**
+
+### Vehicle tuned for the taller hills (DriveOpen only; Main unchanged)
+
+- The user asked for the vehicle to be less likely to hit the slopes.
+- Cause: the chassis's physics box (1.55 tall, 5.84 long, centered on the
+  chassis) cleared the ground by only about 0.2, and reached 0.86 past the
+  front wheels. So its front corner hit any slope over about 14 degrees
+  before the wheels did.
+- Fix:
+  - The box is now 1.2 by 5.2 (width unchanged): about 0.39 clearance, so
+    about 36 degrees to drive onto a slope and about 21 to drive off one.
+  - The suspension was not raised, because the drawn wheels are part of the
+    body model and would float.
+  - Engine force went from 3000 to 5000 (reverse from 2000 to 3000).
+    Gravity on the 800 kg vehicle at 30 degrees is about 3900.
+- **Waiting for a run.**
+
+### To check distant terrain
+
+1. `RunWorldTests`: still 15 of 15 (no new tests; far models need a running
+   game to build their meshes).
+2. `DriveOpen` startup line: `... 12 drawn in full, 52 drawn far, ...`. The
+   whole map should now be visible from the start, not just 40 units
+   around the vehicle.
+3. Look for:
+   - cracks or gaps where full and far regions meet (the skirts should
+     hide them);
+   - a visible "pop" as a region switches between far and full detail
+     about 40 units away (expected: the shape changes slightly);
+   - the frame rate, compared with `farRadius = 0`;
+   - startup time (every far region is loaded briefly once to build its
+     model).
+4. Edit with E near the edge of the draw radius, drive away until that
+   region is drawn far, and check the far model shows the edit.
+
+
 
 ### Step 2: what was written
 
