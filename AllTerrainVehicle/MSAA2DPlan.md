@@ -1,5 +1,7 @@
 # MSAA for 2D under Vulkan (investigation)
 
+**Status (2026-10-19): done** as `Item29.md` (option A), committed in `7ad442acb`.
+
 Written 2026-10-19, for review, after Item 27 (MSAA for the 3D scene
 pass). **Vulkan only; OpenGL is not touched.** Nothing is changed.
 

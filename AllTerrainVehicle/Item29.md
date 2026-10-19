@@ -1,5 +1,7 @@
 # Item 29: MSAA for 2D (the swapchain stage) under Vulkan
 
+**Status (2026-10-19): done.** Committed in `7ad442acb`; waiting for a run with MSAA2DCheck.
+
 Option A of `MSAA2DPlan.md`, with a separate switch,
 `Game:SetMultisampling2D(samples)`. **Vulkan only; nothing in OpenGL
 changes. Approved and applied on 2026-10-19** to the branch

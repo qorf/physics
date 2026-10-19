@@ -1,5 +1,7 @@
 # Skybox on the new shader system (plan)
 
+**Status (2026-10-19): done** as `Item26.md`, committed in `768335de9`. Panorama and procedural skies are still later options.
+
 Written 2026-10-19. **Approved with the recommended answers; the exact code
 is in `Item26.md`,** which also records five details the code changed
 (front and back faces, the web, `SkyboxShader.java`, side bookkeeping,

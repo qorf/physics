@@ -1,5 +1,7 @@
 # Item 30: shadows after the 3D passes are remade
 
+**Status (2026-10-19): done.** Committed in `7ad442acb`; waiting for a run (resize with MSAA on).
+
 **Approved and applied on 2026-10-19** (uncommitted, with Items 27-29).
 **Waiting for a library rebuild and a run.** Vulkan only,
 one file: `Graphics/Vulkan/VulkanPainter3D.quorum`, on `TerrainShader`.

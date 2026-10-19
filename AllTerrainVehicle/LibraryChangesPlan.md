@@ -1,14 +1,19 @@
 # Standard library changes: plan and order
 
-Written 2026-10-17. Updated 2026-10-18.
+Written 2026-10-17. Updated 2026-10-19.
 
-**State on 2026-10-19,** on `TerrainShader`:
-- **Committed:** orders 7, 9, 12 and 15 (`804c85c40`), and item 24
-  (`3e6fde7e0`).
-- **Applied, not committed:** item 25 (orders 8 and 10: mipmaps and
-  anisotropic filtering), being tested.
-- **Suggested next:** order 13 (#22, every texture group drawn), then the
-  `Material` diffuse fix (`VulkanChanges.md` H). See "Status" at the end.
+**State on 2026-10-19,** on `TerrainShader`. Everything applied so far is
+committed:
+- `804c85c40`: orders 7, 9, 12 and 15;
+- `3e6fde7e0`: item 24;
+- `768335de9`: items 25 and 26, which include orders 8 and 10;
+- `7ad442acb`: items 27-30, #28 and #29.
+
+**Next: freeing memory everywhere** (the user's choice). That is orders 3
+and 11, plus the leaks found since. They are listed in `VulkanChanges.md`,
+"Next: freeing memory everywhere". A plan comes first (`MemoryPlan.md`),
+then Items with exact code. After that, the small open bugs: order 13 (#22),
+B, and H. See "Status" at the end.
 
 Items are taken one at a time, when the user picks them; most still need
 discussion first. Larger items get a written proposal (`Item7.md`,
@@ -57,7 +62,7 @@ Each is a few lines and changes nothing for code that already works.
 |---|---|---|---|---|
 | 1 | **B** | `Integer32BitArray` and `Number32BitArray`: `GetSize` returns 0 before `SetSize`, instead of failing on a null array | Java, 2 files, about 2 lines each | Hit in `TerrainCollision`. Nothing can rely on the crash. |
 | 2 | **A** | `FileReader:ReadLines` stops failing at the end of every file | Java, 1 file, about 10 lines | Hit in `TerrainData:Load`. As written it can never succeed, so nothing relies on it. |
-| 3 | **#1** | `VulkanBuffer.StopMapping` passes the allocation handle to VMA, clears the pointer; `Dispose` guards against being called twice | Java, 1 file, about 6 lines | Needed before any GPU memory can be freed (#3's full form, S1). |
+| 3 | **#1** (**next, with memory**) | `VulkanBuffer.StopMapping` passes the allocation handle to VMA, clears the pointer; `Dispose` guards against being called twice | Java, 1 file, about 6 lines | Needed before any GPU memory can be freed (#3's full form, S1). |
 | 4 | **#4** | The barrier after mesh copies waits for the vertex shader stage, and is recorded whenever a copy was recorded | Quorum, `VulkanPainter3D`, about 5 lines | Correctness for every mesh upload. **Mostly covered by order 7:** `ModelManagerVulkan` now records its own barrier after mesh copies. The painter's barrier is left as it is; fixing it is now optional tidying. |
 | 5 | **#14** | Make drawing wait for the animation compute shader's writes | Quorum, `VulkanPainter3D`, small | Latent race for animated models. Same kind of change as #4, so review them together. |
 | 6 | **#13** | The texture override writes the texture's index in its group, not its global index | Java, 1 line | Latent. Only matters once there are more textures than one group holds, but it's one line. |
@@ -80,7 +85,7 @@ Each is a few lines and changes nothing for code that already works.
 
 | Order | Item | What | Size | Why |
 |---|---|---|---|---|
-| 11 | **#2 + #5 + #15** (Tier 3 S1) | Freeing GPU memory: deferred-deletion queue in `VulkanGraphics`; dispose for meshes, blueprints, model resources; remove from the blueprint cache; prune unused painter batches | about 200-250 lines, about 6 files, plus Java | Lets streamed regions give memory back. Today memory grows with every distinct region drawn. Needs #1. |
+| 11 | **#2 + #5 + #15** (Tier 3 S1; **next**: memory, with the new leaks in `VulkanChanges.md`) | Freeing GPU memory: deferred-deletion queue in `VulkanGraphics`; dispose for meshes, blueprints, model resources; remove from the blueprint cache; prune unused painter batches | about 200-250 lines, about 6 files, plus Java | Lets streamed regions give memory back. Today memory grows with every distinct region drawn. Needs #1. |
 
 ### Batch 4b: found along the way (2026-10-18)
 
@@ -139,27 +144,28 @@ decides when.
 
 ## Status
 
-Library files changed on `TerrainShader`:
-- **committed:** `MeshVulkan`, `ModelManagerVulkan`, `VulkanPainter3D`,
-  `VulkanPainter3DBatch` and `VulkanTextureManager` (`804c85c40`);
-  `Material`, `MaterialVulkan`, `PixelMap` (Quorum and Java) and four
-  shaders (`3e6fde7e0`);
-- **uncommitted (item 25):** `Texture`, `VulkanTextureManager` (Quorum and
-  Java) and `MaterialVulkan`.
+Every library change applied so far is committed on `TerrainShader`
+(`804c85c40`, `3e6fde7e0`, `768335de9`, `7ad442acb`).
 
-| Order | Item | Status |
+| Order or item | Change | Status |
 |---|---|---|
-| 7 | #3 mesh update in place (+ model-manager pause guard, part of #21) | Committed. Editing works. The "Meshes so far" count in DriveOpen isn't reported yet. |
-| 9 | #6 per-model shader programs | Committed. Splatting under it confirmed; DriveOpen runs as expected (2026-10-19). |
-| 12 | #23 minimize crash | Committed. The minimize-and-restore run isn't reported yet. |
-| 13 | #22 draw loops count frames | Not started. **Suggested next.** |
-| 14 | #21 textures while minimized | Folded into order 15. |
-| 15 | #20 texture update in place (+ #21 textures) | Committed. Confirmed. |
-| 16 | #24 materials from texture sets (Vulkan) | Committed. Confirmed on boxes (`TextureSetCheck`) and on the terrain. |
-| 8, 10 | #8 anisotropy, #7 mipmaps (`Item25.md`) | Applied 2026-10-19, uncommitted, being tested (`MipMapCheck`). MoltenVK checked by reading its source. |
-| new | **H**: a new `Material`'s diffuse is (0,0,0,0), not undefined | Not started. Small; the project works around it. |
-| 1-6, 11 | | Not started. |
-| C, JSON getters, far plane | To discuss | Not started. |
+| 7 | #3 mesh update in place | Done, confirmed |
+| 9 | #6 per-model shader programs | Done, confirmed |
+| 12 | #23 minimize crash | Done |
+| 14, 15 | #21 textures while minimized; #20 texture update in place | Done, confirmed |
+| 8, 10 | #8 anisotropy, #7 mipmaps (`Item25.md`) | Done, confirmed |
+| Item 24 | Materials from texture sets | Done, confirmed |
+| Item 26 | Skybox, OpenGL and Vulkan (#11) | Done, confirmed (SkyboxCheck, DriveOpen) |
+| Items 27, 29 | MSAA for 3D and for 2D | Done; 3D confirmed, 2D waiting for a run |
+| Item 28 | 3D view after a resize (#26) | Done |
+| Item 30 | Shadows after the passes are made again (#27) | Done, waiting for a run |
+| #28 | No boxing in `VulkanPainter3DBatch` | Done, waiting for a run |
+| #29 | `vSyncEnabled` under Vulkan | Done, waiting for a run |
+| 3, 11 | #1, #2, #5, #15, and the new leaks | **Next: memory** |
+| 13 | #22 draw loops count frames | Not started |
+| H | A new `Material`'s diffuse is (0,0,0,0) | Not started; the project works around it |
+| 1, 2, 4-6 | B, A, #4, #14, #13 | Not started |
+| C, JSON getters, far plane | To discuss | Not started |
 
 **Project side** (done with the library changes):
 - region and far models update their meshes in place;

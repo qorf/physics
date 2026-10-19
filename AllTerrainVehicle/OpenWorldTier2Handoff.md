@@ -35,8 +35,8 @@ for the user to approve (L1, L2, L3).
   region, because of the texture-group limit (`VulkanChanges.md` #19, #20).
 - **L1 is done** (library order 9, `Item9.md`, 2026-10-18). The terrain
   draws with its own `TerrainSplatShaderProgram`.
-- **L2 and L3** (mipmaps and anisotropy, library orders 10 and 8) are
-  applied as `Item25.md` (2026-10-19), being tested. L4 (order 6) is not
+- **L2 and L3** (mipmaps and anisotropy, library orders 10 and 8) are done
+  (`Item25.md`, committed `768335de9`, confirmed). L4 (order 6) is not
   started.
 - **Per-layer normal, roughness and AO** (this tier's PBR goal) work
   through texture sets (`Item24.md`, `TerrainMaterialsPlan.md`), with

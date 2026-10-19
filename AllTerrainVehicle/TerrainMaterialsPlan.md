@@ -1,5 +1,7 @@
 # Terrain materials: using AmbientCG texture sets (plan)
 
+**Status (2026-10-19): steps 1 to 3 are done.** Step 1 is `Item24.md` (`3e6fde7e0`). Step 2, the terrain, is in the project and confirmed. Step 3, mipmaps, is `Item25.md` (`768335de9`). Step 4 (per-set tint and roughness, detiling, slope projection, an index map) is later work.
+
 Written 2026-10-19; revised the same day for the user's direction.
 **Step 1 is applied** on `TerrainShader` (`Item24.md`, 2026-10-19) and
 checked with `SourceCode/TextureSetCheck.quorum` (results in `Item24.md`).

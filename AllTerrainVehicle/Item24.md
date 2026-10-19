@@ -1,5 +1,7 @@
 # Item 24: materials from texture sets (Vulkan)
 
+**Status (2026-10-19): done.** Committed in `3e6fde7e0`; confirmed on boxes and on the terrain.
+
 `VulkanChanges.md` #24, `LibraryChangesPlan.md` order 16. Step 1 of
 `TerrainMaterialsPlan.md`. **Approved and applied on
 2026-10-19** to the `quorum-language` branch `TerrainShader`, with the

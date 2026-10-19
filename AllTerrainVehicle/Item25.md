@@ -1,5 +1,7 @@
 # Item 25: mipmaps and anisotropic filtering
 
+**Status (2026-10-19): done.** Committed in `768335de9`; confirmed (MipMapCheck, TerrainEditor).
+
 `VulkanChanges.md` #7 (no mipmaps) and #8 (anisotropic filtering off),
 `LibraryChangesPlan.md` orders 8 and 10, done together as one item.
 **Approved and applied on 2026-10-19** to the `quorum-language` branch

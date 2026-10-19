@@ -1,5 +1,7 @@
 # Item 28: the 3D view after a window resize
 
+**Status (2026-10-19): done.** Committed in `7ad442acb`; the resize is sharp again.
+
 **Approved and applied on 2026-10-19** (uncommitted, together with Item 27).
 **Waiting for a library rebuild and a run.** Vulkan only,
 one file: `Graphics/Vulkan/VulkanPainter3D.quorum`, on the

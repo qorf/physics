@@ -1,5 +1,7 @@
 # Item 27: MSAA for the Vulkan renderer
 
+**Status (2026-10-19): done.** Committed in `7ad442acb`; confirmed (MSAACheck). Its resize problems were fixed by Items 28 and 30.
+
 The exact code for `MSAAPlan.md`, with the recommended answers to its four
 decisions:
 1. option A: a multisampled G-buffer resolved in the scene pass, with

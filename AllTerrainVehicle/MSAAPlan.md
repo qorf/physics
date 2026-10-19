@@ -1,5 +1,7 @@
 # MSAA for the Vulkan renderer (plan)
 
+**Status (2026-10-19): done** as `Item27.md`, committed in `7ad442acb`.
+
 Written 2026-10-19. **Approved with the recommended answers; the exact code
 is in `Item27.md`.** **Vulkan only; OpenGL is not touched.** It
 can be turned on or off. Nothing is changed yet; once the design is settled,

@@ -1,5 +1,7 @@
 # Item 26: the skybox on the new shader system
 
+**Status (2026-10-19): done.** Committed in `768335de9`; confirmed (SkyboxCheck under Vulkan, the Day sky in DriveOpen).
+
 The exact code for `SkyboxPlan.md`, with the recommended answers to its five
 decisions:
 1. cube maps on both renderers now; panorama and procedural skies later;
