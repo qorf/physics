@@ -11,9 +11,10 @@ committed:
 
 **Next: freeing memory everywhere** (the user's choice). That is orders 3
 and 11, plus the leaks found since. They are listed in `VulkanChanges.md`,
-"Next: freeing memory everywhere". A plan comes first (`MemoryPlan.md`),
-then Items with exact code. After that, the small open bugs: order 13 (#22),
-B, and H. See "Status" at the end.
+"Next: freeing memory everywhere". The plan is `MemoryPlan.md`.
+The Items with exact code are `Item31.md` to `Item36.md` (2026-10-19).
+Item 31 is approved and being applied; the rest await review. Item 32
+includes order 13 (#22). After that, the small open bugs B and H. See "Status" at the end.
 
 Items are taken one at a time, when the user picks them; most still need
 discussion first. Larger items get a written proposal (`Item7.md`,

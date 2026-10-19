@@ -68,7 +68,7 @@ the table.
 The user's next goal (2026-10-19) is to make sure GPU and CPU memory is
 freed everywhere, so streaming, resizing and long play sessions don't grow
 without bound. This section gathers every leak found so far. It needs its
-own plan (`MemoryPlan.md`), then Items with exact code.
+own plan, now written: **`MemoryPlan.md`**, with exact code in `Item31.md` to `Item36.md` (2026-10-19; Item 31 approved and being applied, 32 to 36 for review). The plan supersedes the table below where they differ.
 
 **The rule (from #2):** never free on the spot.
 1. Swap the new resource in.

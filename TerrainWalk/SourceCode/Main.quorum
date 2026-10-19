@@ -20,6 +20,8 @@ use Libraries.Game.Graphics.Format
 use Libraries.Containers.Array
 use Libraries.Game.Graphics.FramesPerSecondLabel
 use Libraries.Game.DesktopConfiguration
+use Libraries.Game.GameStateManager
+use Libraries.Game.Graphics.Vulkan.VulkanGraphics
 
 class Main is Game, KeyboardListener
     Array<Terrain> terrains
@@ -84,6 +86,45 @@ class Main is Game, KeyboardListener
     integer currentTileZ = 0
     boolean nextTileWasDown = false
 
+    //Diagnostic switches for the "tearing" seen on the ball under Vulkan. Each number key
+    //turns one thing off or on, and says so in the console, so you can see which one makes
+    //it go away:
+    //  1 the sun (the directional light, with cascaded shadow maps)
+    //  2 the green point light (with cube shadow maps)
+    //  3 whether the ball casts shadows (including onto itself)
+    //  4 whether the camera follows the ball. Frozen, the camera stays where it is while the
+    //    ball rolls on, so the sun's shadow maps, which are fitted to the camera, stop moving.
+    //  5 whether the CPU waits for the GPU to finish everything after each frame. With it on,
+    //    no two frames are ever in flight at once, so if the tear goes away, two frames share
+    //    something they shouldn't.
+    //  6 whether the ball may turn. Off, its spin is stopped every frame, so it slides
+    //    rather than rolls.
+    //  7 when the camera is placed: after the physics step (the fix, and the default), or
+    //    before it in Update (the old way, to compare). Placed before, the camera aims one
+    //    physics step behind the ball on frames that have a step, so the ball seems to snap
+    //    back toward where it was.
+    //1 to 4 were tried first (2026-10-19) and none stopped it. The cause found then was the
+    //camera's timing; see CameraFollower.
+    DirectionalLight sun
+    PointLight greenLight
+    number sunIntensity = 3
+    number greenIntensity = 100
+    boolean sunOn = true
+    boolean greenOn = true
+    boolean ballShadowsOn = true
+    boolean cameraFollows = true
+    boolean key1WasDown = false
+    boolean key2WasDown = false
+    boolean key3WasDown = false
+    boolean key4WasDown = false
+    boolean waitForGPU = false
+    boolean ballMayTurn = true
+    boolean key5WasDown = false
+    boolean key6WasDown = false
+    CameraFollower follower
+    boolean placeAfterPhysics = true
+    boolean key7WasDown = false
+
     //How every tile in the grid is built. Handing the same pair to all sixteen is what keeps
     //the seams closed: two tiles meeting along an edge ask the same question about the same
     //world positions and get the same heights back. Giving each tile its own style instead
@@ -124,6 +165,9 @@ class Main is Game, KeyboardListener
         desk:limitFramesPerSecond = false
         desk:targetFramesPerSecond = 120
         desk:maximized = true
+        
+        desk:vSyncEnabled = false
+        desk:resizable = false
         SetScreenSize(2000, 1000)
         
         //SetFullScreen(true)
@@ -139,22 +183,25 @@ class Main is Game, KeyboardListener
 
         Color color
 
-        DirectionalLight light
-        light:SetIntensity(3)
-        light:SetColor(color:LightGray())
-        light:SetDirection(-1, -5, -1)
-        Add(light)
+        sun:SetIntensity(sunIntensity)
+        sun:SetColor(color:LightGray())
+        sun:SetDirection(-1, -5, -1)
+        Add(sun)
 
-        PointLight light2
-        light2:SetIntensity(100)
-        light2:SetColor(color:Green())
-        light2:SetPosition(0, 3, -15)
-        Add(light2)
+        greenLight:SetIntensity(greenIntensity)
+        greenLight:SetColor(color:Green())
+        greenLight:SetPosition(0, 3, -15)
+        Add(greenLight)
 
         AddKeyboardListener(me)
         AddMarkings()
         CreateBall()
         PlaceCamera()
+
+        //The camera follows the ball after each frame's physics step, not before it (see
+        //CameraFollower).
+        follower:SetGame(me)
+        GetCurrentLayer3D():Add(follower)
         FramesPerSecondLabel label
         Add(label)
     end
@@ -531,6 +578,17 @@ class Main is Game, KeyboardListener
     end
 
     /*
+    This action is called by the CameraFollower once a frame, after the physics step, when
+    the ball is where it will be drawn. It places the camera, unless the camera is frozen
+    (key 4) or set to be placed before the step (key 7).
+    */
+    action PlaceCameraAfterPhysics
+        if cameraFollows and placeAfterPhysics
+            PlaceCamera()
+        end
+    end
+
+    /*
     This action swings the camera around the ball while an arrow is held. The angle is kept
     inside one full turn so that it cannot grow without bound over a long session and start
     losing precision.
@@ -690,7 +748,111 @@ class Main is Game, KeyboardListener
 
     action Update(number seconds)
         Drive(seconds)
-        PlaceCamera()
+        CheckDiagnosticKeys()
+        if cameraFollows and not placeAfterPhysics
+            PlaceCamera()
+        end
         CheckForHoles()
+    end
+
+    /*
+    This action reads the diagnostic number keys (see the fields above), each on its press,
+    and reports what it changed.
+    */
+    action CheckDiagnosticKeys
+        boolean key1IsDown = monitor:IsKeyPressed(keys:NUM_1)
+        if key1IsDown and not key1WasDown
+            sunOn = not sunOn
+            if sunOn
+                sun:SetIntensity(sunIntensity)
+                output "Diagnostic: sun on."
+            else
+                sun:SetIntensity(0)
+                output "Diagnostic: sun off (its shadows no longer show)."
+            end
+        end
+        key1WasDown = key1IsDown
+
+        boolean key2IsDown = monitor:IsKeyPressed(keys:NUM_2)
+        if key2IsDown and not key2WasDown
+            greenOn = not greenOn
+            if greenOn
+                greenLight:SetIntensity(greenIntensity)
+                output "Diagnostic: green point light on."
+            else
+                greenLight:SetIntensity(0)
+                output "Diagnostic: green point light off (its shadows no longer show)."
+            end
+        end
+        key2WasDown = key2IsDown
+
+        boolean key3IsDown = monitor:IsKeyPressed(keys:NUM_3)
+        if key3IsDown and not key3WasDown
+            ballShadowsOn = not ballShadowsOn
+            ball:SetCastsShadows(ballShadowsOn)
+            if ballShadowsOn
+                output "Diagnostic: the ball casts shadows."
+            else
+                output "Diagnostic: the ball casts no shadows, not even onto itself."
+            end
+        end
+        key3WasDown = key3IsDown
+
+        boolean key4IsDown = monitor:IsKeyPressed(keys:NUM_4)
+        if key4IsDown and not key4WasDown
+            cameraFollows = not cameraFollows
+            if cameraFollows
+                output "Diagnostic: the camera follows the ball."
+            else
+                output "Diagnostic: the camera is frozen where it is; the ball rolls on without it."
+            end
+        end
+        key4WasDown = key4IsDown
+
+        boolean key5IsDown = monitor:IsKeyPressed(keys:NUM_5)
+        if key5IsDown and not key5WasDown
+            waitForGPU = not waitForGPU
+            if waitForGPU
+                output "Diagnostic: waiting for the GPU after every frame (one frame in flight)."
+            else
+                output "Diagnostic: frames overlap again, as normal."
+            end
+        end
+        key5WasDown = key5IsDown
+        if waitForGPU
+            //The previous frame's work was submitted at the end of the last frame; waiting here
+            //means it has finished before this frame writes anything for the GPU.
+            GameStateManager manager
+            if manager:GetGameGraphics() is VulkanGraphics
+                VulkanGraphics graphics = cast(VulkanGraphics, manager:GetGameGraphics())
+                graphics:GetDevice():WaitUntilIdle()
+            end
+        end
+
+        boolean key6IsDown = monitor:IsKeyPressed(keys:NUM_6)
+        if key6IsDown and not key6WasDown
+            ballMayTurn = not ballMayTurn
+            if ballMayTurn
+                output "Diagnostic: the ball rolls again."
+            else
+                output "Diagnostic: the ball's spin is stopped every frame; it slides instead."
+            end
+        end
+        key6WasDown = key6IsDown
+        if not ballMayTurn
+            Vector3 noSpin
+            ball:SetAngularVelocity(noSpin)
+        end
+
+        boolean key7IsDown = monitor:IsKeyPressed(keys:NUM_7)
+        if key7IsDown and not key7WasDown
+            placeAfterPhysics = not placeAfterPhysics
+            if placeAfterPhysics
+                output "Diagnostic: the camera is placed after the physics step (the fix)."
+            else
+                output "Diagnostic: the camera is placed before the physics step (the old way)."
+            end
+        end
+        key7WasDown = key7IsDown
     end
 end
