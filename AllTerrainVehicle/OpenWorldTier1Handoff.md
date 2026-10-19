@@ -4,7 +4,8 @@ Updated after every completed operation, so work can move between
 machines. The overall picture is in `OpenWorlds.md` and
 `OpenWorldsHandoff.md`.
 
-Last updated: 2026-10-17, after steps 2, 5 and 6 were written (not yet compiled).
+Last updated: 2026-10-18. **This tier is finished; this file is now a
+record.** Current work is in `OpenWorldsHandoff.md`.
 
 ## Tier 1 is complete (2026-10-17)
 
@@ -23,9 +24,11 @@ runtime editing, saving and loading, and building from noise
 (`GenerateHeights`, tested in `RunWorldTests`; DriveOpen uses an imported
 height map instead).
 
-Left over, both needing the user's decision:
-- **The mesh leak when editing.** Needs the library change in
-  `VulkanChanges.md` #3, plus #1 and #4.
+Left over:
+- **The mesh leak when editing: fixed 2026-10-18** by Option A below, done
+  as library order 7 (`Item7.md`). Region and far models now update their
+  meshes in place. A new mesh is still made when a region's grid changes
+  size, and those still can't be freed (Option B, library order 11).
 - **Moving the classes into the standard library**
   (`Libraries.Game.Graphics.Worlds`), when the user decides.
 
@@ -219,6 +222,11 @@ The rest of this file is the record of how Tier 1 went.
 
 ## Mesh update and free: investigation (open decision 3)
 
+**Outcome (2026-10-18):** Option A was done as library order 7
+(`Item7.md`), with per-frame staging buffers and its own barriers, so #4 was
+not needed first. The Java `StopMapping` fix (#1) and Option B are still
+open (library orders 3 and 11).
+
 All Vulkan bugs and needed changes found so far are collected in
 `VulkanChanges.md`, with fixes and a suggested order. The notes below are
 the original findings.
@@ -307,7 +315,7 @@ key, which leaks GPU memory.
 ## Steps
 
 1. **Data** (`TerrainRegion`, `TerrainData`). **Done; tests pass.**
-2. **Queries. Written, waiting for a run:** `GetSurfaceHeight`,
+2. **Queries. Done; tests pass.** `GetSurfaceHeight`,
    `GetNormal`, `GetSlope`, `IsInSlope` on `TerrainData`. Following
    Terrain3D:
    - `GetSurfaceHeight`, blending between samples. Terrain3D blends the
@@ -325,7 +333,7 @@ key, which leaks GPU memory.
    `GetRenderBounds` so `HeightmapTerrainShape` works unchanged. It loads
    with the public `Model:Load(blueprint)`.
 4. **The terrain object. Done; checked in DriveOpen.**
-5. **Runtime editing. Written, waiting for a run.**
+5. **Runtime editing. Done; checked in DriveOpen.**
    - `TerrainData:RaiseArea(x, z, radius, amount)`, a smooth mound or
      hollow, only for trying out editing until Tier 4 brushes.
    - `TerrainRegionModel:Rebuild` and `IsAffectedBy`.
@@ -335,14 +343,17 @@ key, which leaks GPU memory.
      `SetShape` (which recreates the physics nodes, since the model is in a
      layer), then `PlaceInWorld` (which reports a move, so the layer brings
      the physics bounds up to date).
-   - Each rebuild leaks the old mesh until `VulkanChanges.md` #3 is done.
-6. **Save and load. Written, waiting for a run.**
+   - Each rebuild leaked the old mesh until `VulkanChanges.md` #3 was done
+     (2026-10-18, `Item7.md`); rebuilds now update the mesh in place.
+6. **Save and load. Done; the save check passes.**
    - `TerrainData:Save(File folder)` and `Load(File folder)`. One PNG per
      region, `region_<x>_<z>.png`, like Terrain3D's one file per region.
      `terrain.txt` holds a version line, `regionSize`, `vertexSpacing`, and
      one `region x z lowest highest` line per region.
    - The helpers are on `TerrainRegion`: `GetHeightImage`,
      `SetHeightsFromImage`, `GetPixelFromHeight`, `GetHeightFromPixel`.
+   - `terrain.txt` was later replaced by `terrain.json`
+     (`OpenWorldTier3Handoff.md`).
    - Each height is a 24-bit level (red, green, blue) between the region's
      lowest and highest heights; alpha is full. Red and green are the coarse
      and fine parts, as in `Terrain`, so a saved region also imports as a
@@ -356,8 +367,8 @@ key, which leaks GPU memory.
 
 ## Open decisions for the user
 
-1. **Mesh update and free** (see above): approve Option A plus the Java fix
-   for step 5, and Option B later? Or another plan?
+1. ~~**Mesh update and free**~~: decided. Option A is done (library order
+   7). Option B and the Java fix wait in `LibraryChangesPlan.md`.
 
 ## Risks to check while working
 

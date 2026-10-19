@@ -3,36 +3,188 @@
 Kept up to date as work goes on. The starting position, comparison and full
 feature list are in `OpenWorlds.md`.
 
-Last updated: 2026-10-17
+Last updated: 2026-10-19
 
-## Where we are
+## Where we are (2026-10-19)
 
-- Research done. Terrain3D (MIT) chosen as the reference and cloned to
-  `/Users/stefik/Repositories/Terrain3D`.
-- Quorum's terrain classes and Terrain3D compared; features listed in five
-  tiers in `OpenWorlds.md`.
-- Checked what Quorum's Vulkan renderer can support for terrain (below).
-- **No code changed yet.**
+**Working on:** ground materials and texture filtering. Tier 4's in-game
+editor is done and working. The terrain is splatted with AmbientCG
+texture sets that blend by height. Mipmaps and anisotropic filtering
+(`Item25.md`) were applied on 2026-10-19, and the user is testing them now.
 
-## Working on now
+### What works, confirmed by the user
 
-**Tier 1 is complete** (committed in `d9ef406`); its record is in
-`OpenWorldTier1Handoff.md`. **Tier 2 (texturing)** is planned in
-`OpenWorldTier2Handoff.md`, and on hold by the user's choice. **Tier 3
-(open worlds)** is planned in `OpenWorldTier3Handoff.md`; step 1 (collision
-only near the player) is done and checked. Step 2 (streaming regions, with
-settings saved as JSON) is done and checked. Step 3 (floating origin) is
-deferred as not needed yet. Distant terrain (coarse far models with skirts)
-is written and waiting for a run. All code goes in AllTerrainVehicle first, and
-the standard library is not changed unless the user asks.
+- **Tiers 1 and 3** (terrain data, collision near the player, streaming,
+  distant terrain): see the Done table below.
+- **Splatting:** four layers, painted in TerrainEditor and DriveOpen.
+  - One splat texture covers the whole map, updated in place (library
+    #20, `Item20.md`).
+  - The z mirror and PixelMap's blending were fixed in the project.
+- **Tier 4, stages 1 to 3** (`TierFour.md`):
+  - the brush engine, undo and redo (`RunWorldTests` 22 of 22);
+  - `TerrainEditor.quorum`, with a keyboard control for every mouse
+    control, picking, the brush preview, presets, stamps, erosion and auto
+    paint;
+  - user guide: `TerrainEditorInstructions.md`.
+- **Texture sets** (`Material:SetTextureSet`, library item 24,
+  `Item24.md`):
+  - checked on boxes in `TextureSetCheck`: color, normal (GL and DX),
+    roughness and AO;
+  - then on the terrain (`TerrainMaterialsPlan.md` step 2):
+    `WorldTerrain:SetLayerMaterial`, a layer table texture, and height
+    blending in the splat shader;
+  - grass is Ground037 and rock is Rocks002; dirt and sand are still plain
+    speckled textures;
+  - B in the editor changes how softly they blend.
+- **DriveOpen, TerrainEditor and TextureUpdateCheck** all run as expected
+  (2026-10-19).
 
-## Next steps
+### Being tested now
 
-1. Tier 1, following `OpenWorldTier1Handoff.md`.
-2. Before Tier 2, decide how the terrain gets its own shader (see
-   "Renderer changes needed" below).
+**Item 25: mipmaps and anisotropic filtering.**
+- The library is on `TerrainShader`, uncommitted. The Java changed, so the
+  plugins must be rebuilt.
+- The project side: `textureGrad` in the splat shader, and mipmaps on the
+  ground textures.
+- Check in this order:
+  1. `MipMapCheck.quorum`: the red floor crawls, the green floor fades to
+     grey;
+  2. `TextureSetCheck`: the boxes don't darken with distance;
+  3. TerrainEditor: no shimmer, and no sparkles at layer edges.
+- MoltenVK was checked by reading its source: every part maps directly
+  onto Metal.
+
+### Commits
+
+- **Library (`quorum-language`, `TerrainShader`):**
+  - `804c85c40` holds orders 7, 9, 12 and 15 (`Item7`, `Item9`, #23,
+    `Item20`);
+  - `3e6fde7e0` holds item 24;
+  - item 25 is not committed.
+- **Project (`physics`):** nothing has been committed since `7ea652a`
+  (2026-10-17). That covers all of Tier 4, the editor, texture sets on the
+  terrain, the checks and these documents, about 60 files.
+
+### Priority list (2026-10-19)
+
+The recommended order. Each step says whether it is project work
+(AllTerrainVehicle) or a library change (which needs an approved
+`ItemN.md` or before-and-after first).
+
+**A. Finish and secure what's in flight**
+1. **Confirm Item 25,** with the three checks above.
+2. **Commit:** item 25 in the library, and the project's work since
+   2026-10-17.
+3. **Run the checks never reported on:**
+   - DriveOpen: minimize for several seconds, then restore (#23), and the
+     "Meshes so far" count while editing;
+   - TerrainEditor: Shift N, Shift X and Shift U (world-wide preset,
+     erosion and auto paint); smooth and ramp after their fixes.
+4. **Small clean-ups from this round:**
+   - Library, small: a new `Material`'s diffuse should be undefined, not
+     (0,0,0,0) (`VulkanChanges.md` H). Hand-built models are invisible
+     without the workaround.
+   - Project: drop the splat shader's non-terrain branch and the
+     metallic -1 marker, now that the terrain has its own program
+     (`Item9.md` follow-up).
+
+**B. Library fundamentals, small and blocking**
+
+5. **#22 (order 13): draw every texture group,** with **#19** (group
+   size). Today ground textures must load before any label, or they can't
+   be drawn. More texture sets, and any game with more than about 90
+   textures, run into this. A few lines; test on its own.
+6. **Batch 1 bug fixes** (orders 1 to 6: B, A, #1, #4, #14, #13). Each is
+   a few lines, and the project already works around them.
+
+**C. Better-looking ground (project, no library change)**
+
+7. **Texture sets for all four layers:** AmbientCG sets for dirt and sand
+   (or Snow013 in their place), so no layer is flat.
+8. **Per-set adjustments in the splat shader:** tint, roughness, AO
+   strength, normal strength. Also detiling (rotating or offsetting tiles
+   to hide repeats), as Terrain3D does.
+9. **Triplanar or biplanar projection on steep slopes,** so cliffs don't
+   stretch (GRW list 10).
+10. **A baked far ("vista") color texture** for far models (GRW 8). Distant
+    ground then matches near ground in one lookup.
+
+**D. World-making workflow (project; GRW's biggest wins)**
+
+11. **Height layers** (GRW 1): base, procedural and hand layers summed per
+    region, each erasable. Stamps, erosion and generated features stop
+    wiping hand work.
+12. **Rule-based material distribution with derived maps** (GRW 3, 4):
+    slope, height, curvature, flow and noise rules, re-runnable. This grows
+    out of today's auto paint.
+13. **Splines:** roads and rivers that flatten or carve the ground and
+    paint it (GRW 5).
+
+**E. Larger library work, when its turn comes**
+
+14. **Freeing GPU memory** (order 11: #2, #5, #15). Streamed regions never
+    give memory back. Needed before long play sessions or big worlds.
+15. **Fog and a skybox** (#17, #11). The far edge of the world shows today.
+    **Skybox applied** as `Item26.md` on `TerrainShader` (uncommitted),
+    OpenGL and Vulkan on the shader system; check with `SkyboxCheck.quorum`,
+    then BlockBreaker (OpenGL). SkyboxCheck ran under Vulkan. DriveOpen
+    now loads a generated day sky (`Skyboxes/Day/`, `useSkybox`, K
+    toggles it).
+15b. **MSAA (Vulkan only):** applied as `Item27.md` on `TerrainShader`
+    (uncommitted): G-buffer resolved in the scene pass, coverage-aware
+    lighting, `Game:SetMultisampling`, off by default. Check with
+    `MSAACheck.quorum`. The resize fix is `Item28.md` (applied). 2D MSAA
+    (`MSAA2DPlan.md` option A, `Game:SetMultisampling2D`) is applied as
+    `Item29.md`; check with `MSAA2DCheck.quorum`. Items 27-29 are
+    uncommitted.
+16. **More than four materials:** a material index (control) map, with
+    texture arrays or a larger bindless budget (GRW 11, 12).
+17. **Instancing at scale** (#18, GRW 17), before Tier 5's grass, rocks
+    and trees.
+18. **Tier 4 stage 4:** brushes in Quorum Studio (`TierFour.md`).
+19. **Moving the Worlds classes into the standard library,** once the
+    workarounds above can come out.
+
+**Paused tracks** (in `Handoff/Handoff.md`):
+- culling tests (`TestFrustrum.md`), then moving the tests into Quorum;
+- the car model (`CarModel.md`) and `Model:LoadParts`;
+- shadow leftovers and older library bugs.
+
+### Done
+
+| Work | Record | Status |
+|---|---|---|
+| Tier 1: terrain data, queries, region meshes, editing, save and load | `OpenWorldTier1Handoff.md` | Done, committed (`d9ef406`). |
+| Tier 3 step 1: collision only near the player | `OpenWorldTier3Handoff.md` | Done, checked. |
+| Tier 3 step 2: streaming regions, settings in `terrain.json` | `OpenWorldTier3Handoff.md` | Done, checked. |
+| Tier 3: distant terrain (coarse far models with skirts) | `OpenWorldTier3Handoff.md` | Done, running in every DriveOpen run. |
+| Texture splatting (Tier 2 goal 1): four layers, slope rule, painting | `TextureSplattingPlan.md` | Working; one splat texture, updated in place. |
+| Tier 4 stages 1 to 3: brushes, undo, TerrainEditor, world-making tools | `TierFour.md`, `TerrainEditorInstructions.md` | Working. |
+| Terrain materials: texture sets, height blending | `TerrainMaterialsPlan.md`, `Item24.md` | Working (2026-10-19). |
+| Library order 7: meshes update in place | `Item7.md` | Committed (`804c85c40`). |
+| Library order 9: per-model shader programs (Route 2) | `Item9.md` | Committed (`804c85c40`); splatting under it confirmed. |
+| Library order 12: minimize crash (#23) | `VulkanChanges.md` | Committed (`804c85c40`); the minimize run isn't reported yet. |
+| Library order 15: textures update in place (#20, #21) | `Item20.md` | Committed (`804c85c40`); confirmed. |
+| Library item 24: texture-set materials | `Item24.md` | Committed (`3e6fde7e0`); confirmed. |
+| Library item 25: mipmaps, anisotropic filtering (#7, #8) | `Item25.md` | Applied, uncommitted, being tested. |
+
+### Rules (unchanged)
+
+- All code goes in AllTerrainVehicle first, in
+  `Libraries.Game.Graphics.Worlds`, and moves to the standard library later.
+- The standard library is changed only when the user approves that specific
+  change, with the exact before and after shown first. Larger ones get an
+  `ItemN.md`.
+- Claude never runs the game or `Default.jar`. The user compiles, runs and
+  pastes the output.
+- Test main: `SourceCode/DriveOpen.quorum`. Headless tests:
+  `RunWorldTests`.
 
 ## Renderer check (2026-10-17)
+
+Kept as the record of what was found then. Since then: per-model shader
+programs work (library order 9), and meshes can be updated in place (order
+7).
 
 Bugs and changes for the renderer are collected in `VulkanChanges.md`.
 
@@ -107,15 +259,29 @@ Paths are under `quorum-language/Quorum/Library/Standard/Libraries/Game/Graphics
 
 - Terrain3D is the guide, used the way Bullet was for physics.
 - Terrain and world code goes in the standard library; brushing tools go in
-  Quorum Studio.
+  Quorum Studio (`TierFour.md`).
+- Splatting uses one splat texture for the whole map, because of the
+  renderer's texture groups (`VulkanChanges.md` #19, #20).
+- The terrain is drawn with its own shader program (Route 2), not by
+  replacing the default program (2026-10-18).
+- Floating origin is deferred: the grid tops out near 8 km.
 
 ## Known issues in the current code
 
 - `Terrain` sets every texture coordinate to `(0,0)`.
 - `Terrain` stores `stickWidth` and `stickDepth` but never uses them.
-- `TextureSplat` is not read by the renderer, so splatting is not drawn.
-- `Model:SetShaderProgram` is ignored by the Vulkan 3D painter.
-- Vulkan textures have no mipmaps.
+- `TextureSplat` is not read by the renderer itself; our
+  `TerrainSplatShaderProgram` draws the splatting.
+- Texture groups 3 and up are never drawn (#22). Ground textures and
+  texture sets must load before labels, or the splat shader can't reach
+  them (WorldTerrain warns when one lands outside group 0).
+- Meshes made for a new grid size, and streamed-out regions, can't be freed
+  (order 11).
+- A new `Material`'s diffuse is (0,0,0,0) (`VulkanChanges.md` H):
+  hand-built materials must set a diffuse.
+- Adding regions outside the splat texture's square makes a new splat
+  texture, which lands outside group 0, and the ground turns grey until a
+  restart (`TerrainEditorInstructions.md`).
 
 ## Key places
 

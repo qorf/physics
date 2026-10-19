@@ -1,0 +1,96 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainData
+use Libraries.Game.Graphics.Worlds.TerrainBrush
+use Libraries.Game.Graphics.Worlds.TerrainStroke
+use Libraries.Game.Graphics.Worlds.TerrainStrokeEdit
+use Libraries.Game.Graphics.Worlds.TerrainTool
+use Libraries.Compute.Math
+
+/*
+Tests TerrainStroke with the TEXTURE tool: painting one layer, partly and
+fully; that a very slow brush still changes weights (they are stored in
+steps of 1/255); blending weights with their neighbors; and that painting
+changes the splat edited area but not the edited area.
+
+Attribute: Example
+use Worlds.Tests.TerrainStrokePaintTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainStrokePaintTest test
+tester:Run(test)
+*/
+class TerrainStrokePaintTest is WorldsTest
+    TerrainTool tools
+    Math math
+
+    on create
+        SetName("Terrain strokes: painting")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        TerrainData data
+        data:SetRegionSize(64)
+        data:AddRegion(0, 0)
+        data:ClearEditedArea()
+        data:ClearSplatEditedArea()
+
+        TerrainBrush brush
+        brush:SetTool(tools:TEXTURE, tools:ADD)
+        brush:SetSize(4)
+        brush:SetStrength(1)
+        brush:SetLayer(2)
+
+        // Partly: one second at strength 1 moves the center 1 - e^-1 of
+        // the way from all red to all blue, rounded to a step of 1/255.
+        TerrainStroke stroke
+        stroke:Begin(data, brush)
+        stroke:Apply(20, 30, 1)
+        TerrainStrokeEdit edit = stroke:End()
+        number moved = 1 - math:RaiseNaturalNumberToPower(-1)
+        integer code = data:GetSampleSplat(20, 30)
+        CheckNumber("partly painted blue", data:GetSplatWeight(code, 2), math:Round(moved * 255) / 255.0)
+        CheckNumber("partly less red", data:GetSplatWeight(code, 0), math:Round((1 - moved) * 255) / 255.0)
+        CheckThat("painting makes a splat edited area", data:HasSplatEditedArea())
+        CheckThat("painting doesn't make an edited area", not data:HasEditedArea())
+        CheckThat("the edit changes splat weights", edit:ChangesSplat())
+        CheckThat("the edit doesn't change the shape", not edit:ChangesShape())
+        CheckNumber("outside the brush stays red", data:GetSplatWeight(data:GetSampleSplat(30, 30), 0), 1)
+
+        // Fully: a very strong brush paints the center all blue.
+        brush:SetStrength(100)
+        stroke:Begin(data, brush)
+        stroke:Apply(20, 30, 1)
+        stroke:End()
+        code = data:GetSampleSplat(20, 30)
+        CheckNumber("fully painted blue", data:GetSplatWeight(code, 2), 1)
+        CheckNumber("no red left", data:GetSplatWeight(code, 0), 0)
+
+        // Very slowly: the move rounds to nothing, so it takes one step.
+        brush:SetLayer(1)
+        brush:SetStrength(0.001)
+        stroke:Begin(data, brush)
+        stroke:Apply(40, 30, 0.01)
+        stroke:End()
+        code = data:GetSampleSplat(40, 30)
+        CheckNumber("a slow brush still adds a step of green", data:GetSplatWeight(code, 1), 1 / 255.0)
+        CheckNumber("a slow brush takes a step of red", data:GetSplatWeight(code, 0), 254 / 255.0)
+
+        // Blending: one all-blue sample among red ones. Its goal is the
+        // average of the 9 samples around it: one ninth blue.
+        integer blue = data:PackSplat(0, 0, 1, 0)
+        data:SetSampleSplat(50, 50, blue)
+        brush:SetTool(tools:TEXTURE, tools:AVERAGE)
+        brush:SetStrength(100)
+        stroke:Begin(data, brush)
+        stroke:Apply(50, 50, 1)
+        stroke:End()
+        code = data:GetSampleSplat(50, 50)
+        CheckNumber("blending spreads the blue", data:GetSplatWeight(code, 2), math:Round(255 / 9.0) / 255.0)
+        CheckThat("a neighbor gets some blue", data:GetSplatWeight(data:GetSampleSplat(51, 50), 2) > 0)
+    end
+end

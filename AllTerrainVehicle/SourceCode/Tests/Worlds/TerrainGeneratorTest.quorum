@@ -1,0 +1,305 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainData
+use Libraries.Game.Graphics.Worlds.TerrainGenerator
+use Libraries.Containers.Number32BitArray
+use Libraries.Compute.Math
+
+/*
+Tests TerrainGenerator: presets stay within their height and repeat with the
+same seed; terracing makes flat steps; stamp shapes and the three ways of
+stamping; a turned ridge; slope settling and rain erosion move ground
+without adding or losing any, and drops can run on past where they start;
+and auto paint's rules for grass, rock, sand
+and dirt.
+
+Attribute: Example
+use Worlds.Tests.TerrainGeneratorTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainGeneratorTest test
+tester:Run(test)
+*/
+class TerrainGeneratorTest is WorldsTest
+    Math math
+
+    on create
+        SetName("Terrain generator: presets, stamps, erosion and auto paint")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        TestPresets()
+        TestStamps()
+        TestSettle()
+        TestRain()
+        TestAutoPaint()
+    end
+
+    /*
+    This action makes one flat 64-sample region at a height.
+
+    Attribute: Parameter height The height of every sample.
+    Attribute: Returns The terrain.
+    */
+    action MakeData(number height) returns TerrainData
+        TerrainData data
+        data:SetRegionSize(64)
+        data:AddRegion(0, 0)
+        data:GetRegion(0, 0):Fill(height)
+        data:ClearEditedArea()
+        return data
+    end
+
+    /*
+    This action adds up every height in the region.
+
+    Attribute: Parameter data The terrain.
+    Attribute: Returns The total.
+    */
+    action GetTotal(TerrainData data) returns number
+        number total = 0
+        integer z = 0
+        repeat while z < 64
+            integer x = 0
+            repeat while x < 64
+                total = total + data:GetSampleHeight(x, z)
+                x = x + 1
+            end
+            z = z + 1
+        end
+        return total
+    end
+
+    /*
+    This action checks every preset's heights, that a preset repeats with
+    the same seed, and the terrace steps.
+    */
+    action TestPresets
+        TerrainGenerator generator
+        integer preset = 0
+        repeat while preset < generator:GetPresetCount()
+            TerrainData data = MakeData(0)
+            generator:GeneratePreset(data, preset, 0, 0, 64, 64, 20)
+            boolean inRange = true
+            integer z = 0
+            repeat while z < 64
+                integer x = 0
+                repeat while x < 64
+                    number height = data:GetSampleHeight(x, z)
+                    if height < -0.0001 or height > 20.0001
+                        inRange = false
+                    end
+                    x = x + 1
+                end
+                z = z + 1
+            end
+            CheckThat("preset " + generator:GetPresetName(preset) + " stays from 0 to 20", inRange)
+            preset = preset + 1
+        end
+
+        TerrainData first = MakeData(0)
+        TerrainData second = MakeData(0)
+        generator:GeneratePreset(first, generator:PRESET_ROLLING_HILLS, 0, 0, 64, 64, 20)
+        generator:GeneratePreset(second, generator:PRESET_ROLLING_HILLS, 0, 0, 64, 64, 20)
+        CheckNumber("the same seed gives the same hills", second:GetSampleHeight(17, 41), first:GetSampleHeight(17, 41))
+        TerrainData mountains = MakeData(0)
+        generator:GeneratePreset(mountains, generator:PRESET_MOUNTAINS, 0, 0, 64, 64, 20)
+        CheckThat("mountains differ from hills", GetTotal(mountains) not= GetTotal(first))
+        TerrainData flat = MakeData(5)
+        generator:GeneratePreset(flat, generator:PRESET_FLAT, 0, 0, 64, 64, 20)
+        CheckNumber("the flat preset is at 0", GetTotal(flat), 0)
+
+        // Terracing in 5 steps: most of each step is flat, and the last
+        // fifth rises to the next.
+        CheckNumber("terrace: the middle of a step is flat", generator:Terrace(0.3, 5), 0.2)
+        CheckNumber("terrace: the start of the next step", generator:Terrace(0.5, 5), 0.4)
+        CheckNumber("terrace: partway up a rise", generator:Terrace(0.19, 5), 0.16875)
+    end
+
+    /*
+    This action checks the stamp shapes and the three ways of stamping.
+    */
+    action TestStamps
+        TerrainGenerator generator
+        Number32BitArray hill = generator:MakeStampShape(generator:STAMP_HILL, 65)
+        CheckNumber("hill shape: full at the center", hill:Get(32 * 65 + 32), 1)
+        CheckNumber("hill shape: nothing at a corner", hill:Get(0), 0)
+        Number32BitArray crater = generator:MakeStampShape(generator:STAMP_CRATER, 65)
+        CheckNumber("crater shape: a bowl below the ground at the center", crater:Get(32 * 65 + 32), -0.6)
+        CheckThat("crater is added", generator:GetStampMode(generator:STAMP_CRATER) = generator:STAMP_ADD)
+        CheckThat("a mountain is raised to", generator:GetStampMode(generator:STAMP_MOUNTAIN) = generator:STAMP_RAISE)
+
+        // Adding a hill of height 5 and radius 8 to flat ground at 0.
+        TerrainData data = MakeData(0)
+        generator:Stamp(data, hill, 65, 32, 32, 8, 0, 5, generator:STAMP_ADD)
+        CheckNumber("add: the center", data:GetSampleHeight(32, 32), 5)
+        CheckNumber("add: halfway out", data:GetSampleHeight(36, 32), 2.5)
+        CheckNumber("add: the edge is unchanged", data:GetSampleHeight(40, 32), 0)
+        CheckThat("add: makes an edited area", data:HasEditedArea())
+
+        // Taking a hill away.
+        data = MakeData(0)
+        generator:Stamp(data, hill, 65, 32, 32, 8, 0, 5, generator:STAMP_SUBTRACT)
+        CheckNumber("subtract: the center", data:GetSampleHeight(32, 32), -5)
+
+        // Raising to a hill on ground at 2: the hill stands on the ground.
+        data = MakeData(2)
+        generator:Stamp(data, hill, 65, 32, 32, 8, 0, 5, generator:STAMP_RAISE)
+        CheckNumber("raise: the center", data:GetSampleHeight(32, 32), 7)
+        CheckNumber("raise: halfway out", data:GetSampleHeight(36, 32), 4.5)
+        CheckNumber("raise: far away is unchanged", data:GetSampleHeight(50, 50), 2)
+        // Raised to, a stamp keeps its own shape over bumps: a hill half the
+        // height beside the first one doesn't lower anything.
+        generator:Stamp(data, hill, 65, 36, 32, 8, 0, 1, generator:STAMP_RAISE)
+        CheckNumber("raise: a lower stamp leaves higher ground alone", data:GetSampleHeight(32, 32), 7)
+
+        // A ridge runs along x; turned a quarter turn, it runs along z.
+        Number32BitArray ridge = generator:MakeStampShape(generator:STAMP_RIDGE, 65)
+        data = MakeData(0)
+        generator:Stamp(data, ridge, 65, 20, 20, 8, 0, 4, generator:STAMP_ADD)
+        number along = data:GetSampleHeight(25, 20)
+        CheckThat("ridge: raised along x", along > 1.2 and along < 1.3)
+        CheckNumber("ridge: not across it", data:GetSampleHeight(20, 25), 0)
+        generator:Stamp(data, ridge, 65, 44, 44, 8, 90, 4, generator:STAMP_ADD)
+        number turned = data:GetSampleHeight(44, 49)
+        CheckThat("turned ridge: raised along z", turned > 1.2 and turned < 1.3)
+        CheckNumber("turned ridge: not along x", data:GetSampleHeight(49, 44), 0)
+    end
+
+    /*
+    This action settles a single tall spike on flat ground.
+    */
+    action TestSettle
+        TerrainGenerator generator
+        TerrainData data = MakeData(0)
+        data:SetSampleHeight(32, 32, 10)
+        generator:Settle(data, 0, 0, 63, 63, 50, 40)
+        CheckThat("settle: the spike slides down", data:GetSampleHeight(32, 32) < 8)
+        CheckThat("settle: its neighbors rise", data:GetSampleHeight(33, 32) > 0)
+        CheckThat("settle: no ground is added or lost", math:AbsoluteValue(GetTotal(data) - 10) < 0.01)
+    end
+
+    /*
+    This action rains on a slope rising along x.
+    */
+    action TestRain
+        TerrainGenerator generator
+        TerrainData data = MakeSlope()
+        number before = GetTotal(data)
+        generator:ErodeWithRain(data, 0, 0, 63, 63, 500)
+        number after = GetTotal(data)
+        CheckThat("rain: no ground is added or lost", math:AbsoluteValue(after - before) < 1)
+
+        number largest = 0
+        integer z = 0
+        repeat while z < 64
+            integer x = 0
+            repeat while x < 64
+                number change = math:AbsoluteValue(data:GetSampleHeight(x, z) - x * 0.5)
+                if change > largest
+                    largest = change
+                end
+                x = x + 1
+            end
+            z = z + 1
+        end
+        CheckThat("rain: the ground changes", largest > 0.001)
+
+        TerrainData again = MakeSlope()
+        generator:ErodeWithRain(again, 0, 0, 63, 63, 500)
+        CheckNumber("rain: the same seed gives the same result", again:GetSampleHeight(30, 30), data:GetSampleHeight(30, 30))
+        CheckNumber("rain: the same seed, elsewhere", again:GetSampleHeight(10, 50), data:GetSampleHeight(10, 50))
+
+        // Drops that start in a small square in the middle of the slope run
+        // on downhill (toward smaller x), past the square, and leave ground
+        // there.
+        TerrainData runOn = MakeSlope()
+        before = GetTotal(runOn)
+        generator:ErodeWithRain(runOn, 28, 28, 36, 36, 0, 0, 63, 63, 200)
+        CheckThat("run on: no ground is added or lost", math:AbsoluteValue(GetTotal(runOn) - before) < 1)
+        number outside = 0
+        z = 0
+        repeat while z < 64
+            integer x = 0
+            repeat while x < 26
+                number change = math:AbsoluteValue(runOn:GetSampleHeight(x, z) - x * 0.5)
+                if change > outside
+                    outside = change
+                end
+                x = x + 1
+            end
+            z = z + 1
+        end
+        CheckThat("run on: ground changes downhill of where the drops start", outside > 0.001)
+    end
+
+    /*
+    This action makes a region that rises half a unit per sample along x.
+
+    Attribute: Returns The terrain.
+    */
+    action MakeSlope returns TerrainData
+        TerrainData data = MakeData(0)
+        integer z = 0
+        repeat while z < 64
+            integer x = 0
+            repeat while x < 64
+                data:SetSampleHeight(x, z, x * 0.5)
+                x = x + 1
+            end
+            z = z + 1
+        end
+        return data
+    end
+
+    /*
+    This action paints ground with flat high land, a steep slope, low flat
+    land, and a gentle bowl.
+    */
+    action TestAutoPaint
+        TerrainGenerator generator
+        TerrainData data = MakeData(0)
+        integer z = 0
+        repeat while z < 64
+            integer x = 0
+            repeat while x < 64
+                number height = 0
+                if x < 20
+                    height = 10
+                elseif x <= 40
+                    height = 10 + (x - 20)
+                elseif x < 48
+                    height = 30
+                end
+                // A bowl 6 samples across and 1 deep, at (10, 40).
+                number dx = x - 10
+                number dz = z - 40
+                number distanceSquared = dx * dx + dz * dz
+                if distanceSquared < 36
+                    height = height - (1 - distanceSquared / 36)
+                end
+                data:SetSampleHeight(x, z, height)
+                x = x + 1
+            end
+            z = z + 1
+        end
+        generator:AutoPaint(data, 0, 0, 63, 63)
+
+        integer flat = data:GetSampleSplat(5, 5)
+        CheckNumber("flat high ground is grass", data:GetSplatWeight(flat, 0), 1)
+        integer steep = data:GetSampleSplat(30, 5)
+        CheckNumber("a 45 degree slope is rock", data:GetSplatWeight(steep, 1), 1)
+        integer low = data:GetSampleSplat(58, 5)
+        CheckNumber("low ground is sand", data:GetSplatWeight(low, 3), 1)
+        integer hollow = data:GetSampleSplat(10, 40)
+        CheckThat("the middle of the bowl is mostly dirt", data:GetSplatWeight(hollow, 2) > 0.85)
+        CheckThat("splat weights changed", data:HasSplatEditedArea())
+        data:ClearSplatEditedArea()
+        generator:AutoPaint(data, 0, 0, 63, 63)
+        CheckThat("painting again changes nothing", not data:HasSplatEditedArea())
+    end
+end

@@ -1,8 +1,22 @@
 # Open Worlds: starting position
 
-Written 2026-10-17. This records where Quorum's terrain stands, what
-Terrain3D does, and what could be adapted from it. **Nothing has been
-changed yet.** Work in progress is tracked in `OpenWorldsHandoff.md`.
+Written 2026-10-17. This records where Quorum's terrain stood, what
+Terrain3D does, and what could be adapted from it. Work in progress is
+tracked in `OpenWorldsHandoff.md`.
+
+## Status of the tiers (2026-10-18)
+
+| Tier | Status | Where |
+|---|---|---|
+| 1. Fill the gaps | Done | `OpenWorldTier1Handoff.md` |
+| 2. Texturing | Goal 1 (blended layers) works, through splatting. The rest is paused. | `TextureSplattingPlan.md`, `OpenWorldTier2Handoff.md` |
+| 3. Open worlds | Goals 1, 3 done (regions, streaming, collision near the player), plus coarse distant terrain. The clipmap and background terrain are not started; 64-bit coordinates deferred. | `OpenWorldTier3Handoff.md` |
+| 4. Editing tools | **Next.** Plan written, waiting for review. | `TierFour.md` |
+| 5. Filling the world | Not started | |
+
+Library changes made along the way are in `LibraryChangesPlan.md`
+(`Item7.md`, `Item9.md`). The end goal is compared in
+`GhostReconComparison.md`.
 
 ## Goal
 
@@ -143,4 +157,5 @@ Can Quorum's Vulkan renderer support:
 - a custom shader and material for terrain?
 
 Checked 2026-10-17. The answers are in `OpenWorldsHandoff.md` under
-"Renderer check".
+"Renderer check". Since then, a custom shader for terrain works (library
+order 9, 2026-10-18).

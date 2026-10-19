@@ -16,6 +16,13 @@ use Worlds.Tests.TerrainCollisionCellsTest
 use Worlds.Tests.TerrainCollisionPieceTest
 use Worlds.Tests.TerrainDataSettingsTest
 use Worlds.Tests.TerrainStreamingTest
+use Worlds.Tests.TerrainSplatTest
+use Worlds.Tests.TerrainBrushTest
+use Worlds.Tests.TerrainStrokeSculptTest
+use Worlds.Tests.TerrainStrokePaintTest
+use Worlds.Tests.TerrainStrokeUndoTest
+use Worlds.Tests.TerrainDataRayCastTest
+use Worlds.Tests.TerrainGeneratorTest
 
 /*
 WorldsTester runs the terrain and world tests, in the same way PhysicsTester
@@ -60,6 +67,31 @@ class WorldsTester
         TestData()
         TestCollision()
         TestStreaming()
+        TestEditing()
+    end
+
+    /*
+    This action runs the tests of the editing tools: brushes, strokes, and
+    undo and redo.
+    */
+    action TestEditing
+        TerrainBrushTest test1
+        tester:Run(test1)
+
+        TerrainStrokeSculptTest test2
+        tester:Run(test2)
+
+        TerrainStrokePaintTest test3
+        tester:Run(test3)
+
+        TerrainStrokeUndoTest test4
+        tester:Run(test4)
+
+        TerrainDataRayCastTest test5
+        tester:Run(test5)
+
+        TerrainGeneratorTest test6
+        tester:Run(test6)
     end
 
     /*
@@ -125,5 +157,8 @@ class WorldsTester
 
         TerrainDataRaiseTest test9
         tester:Run(test9)
+
+        TerrainSplatTest test10
+        tester:Run(test10)
     end
 end

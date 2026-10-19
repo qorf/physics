@@ -1,0 +1,228 @@
+use Libraries.Game.Game
+use Libraries.Game.InputMonitor
+use Libraries.Game.GameStateManager
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.Drawable
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Label
+use Libraries.Game.Graphics.Skybox
+use Libraries.Game.Graphics.AmbientLight
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Graphics.Vulkan.VulkanGraphics
+use Libraries.Interface.Events.KeyboardEvent
+use Libraries.Containers.Array
+use Libraries.Compute.Math
+
+/*
+MSAA2DCheck tests MSAA for 2D under Vulkan (library item 29, Item29.md),
+together with MSAA for 3D (item 27). A 3D scene (the day sky, a ground and
+a turning box) is drawn first, and 2D items are drawn over it:
+
+- squares and a stretched rectangle turning slowly, whose outer edges MSAA
+  should smooth;
+- a turning image (grass.png);
+- a filled circle and a label, whose edges are inside their textures, for
+  comparison: they should look the same with MSAA on or off.
+
+Keys:
+- N steps the 2D sample count: 1 (off), 2, 4, 8, and back to 1.
+- M steps the 3D sample count the same way.
+- P stops or starts the turning.
+
+Every two seconds the console says the counts asked for and used, and the
+average frame time.
+
+What to see:
+1. At 2D count 1: the turning squares' edges are stair-stepped. At 4: smooth.
+2. The circle and the label look the same at any count.
+3. The 2D items sit correctly over the 3D scene with any mix of the two
+   counts, and the 3D scene's edges follow the 3D count only.
+4. Resizing and minimizing the window work.
+5. No errors when switching.
+
+Attribute: Example
+// MSAA2DCheck is a main program: set it as the project's main file and run
+// it.
+*/
+class MSAA2DCheck is Game
+    Skybox skybox
+    InputMonitor monitor
+    KeyboardEvent keys
+    Math math
+    DirectionalLight sun
+    AmbientLight ambient
+    Model ground
+    Model box
+    Array<Drawable> turning
+    Drawable circle
+    Label label
+    Label sample
+
+    boolean spinning = true
+    boolean nWasDown = false
+    boolean mWasDown = false
+    boolean pWasDown = false
+
+    number timeUntilReport = 2
+    number reportSeconds = 0
+    integer reportFrames = 0
+
+    action Main
+        SetScreenSize(1000, 600)
+        UseVulkan(true)
+        StartGame()
+    end
+
+    action CreateGame
+        Color colors
+
+        // The 3D scene underneath.
+        text folder = "Skyboxes/Day/"
+        skybox:Load(folder + "right.png", folder + "left.png", folder + "top.png", folder + "bottom.png",
+            folder + "front.png", folder + "back.png")
+        SetSkybox(skybox)
+        sun:SetColor(colors:White())
+        sun:SetIntensity(2)
+        sun:SetDirection(-0.5, -1, 0.7)
+        Add(sun)
+        ambient:SetColor(0.45, 0.45, 0.45, 1)
+        SetAmbientLight(ambient)
+        ground:LoadBox(40, 0.2, 40, colors:CustomColor(0.45, 0.55, 0.35, 1))
+        ground:SetPosition(0, -0.1, 10)
+        Add(ground)
+        box:LoadBox(2, 2, 2, colors:Orange())
+        box:SetPosition(0, 1, 8)
+        Add(box)
+        GetCamera3D():SetPosition(0, 3, -4)
+        GetCamera3D():LookAt(0, 1, 8)
+
+        // 2D items over it, turning about their centers.
+        AddTurning(colors:Red(), 120, 120, 150, 380, 1, 1)
+        AddTurning(colors:Blue(), 80, 80, 330, 400, 1, 1)
+        AddTurning(colors:White(), 200, 40, 550, 380, 1, 1)
+        AddTurning(colors:Black(), 100, 100, 760, 400, 1.6, 0.6)
+
+        Drawable image
+        image:Load("Textures/grass.png")
+        image:SetSize(140, 140)
+        image:SetPosition(820, 120)
+        image:SetOriginCenter()
+        Add(image)
+        turning:Add(image)
+
+        circle:LoadFilledCircle(50, colors:Yellow())
+        circle:SetPosition(120, 120)
+        Add(circle)
+
+        sample:SetText("Text for comparison")
+        sample:SetPosition(260, 160)
+        Add(sample)
+
+        label:SetPosition(10, 10)
+        label:SetText("N 2D samples, M 3D samples, P stop or start the turning")
+        Add(label)
+
+        output "MSAA 2D check: started with both MSAA counts at 1. N steps 2D, M steps 3D."
+    end
+
+    /*
+    This action adds a filled rectangle that turns about its center.
+
+    Attribute: Parameter color Its color.
+    Attribute: Parameter width Its width, in pixels.
+    Attribute: Parameter height Its height, in pixels.
+    Attribute: Parameter x Where it is across the screen.
+    Attribute: Parameter y Where it is up the screen.
+    Attribute: Parameter scaleX How much it is stretched across.
+    Attribute: Parameter scaleY How much it is stretched up.
+    */
+    action AddTurning(Color color, integer width, integer height, number x, number y, number scaleX, number scaleY)
+        Drawable shape
+        shape:LoadFilledRectangle(width, height, color)
+        shape:SetPosition(x, y)
+        shape:SetOriginCenter()
+        shape:SetScale(scaleX, scaleY)
+        Add(shape)
+        turning:Add(shape)
+    end
+
+    action Update(number seconds)
+        boolean nDown = monitor:IsKeyPressed(keys:N)
+        if nDown and not nWasDown
+            integer nextCount = GetMultisampling2D() * 2
+            if nextCount > 8
+                nextCount = 1
+            end
+            SetMultisampling2D(nextCount)
+            output "MSAA 2D check: asked for " + nextCount + " 2D samples per pixel."
+        end
+        nWasDown = nDown
+
+        boolean mDown = monitor:IsKeyPressed(keys:M)
+        if mDown and not mWasDown
+            integer nextCount3D = GetMultisampling() * 2
+            if nextCount3D > 8
+                nextCount3D = 1
+            end
+            SetMultisampling(nextCount3D)
+            output "MSAA 2D check: asked for " + nextCount3D + " 3D samples per pixel."
+        end
+        mWasDown = mDown
+
+        boolean pDown = monitor:IsKeyPressed(keys:P)
+        if pDown and not pWasDown
+            spinning = not spinning
+        end
+        pWasDown = pDown
+
+        if spinning
+            integer i = 0
+            repeat while i < turning:GetSize()
+                turning:Get(i):Rotate((8 + i * 5) * seconds)
+                i = i + 1
+            end
+            box:Rotate(0, 1, 0, 12 * seconds)
+        end
+
+        reportSeconds = reportSeconds + seconds
+        reportFrames = reportFrames + 1
+        timeUntilReport = timeUntilReport - seconds
+        if timeUntilReport <= 0
+            number milliseconds = 1000 * reportSeconds / reportFrames
+            output "MSAA 2D check: 2D asked " + GetMultisampling2D() + ", used " + GetUsed2D() + "; 3D asked " +
+                GetMultisampling() + ", used " + GetUsed3D() + "; average frame " + math:Round(milliseconds, 2) + " ms."
+            timeUntilReport = 2
+            reportSeconds = 0
+            reportFrames = 0
+        end
+    end
+
+    /*
+    This action returns how many samples per pixel the screen's image really
+    uses (2D MSAA).
+
+    Attribute: Returns The count in use.
+    */
+    action GetUsed2D returns integer
+        GameStateManager manager
+        if manager:GetGameGraphics() is VulkanGraphics
+            VulkanGraphics graphics = cast(VulkanGraphics, manager:GetGameGraphics())
+            return graphics:GetSwapchainSampleCount()
+        end
+        return 1
+    end
+
+    /*
+    This action returns how many samples per pixel the 3D scene really uses.
+
+    Attribute: Returns The count in use.
+    */
+    action GetUsed3D returns integer
+        GameStateManager manager
+        if manager:GetGameGraphics() is VulkanGraphics
+            VulkanGraphics graphics = cast(VulkanGraphics, manager:GetGameGraphics())
+            return graphics:GetUsableMultisampleCount()
+        end
+        return 1
+    end
+end

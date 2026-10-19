@@ -74,6 +74,15 @@ class TerrainData
     Number32BitArray savedHighest
     text savedFolderPath = ""
 
+    // The rectangle of samples whose splat weights changed since the splat
+    // edited area was last cleared. Splat changes don't change the ground's
+    // shape, so they are kept apart from the edited area.
+    boolean hasSplatEditedArea = false
+    integer splatMinimumX = 0
+    integer splatMinimumZ = 0
+    integer splatMaximumX = 0
+    integer splatMaximumZ = 0
+
     // The rectangle of samples changed since the edited area was last cleared.
     boolean hasEditedArea = false
     integer editedMinimumX = 0
@@ -235,6 +244,36 @@ class TerrainData
         end
         UnloadRegion(locationX, locationZ)
         AddRegionToEditedArea(locationX, locationZ)
+    end
+
+    /*
+    This action puts a region location back the way a copy says it was, for
+    undo and redo. If the copy is undefined, there was no region there, so
+    any region there now is removed. Otherwise the region there is made the
+    same as the copy, and one is added first if there isn't one. Either way,
+    the whole region is added to the edited area and the splat edited area,
+    and the region is marked as modified, since it no longer matches what
+    was saved.
+
+    Attribute: Parameter locationX The region location along x.
+    Attribute: Parameter locationZ The region location along z.
+    Attribute: Parameter copy A copy of the region from TerrainRegion's Copy, or undefined for no region.
+    */
+    action RestoreRegion(integer locationX, integer locationZ, TerrainRegion copy)
+        if copy = undefined
+            RemoveRegion(locationX, locationZ)
+        else
+            TerrainRegion region = GetRegion(locationX, locationZ)
+            if region = undefined
+                region = AddRegionQuietly(locationX, locationZ)
+            end
+            region:CopyFrom(copy)
+            region:SetModified(true)
+            AddRegionToEditedArea(locationX, locationZ)
+        end
+        integer firstX = locationX * regionSize
+        integer firstZ = locationZ * regionSize
+        AddToSplatEditedArea(firstX, firstZ, firstX + regionSize - 1, firstZ + regionSize - 1)
     end
 
     /*
@@ -500,6 +539,371 @@ class TerrainData
             end
             z = z + 1
         end
+    end
+
+    /*
+    This action finds where a ray first meets the ground, for picking a point
+    on the terrain with the mouse. It walks along the ray half a sample at a
+    time, only over the part of the ray between the terrain's lowest and
+    highest heights, and once it passes from above the ground to below it,
+    it narrows down the crossing. The ground is the same surface
+    GetSurfaceHeight gives, made of the same triangles as the mesh. Places
+    with no region are skipped, so the ray can pass over a gap and hit
+    ground beyond it. It needs no physics or collision.
+
+    A ray that starts below the ground only finds a place where it comes up
+    through the ground and goes back down.
+
+    Attribute: Parameter origin Where the ray starts, in world units.
+    Attribute: Parameter direction The direction of the ray. It need not be of length 1.
+    Attribute: Parameter maximumDistance How far along the ray to look, in world units.
+    Attribute: Returns The point where the ray meets the ground, or undefined if it doesn't within the distance.
+    */
+    action RayCast(Vector3 origin, Vector3 direction, number maximumDistance) returns Vector3
+        if regions:GetSize() = 0
+            return undefined
+        end
+        number length = direction:Length()
+        if length = 0
+            return undefined
+        end
+        number originX = origin:GetX()
+        number originY = origin:GetY()
+        number originZ = origin:GetZ()
+        number directionX = direction:GetX() / length
+        number directionY = direction:GetY() / length
+        number directionZ = direction:GetZ() / length
+
+        // Only the part of the ray between the lowest and highest ground
+        // can meet it.
+        number low = GetLowestHeight() - 1
+        number high = GetHighestHeight() + 1
+        number start = 0
+        number finish = maximumDistance
+        if directionY = 0
+            if originY < low or originY > high
+                return undefined
+            end
+        else
+            number lowDistance = (low - originY) / directionY
+            number highDistance = (high - originY) / directionY
+            start = math:MaximumOf(0, math:MinimumOf(lowDistance, highDistance))
+            finish = math:MinimumOf(finish, math:MaximumOf(lowDistance, highDistance))
+            if start > finish
+                return undefined
+            end
+        end
+
+        number step = vertexSpacing / 2
+        boolean hasPrevious = false
+        number previousDistance = 0
+        number previousAbove = 0
+        number distance = start
+        repeat while distance <= finish
+            number x = originX + directionX * distance
+            number z = originZ + directionZ * distance
+            if HasHeight(x, z)
+                number above = originY + directionY * distance - GetSurfaceHeight(x, z)
+                if hasPrevious and previousAbove > 0 and above <= 0
+                    // The ground is crossed between the last two points.
+                    // Halve the gap until the crossing is found closely.
+                    number nearer = previousDistance
+                    number further = distance
+                    repeat 24 times
+                        number middle = (nearer + further) / 2
+                        number middleX = originX + directionX * middle
+                        number middleZ = originZ + directionZ * middle
+                        boolean middleAbove = true
+                        if HasHeight(middleX, middleZ)
+                            middleAbove = originY + directionY * middle > GetSurfaceHeight(middleX, middleZ)
+                        end
+                        if middleAbove
+                            nearer = middle
+                        else
+                            further = middle
+                        end
+                    end
+                    Vector3 hit
+                    hit:Set(originX + directionX * further, originY + directionY * further, originZ + directionZ * further)
+                    return hit
+                end
+                hasPrevious = true
+                previousDistance = distance
+                previousAbove = above
+            else
+                hasPrevious = false
+            end
+            distance = distance + step
+        end
+        return undefined
+    end
+
+    /*
+    This action packs four splat weights into one number, the way a
+    PixelMap pixel holds red, green, blue and alpha. Each weight is from 0 to
+    1 and says how much of one ground texture to show; they are usually
+    made to add up to 1. Weights outside 0 to 1 are limited to it.
+
+    Attribute: Parameter red The weight of the first texture.
+    Attribute: Parameter green The weight of the second texture.
+    Attribute: Parameter blue The weight of the third texture.
+    Attribute: Parameter alpha The weight of the fourth texture.
+    Attribute: Returns The packed weights.
+    */
+    action PackSplat(number red, number green, number blue, number alpha) returns integer
+        integer code = bits:ShiftLeft(GetSplatByte(red), 24)
+        code = bits:Or(code, bits:ShiftLeft(GetSplatByte(green), 16))
+        code = bits:Or(code, bits:ShiftLeft(GetSplatByte(blue), 8))
+        return bits:Or(code, GetSplatByte(alpha))
+    end
+
+    /*
+    This action reads one weight back out of packed splat weights.
+
+    Attribute: Parameter code The packed weights.
+    Attribute: Parameter channel 0 for red, 1 for green, 2 for blue, 3 for alpha.
+    Attribute: Returns The weight, from 0 to 1.
+    */
+    action GetSplatWeight(integer code, integer channel) returns number
+        integer shift = 24 - 8 * channel
+        return bits:And(bits:ShiftRight(code, shift), 255) / 255.0
+    end
+
+    /*
+    This action returns the packed splat weights of a sample.
+
+    Attribute: Parameter x The sample's number along x.
+    Attribute: Parameter z The sample's number along z.
+    Attribute: Returns The packed weights, or all red if no region holds the sample.
+    */
+    action GetSampleSplat(integer x, integer z) returns integer
+        integer locationX = GetRegionLocation(x)
+        integer locationZ = GetRegionLocation(z)
+        TerrainRegion region = GetRegion(locationX, locationZ)
+        if region = undefined
+            return bits:ShiftLeft(255, 24)
+        end
+        return region:GetSplat(x - locationX * regionSize, z - locationZ * regionSize)
+    end
+
+    /*
+    This action sets the packed splat weights of a sample, and adds it to
+    the splat edited area. If no region holds the sample, nothing changes.
+
+    Attribute: Parameter x The sample's number along x.
+    Attribute: Parameter z The sample's number along z.
+    Attribute: Parameter code The packed weights, as made by PackSplat.
+    */
+    action SetSampleSplat(integer x, integer z, integer code)
+        integer locationX = GetRegionLocation(x)
+        integer locationZ = GetRegionLocation(z)
+        TerrainRegion region = GetRegion(locationX, locationZ)
+        if region = undefined
+            return now
+        end
+        region:SetSplat(x - locationX * regionSize, z - locationZ * regionSize, code)
+        AddToSplatEditedArea(x, z, x, z)
+    end
+
+    /*
+    This action copies splat weights from an image into the terrain, adding
+    regions wherever they are needed. Each pixel's red, green, blue and alpha
+    are the weights of the four textures. The pixels are read in the same
+    order as ImportHeightMap, so a splat map the same size as a height map
+    lines up with it.
+
+    Attribute: Parameter map The splat map image.
+    Attribute: Parameter startX The sample along x where the image's first pixel goes.
+    Attribute: Parameter startZ The sample along z where the image's first pixel goes.
+    */
+    action ImportSplatMap(PixelMap map, integer startX, integer startZ)
+        integer depth = map:GetHeight()
+        integer width = map:GetWidth()
+        AddRegionsFor(startX, startZ, startX + width - 1, startZ + depth - 1)
+        integer z = 0
+        repeat while z < depth
+            integer x = 0
+            repeat while x < width
+                SetSampleSplat(startX + x, startZ + z, map:GetPixel(z, x))
+                x = x + 1
+            end
+            z = z + 1
+        end
+    end
+
+    /*
+    This action gives a rectangle of samples splat weights by how steep the
+    ground is, like Terrain3D's auto shader. Ground flatter than the low
+    angle gets only the flat texture, ground steeper than the high angle only
+    the slope texture, and in between the two are blended smoothly. Other
+    textures' weights become 0. Samples with no region are skipped.
+
+    Attribute: Parameter startX The first sample along x.
+    Attribute: Parameter startZ The first sample along z.
+    Attribute: Parameter width How many samples to set along x.
+    Attribute: Parameter depth How many samples to set along z.
+    Attribute: Parameter flatChannel The texture for flat ground: 0 red, 1 green, 2 blue, 3 alpha.
+    Attribute: Parameter slopeChannel The texture for steep ground.
+    Attribute: Parameter lowDegrees The slope, in degrees from flat, where the slope texture starts.
+    Attribute: Parameter highDegrees The slope where the flat texture is gone. It must be more than lowDegrees.
+    */
+    action GenerateSplatBySlope(integer startX, integer startZ, integer width, integer depth,
+            integer flatChannel, integer slopeChannel, number lowDegrees, number highDegrees)
+        if highDegrees <= lowDegrees
+            alert("The high angle, " + highDegrees + ", must be more than the low angle, " + lowDegrees + ".")
+        end
+        integer z = startZ
+        repeat while z < startZ + depth
+            integer x = startX
+            repeat while x < startX + width
+                if HasSample(x, z)
+                    number slope = GetSlope(x * vertexSpacing, z * vertexSpacing)
+                    number t = math:Clamp((slope - lowDegrees) / (highDegrees - lowDegrees), 0, 1)
+                    t = t * t * (3 - 2 * t)
+                    SetSampleSplat(x, z, PackChannels(flatChannel, 1 - t, slopeChannel, t))
+                end
+                x = x + 1
+            end
+            z = z + 1
+        end
+    end
+
+    /*
+    This action paints one texture onto the ground in a circle around a
+    world position. Each sample's weights move toward showing only that
+    texture, by the strength at the center, fading smoothly to nothing at
+    the edge of the circle. A strength of 1 paints the center completely.
+    Samples with no region are left alone.
+
+    Attribute: Parameter worldX The circle's center along x, in world units.
+    Attribute: Parameter worldZ The circle's center along z, in world units.
+    Attribute: Parameter radius The circle's radius, in world units.
+    Attribute: Parameter channel The texture to paint: 0 red, 1 green, 2 blue, 3 alpha.
+    Attribute: Parameter strength How far to move toward that texture at the center, from 0 to 1.
+    */
+    action PaintSplat(number worldX, number worldZ, number radius, integer channel, number strength)
+        if radius <= 0
+            return now
+        end
+        integer firstX = GetSampleX(worldX - radius)
+        integer lastX = GetSampleX(worldX + radius) + 1
+        integer firstZ = GetSampleZ(worldZ - radius)
+        integer lastZ = GetSampleZ(worldZ + radius) + 1
+
+        integer z = firstZ
+        repeat while z <= lastZ
+            integer x = firstX
+            repeat while x <= lastX
+                number dx = x * vertexSpacing - worldX
+                number dz = z * vertexSpacing - worldZ
+                number distance = math:SquareRoot(dx * dx + dz * dz)
+                if distance < radius and HasSample(x, z)
+                    number t = distance / radius
+                    number amount = math:Clamp(strength, 0, 1) * (1 - t * t * (3 - 2 * t))
+                    integer code = GetSampleSplat(x, z)
+                    boolean paintRed = channel = 0
+                    boolean paintGreen = channel = 1
+                    boolean paintBlue = channel = 2
+                    boolean paintAlpha = channel = 3
+                    number red = Toward(GetSplatWeight(code, 0), paintRed, amount)
+                    number green = Toward(GetSplatWeight(code, 1), paintGreen, amount)
+                    number blue = Toward(GetSplatWeight(code, 2), paintBlue, amount)
+                    number alpha = Toward(GetSplatWeight(code, 3), paintAlpha, amount)
+                    SetSampleSplat(x, z, PackSplat(red, green, blue, alpha))
+                end
+                x = x + 1
+            end
+            z = z + 1
+        end
+    end
+
+    /*
+    This action returns true if any splat weights have changed since the
+    splat edited area was last cleared.
+
+    Attribute: Returns True if there is a splat edited area.
+    */
+    action HasSplatEditedArea returns boolean
+        return hasSplatEditedArea
+    end
+
+    /*
+    This action returns the smallest sample along x in the splat edited area.
+
+    Attribute: Returns The smallest x, or 0 if there is no splat edited area.
+    */
+    action GetSplatEditedMinimumX returns integer
+        return splatMinimumX
+    end
+
+    /*
+    This action returns the smallest sample along z in the splat edited area.
+
+    Attribute: Returns The smallest z, or 0 if there is no splat edited area.
+    */
+    action GetSplatEditedMinimumZ returns integer
+        return splatMinimumZ
+    end
+
+    /*
+    This action returns the largest sample along x in the splat edited area.
+
+    Attribute: Returns The largest x, or 0 if there is no splat edited area.
+    */
+    action GetSplatEditedMaximumX returns integer
+        return splatMaximumX
+    end
+
+    /*
+    This action returns the largest sample along z in the splat edited area.
+
+    Attribute: Returns The largest z, or 0 if there is no splat edited area.
+    */
+    action GetSplatEditedMaximumZ returns integer
+        return splatMaximumZ
+    end
+
+    /*
+    This action grows the splat edited area to cover a rectangle of samples.
+
+    Attribute: Parameter minimumX The rectangle's smallest sample along x.
+    Attribute: Parameter minimumZ The rectangle's smallest sample along z.
+    Attribute: Parameter maximumX The rectangle's largest sample along x.
+    Attribute: Parameter maximumZ The rectangle's largest sample along z.
+    */
+    action AddToSplatEditedArea(integer minimumX, integer minimumZ, integer maximumX, integer maximumZ)
+        if not hasSplatEditedArea
+            splatMinimumX = minimumX
+            splatMinimumZ = minimumZ
+            splatMaximumX = maximumX
+            splatMaximumZ = maximumZ
+            hasSplatEditedArea = true
+            return now
+        end
+        if minimumX < splatMinimumX
+            splatMinimumX = minimumX
+        end
+        if minimumZ < splatMinimumZ
+            splatMinimumZ = minimumZ
+        end
+        if maximumX > splatMaximumX
+            splatMaximumX = maximumX
+        end
+        if maximumZ > splatMaximumZ
+            splatMaximumZ = maximumZ
+        end
+    end
+
+    /*
+    This action empties the splat edited area, usually after the terrain's
+    splat textures have been rebuilt to match.
+    */
+    action ClearSplatEditedArea
+        hasSplatEditedArea = false
+        splatMinimumX = 0
+        splatMinimumZ = 0
+        splatMaximumX = 0
+        splatMaximumZ = 0
     end
 
     /*
@@ -820,6 +1224,15 @@ class TerrainData
         image:LoadPixelMap(GetFileInFolder(folder, GetRegionFileName(locationX, locationZ)))
         TerrainRegion region = AddRegionQuietly(locationX, locationZ)
         region:SetHeightsFromImage(image, savedLowest:Get(index), savedHighest:Get(index))
+
+        // Terrain saved before splat weights existed has no splat images,
+        // and stays all red.
+        File splatFile = GetFileInFolder(folder, GetSplatFileName(locationX, locationZ))
+        if splatFile:Exists()
+            PixelMap splatImage
+            splatImage:LoadPixelMap(splatFile)
+            region:SetSplatFromImage(splatImage)
+        end
         return region
     end
 
@@ -838,6 +1251,31 @@ class TerrainData
         end
         regionMap:Set(GetRegionMapIndex(locationX, locationZ), undefined)
         regions:Remove(region)
+    end
+
+    /*
+    This action takes every region location with no region in memory off
+    the list of saved regions, so the next save's "terrain.json" leaves them
+    out and Load won't bring them back. Their image files are left in the
+    folder, unused; nothing is deleted.
+
+    It is for terrains kept wholly in memory, like a terrain editor's, where
+    a region missing from memory was removed on purpose. Don't use it while
+    streaming, where most saved regions are not in memory.
+
+    Attribute: Returns How many regions were taken off the list.
+    */
+    action ForgetRegionsNotLoaded returns integer
+        integer forgotten = 0
+        integer i = 0
+        repeat while i < savedMap:GetSize()
+            if savedMap:Get(i) = 1 and regionMap:Get(i) = undefined
+                savedMap:Set(i, 0)
+                forgotten = forgotten + 1
+            end
+            i = i + 1
+        end
+        return forgotten
     end
 
     /*
@@ -895,6 +1333,19 @@ class TerrainData
     */
     action HasRegionAnywhere(integer locationX, integer locationZ) returns boolean
         return HasRegion(locationX, locationZ) or HasSavedRegion(locationX, locationZ)
+    end
+
+    /*
+    This action returns the name of the image file a region's splat weights
+    are saved in, such as "region_-1_2_splat.png" for the region at location
+    (-1, 2).
+
+    Attribute: Parameter locationX The region location along x.
+    Attribute: Parameter locationZ The region location along z.
+    Attribute: Returns The file name.
+    */
+    action GetSplatFileName(integer locationX, integer locationZ) returns text
+        return "region_" + locationX + "_" + locationZ + "_splat.png"
     end
 
     /*
@@ -1084,6 +1535,8 @@ class TerrainData
         // range is read after the image is made.
         PixelMap image = region:GetHeightImage()
         image:Save(GetFileInFolder(folder, GetRegionFileName(region:GetLocationX(), region:GetLocationZ())))
+        PixelMap splatImage = region:GetSplatImage()
+        splatImage:Save(GetFileInFolder(folder, GetSplatFileName(region:GetLocationX(), region:GetLocationZ())))
 
         integer index = GetRegionMapIndex(region:GetLocationX(), region:GetLocationZ())
         savedMap:Set(index, 1)
@@ -1150,6 +1603,72 @@ class TerrainData
         File file
         file:SetPath(folder:GetPath() + "/" + name)
         return file
+    end
+
+    /*
+    This action turns a weight from 0 to 1 into a byte from 0 to 255,
+    rounding to the nearest.
+
+    Attribute: Parameter weight The weight.
+    Attribute: Returns The byte.
+    */
+    private action GetSplatByte(number weight) returns integer
+        return cast(integer, math:Round(math:Clamp(weight, 0, 1) * 255))
+    end
+
+    /*
+    This action packs splat weights where two channels have weights and the
+    rest are 0. If both are the same channel, their weights are added.
+
+    Attribute: Parameter first The first channel, 0 to 3.
+    Attribute: Parameter firstWeight The first channel's weight.
+    Attribute: Parameter second The second channel, 0 to 3.
+    Attribute: Parameter secondWeight The second channel's weight.
+    Attribute: Returns The packed weights.
+    */
+    private action PackChannels(integer first, number firstWeight, integer second, number secondWeight) returns integer
+        number red = 0
+        number green = 0
+        number blue = 0
+        number alpha = 0
+        integer channel = 0
+        repeat while channel < 4
+            number weight = 0
+            if channel = first
+                weight = weight + firstWeight
+            end
+            if channel = second
+                weight = weight + secondWeight
+            end
+            if channel = 0
+                red = weight
+            elseif channel = 1
+                green = weight
+            elseif channel = 2
+                blue = weight
+            else
+                alpha = weight
+            end
+            channel = channel + 1
+        end
+        return PackSplat(red, green, blue, alpha)
+    end
+
+    /*
+    This action moves one weight part of the way toward 1 if it is the
+    texture being painted, or toward 0 if it isn't.
+
+    Attribute: Parameter weight The weight now.
+    Attribute: Parameter isPainted True if this is the texture being painted.
+    Attribute: Parameter amount How far to move, from 0 to 1.
+    Attribute: Returns The new weight.
+    */
+    private action Toward(number weight, boolean isPainted, number amount) returns number
+        number target = 0
+        if isPainted
+            target = 1
+        end
+        return weight + (target - weight) * amount
     end
 
     /*

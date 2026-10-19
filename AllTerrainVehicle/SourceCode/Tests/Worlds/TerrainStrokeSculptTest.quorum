@@ -1,0 +1,279 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainData
+use Libraries.Game.Graphics.Worlds.TerrainBrush
+use Libraries.Game.Graphics.Worlds.TerrainStroke
+use Libraries.Game.Graphics.Worlds.TerrainStrokeEdit
+use Libraries.Game.Graphics.Worlds.TerrainTool
+use Libraries.Compute.Math
+
+/*
+Tests TerrainStroke with the SCULPT and HEIGHT tools: raising and lowering
+by strength times seconds times the falloff; smoothing a spike; ramps;
+flattening to a set height and to the height where the stroke starts; the
+slope range; strokes across a region edge; filling in a long, fast move;
+and giving the same result at any frame rate.
+
+Attribute: Example
+use Worlds.Tests.TerrainStrokeSculptTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainStrokeSculptTest test
+tester:Run(test)
+*/
+class TerrainStrokeSculptTest is WorldsTest
+    TerrainTool tools
+    Math math
+
+    on create
+        SetName("Terrain strokes: sculpting and flattening")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        TestRaiseAndLower()
+        TestSmooth()
+        TestRamp()
+        TestFlatten()
+        TestFrameRate()
+        TestSlopeRange()
+        TestRegionEdge()
+        TestLongMove()
+    end
+
+    /*
+    This action makes a terrain of two 64-sample regions side by side, flat
+    at height 0, with no edited area.
+
+    Attribute: Returns The terrain.
+    */
+    action MakeData returns TerrainData
+        TerrainData data
+        data:SetRegionSize(64)
+        data:AddRegion(0, 0)
+        data:AddRegion(1, 0)
+        data:ClearEditedArea()
+        return data
+    end
+
+    /*
+    This action raises and lowers with a brush of radius 4 and strength 2,
+    held for half a second.
+    */
+    action TestRaiseAndLower
+        TerrainData data = MakeData()
+        TerrainBrush brush
+        brush:SetTool(tools:SCULPT, tools:ADD)
+        brush:SetSize(4)
+        brush:SetStrength(2)
+
+        TerrainStroke stroke
+        stroke:Begin(data, brush)
+        stroke:Apply(20, 30, 0.5)
+        TerrainStrokeEdit edit = stroke:End()
+        CheckNumber("raise: the center rises strength times seconds", data:GetSampleHeight(20, 30), 1)
+        CheckNumber("raise: half the radius rises half", data:GetSampleHeight(22, 30), 0.5)
+        CheckNumber("raise: the radius doesn't change", data:GetSampleHeight(24, 30), 0)
+        CheckThat("raise: makes an edited area", data:HasEditedArea())
+        CheckThat("raise: makes an edit", edit not= undefined)
+        CheckThat("raise: the edit changes the shape", edit:ChangesShape())
+        CheckThat("raise: the edit doesn't change splat weights", not edit:ChangesSplat())
+
+        brush:SetTool(tools:SCULPT, tools:SUBTRACT)
+        stroke:Begin(data, brush)
+        stroke:Apply(20, 30, 0.5)
+        stroke:End()
+        CheckNumber("lower: the center is back to 0", data:GetSampleHeight(20, 30), 0)
+        CheckNumber("lower: half the radius is back to 0", data:GetSampleHeight(22, 30), 0)
+    end
+
+    /*
+    This action smooths a single spike with a very strong brush, which moves
+    each sample nearly all the way to the average of it and its neighbors.
+    */
+    action TestSmooth
+        TerrainData data = MakeData()
+        data:SetSampleHeight(20, 30, 9)
+        TerrainBrush brush
+        brush:SetTool(tools:SCULPT, tools:AVERAGE)
+        brush:SetSize(4)
+        brush:SetStrength(100)
+
+        TerrainStroke stroke
+        stroke:Begin(data, brush)
+        stroke:Apply(20, 30, 1)
+        stroke:End()
+        // The spike and each neighbor see the spike among their 9 samples,
+        // so they all become 9 / 9 = 1.
+        CheckNumber("smooth: the spike drops to the average", data:GetSampleHeight(20, 30), 1)
+        CheckNumber("smooth: a neighbor rises to the average", data:GetSampleHeight(21, 30), 1)
+        CheckNumber("smooth: two samples away doesn't see the spike", data:GetSampleHeight(22, 30), 0)
+    end
+
+    /*
+    This action pulls the ground onto a ramp from height 0 at x 10 to height
+    20 at x 30, with a very strong brush.
+    */
+    action TestRamp
+        TerrainData data = MakeData()
+        TerrainBrush brush
+        brush:SetTool(tools:SCULPT, tools:GRADIENT)
+        brush:SetSize(4)
+        brush:SetStrength(100)
+        brush:SetGradient(10, 30, 0, 30, 30, 20)
+
+        TerrainStroke stroke
+        stroke:Begin(data, brush)
+        stroke:Apply(20, 30, 1)
+        stroke:End()
+        CheckNumber("ramp: the center is halfway up", data:GetSampleHeight(20, 30), 10)
+        CheckNumber("ramp: two along is higher", data:GetSampleHeight(22, 30), 12)
+        CheckNumber("ramp: two back is lower", data:GetSampleHeight(18, 30), 8)
+    end
+
+    /*
+    This action flattens to a set height, and to the height where the
+    stroke starts.
+    */
+    action TestFlatten
+        TerrainData data = MakeData()
+        TerrainBrush brush
+        brush:SetTool(tools:HEIGHT, tools:REPLACE)
+        brush:SetSize(4)
+        brush:SetStrength(100)
+        brush:SetTargetHeight(3)
+
+        TerrainStroke stroke
+        stroke:Begin(data, brush)
+        stroke:Apply(20, 30, 1)
+        stroke:End()
+        CheckNumber("flatten: the center reaches the height", data:GetSampleHeight(20, 30), 3)
+        CheckNumber("flatten: a nearby sample reaches it too", data:GetSampleHeight(21, 31), 3)
+        CheckNumber("flatten: outside the brush is unchanged", data:GetSampleHeight(30, 30), 0)
+
+        // Flatten to where it starts: the start is at height 3, and a bump
+        // at (42, 30) is pulled down to it.
+        data:SetSampleHeight(40, 30, 3)
+        data:SetSampleHeight(42, 30, 8)
+        brush:SetFlattenToStart(true)
+        brush:SetTargetHeight(0)
+        stroke:Begin(data, brush)
+        stroke:Apply(40, 30, 1)
+        stroke:End()
+        CheckNumber("flatten to start: the target is the starting height", brush:GetTargetHeight(), 3)
+        CheckNumber("flatten to start: the bump is pulled down", data:GetSampleHeight(42, 30), 3)
+    end
+
+    /*
+    This action checks that flattening for one second in one call gives the
+    same height as two calls of half a second each.
+    */
+    action TestFrameRate
+        TerrainBrush brush
+        brush:SetTool(tools:HEIGHT, tools:REPLACE)
+        brush:SetSize(4)
+        brush:SetStrength(1)
+        brush:SetTargetHeight(10)
+
+        TerrainData once = MakeData()
+        TerrainStroke stroke
+        stroke:Begin(once, brush)
+        stroke:Apply(20, 30, 1)
+        stroke:End()
+
+        TerrainData twice = MakeData()
+        stroke:Begin(twice, brush)
+        stroke:Apply(20, 30, 0.5)
+        stroke:Apply(20, 30, 0.5)
+        stroke:End()
+
+        // 10 times (1 - e^-1).
+        number expected = 10 * (1 - math:RaiseNaturalNumberToPower(-1))
+        CheckNumber("one second in one call", once:GetSampleHeight(20, 30), expected)
+        CheckNumber("one second in two calls", twice:GetSampleHeight(20, 30), expected)
+        CheckNumber("the same away from the center",
+            twice:GetSampleHeight(22, 30), once:GetSampleHeight(22, 30))
+    end
+
+    /*
+    This action raises with a slope range of 30 to 60 degrees, over ground
+    that is flat for x below 32 and rises at 45 degrees after it.
+    */
+    action TestSlopeRange
+        TerrainData data = MakeData()
+        integer z = 0
+        repeat while z < 64
+            integer x = 32
+            repeat while x < 64
+                data:SetSampleHeight(x, z, x - 32)
+                x = x + 1
+            end
+            z = z + 1
+        end
+        TerrainBrush brush
+        brush:SetTool(tools:SCULPT, tools:ADD)
+        brush:SetSize(6)
+        brush:SetStrength(2)
+        brush:SetSlopeRange(30, 60)
+
+        TerrainStroke stroke
+        stroke:Begin(data, brush)
+        stroke:Apply(32, 30, 1)
+        stroke:End()
+        CheckNumber("slope range: flat ground is left alone", data:GetSampleHeight(29, 30), 0)
+        CheckThat("slope range: the 45 degree slope is raised", data:GetSampleHeight(35, 30) > 3)
+    end
+
+    /*
+    This action raises across the edge between the two regions, and checks
+    both regions change and both are copied for undo.
+    */
+    action TestRegionEdge
+        TerrainData data = MakeData()
+        TerrainBrush brush
+        brush:SetTool(tools:SCULPT, tools:ADD)
+        brush:SetSize(4)
+        brush:SetStrength(2)
+
+        TerrainStroke stroke
+        stroke:Begin(data, brush)
+        stroke:Apply(64, 10, 0.5)
+        CheckWhole("region edge: both regions copied", stroke:GetTouchedRegionCount(), 2)
+        stroke:Apply(64, 10, 0.5)
+        CheckWhole("region edge: each region copied once", stroke:GetTouchedRegionCount(), 2)
+        TerrainStrokeEdit edit = stroke:End()
+        CheckNumber("region edge: the first region rises", data:GetSampleHeight(62, 10), 1)
+        CheckNumber("region edge: the second region rises", data:GetSampleHeight(66, 10), 1)
+        CheckWhole("region edge: the edit holds both regions", edit:GetRegionCount(), 2)
+    end
+
+    /*
+    This action moves the brush 20 units in one call, and checks the ground
+    is raised all along the way, not just at the two ends.
+    */
+    action TestLongMove
+        TerrainData data = MakeData()
+        TerrainBrush brush
+        brush:SetTool(tools:SCULPT, tools:ADD)
+        brush:SetSize(4)
+        brush:SetStrength(2)
+
+        TerrainStroke stroke
+        stroke:Begin(data, brush)
+        stroke:Apply(10, 40, 0.1)
+        stroke:Apply(30, 40, 0.1)
+        stroke:End()
+        CheckThat("long move: raised halfway along", data:GetSampleHeight(20, 40) > 0)
+        CheckThat("long move: raised at the end", data:GetSampleHeight(30, 40) > 0)
+        CheckNumber("long move: not raised off to the side", data:GetSampleHeight(20, 50), 0)
+
+        // A stroke over ground with no regions changes nothing.
+        stroke:Begin(data, brush)
+        stroke:Apply(-500, -500, 1)
+        TerrainStrokeEdit edit = stroke:End()
+        CheckThat("no region: nothing changed", edit = undefined)
+    end
+end

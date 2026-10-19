@@ -1,0 +1,93 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainData
+
+/*
+Tests TerrainData's splat weights. Weights pack into one number the way a
+PixelMap pixel does, and read back exactly. A new region is all red. Setting
+weights works across regions and adds to the splat edited area, but not to
+the edited area, since the ground's shape doesn't change. Weights by slope
+give flat ground one texture and steep ground another. Painting moves
+weights toward one texture, fully at the center and not at all at the
+edge.
+
+Attribute: Example
+use Worlds.Tests.TerrainSplatTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainSplatTest test
+tester:Run(test)
+*/
+class TerrainSplatTest is WorldsTest
+    on create
+        SetName("Terrain splat weights")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        TerrainData data
+        data:SetRegionSize(64)
+        data:AddRegion(0, 0)
+        data:AddRegion(1, 0)
+        data:ClearEditedArea()
+
+        // Packing: each weight is stored as a byte, so multiples of 1/255
+        // read back exactly.
+        integer code = data:PackSplat(0.2, 0.4, 0.6, 0.8)
+        CheckNumber("red weight", data:GetSplatWeight(code, 0), 0.2)
+        CheckNumber("green weight", data:GetSplatWeight(code, 1), 0.4)
+        CheckNumber("blue weight", data:GetSplatWeight(code, 2), 0.6)
+        CheckNumber("alpha weight", data:GetSplatWeight(code, 3), 0.8)
+
+        // New regions are all red.
+        integer red = data:PackSplat(1, 0, 0, 0)
+        CheckWhole("a new region is all red", data:GetSampleSplat(5, 5), red)
+        CheckWhole("no region reads as all red", data:GetSampleSplat(-5, 5), red)
+
+        // Setting weights, in the second region.
+        integer mixed = data:PackSplat(0, 0.5, 0.5, 0)
+        data:SetSampleSplat(70, 3, mixed)
+        CheckWhole("weights set in the second region", data:GetSampleSplat(70, 3), mixed)
+        CheckThat("setting weights makes a splat edited area", data:HasSplatEditedArea())
+        CheckWhole("splat edited area x", data:GetSplatEditedMinimumX(), 70)
+        CheckThat("setting weights doesn't change the edited area", not data:HasEditedArea())
+        data:ClearSplatEditedArea()
+        data:SetSampleSplat(-5, 5, mixed)
+        CheckThat("setting weights with no region changes nothing", not data:HasSplatEditedArea())
+
+        // By slope: flat ground green, steep ground blue, blended from 20 to
+        // 30 degrees. The second region rises one unit per unit along x,
+        // which is 45 degrees.
+        integer z = 0
+        repeat while z < 64
+            integer x = 64
+            repeat while x < 128
+                data:SetSampleHeight(x, z, x)
+                x = x + 1
+            end
+            z = z + 1
+        end
+        data:GenerateSplatBySlope(0, 0, 128, 64, 1, 2, 20, 30)
+        integer flat = data:GetSampleSplat(10, 10)
+        CheckNumber("flat ground is green", data:GetSplatWeight(flat, 1), 1)
+        CheckNumber("flat ground has no blue", data:GetSplatWeight(flat, 2), 0)
+        integer steep = data:GetSampleSplat(90, 10)
+        CheckNumber("steep ground is blue", data:GetSplatWeight(steep, 2), 1)
+        CheckNumber("steep ground has no green", data:GetSplatWeight(steep, 1), 0)
+
+        // Painting alpha in a circle of radius 4 around (20, 20) on the green
+        // ground.
+        data:PaintSplat(20, 20, 4, 3, 1)
+        integer center = data:GetSampleSplat(20, 20)
+        CheckNumber("the center is all alpha", data:GetSplatWeight(center, 3), 1)
+        CheckNumber("the center has no green left", data:GetSplatWeight(center, 1), 0)
+        integer halfway = data:GetSampleSplat(22, 20)
+        CheckThat("halfway out is about half alpha", data:GetSplatWeight(halfway, 3) > 0.48 and data:GetSplatWeight(halfway, 3) < 0.52)
+        CheckThat("halfway out is about half green", data:GetSplatWeight(halfway, 1) > 0.48 and data:GetSplatWeight(halfway, 1) < 0.52)
+        integer edge = data:GetSampleSplat(24, 20)
+        CheckNumber("at the radius nothing changes", data:GetSplatWeight(edge, 1), 1)
+    end
+end

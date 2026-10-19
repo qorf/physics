@@ -1,0 +1,248 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainData
+use Libraries.Game.Graphics.Worlds.TerrainBrush
+use Libraries.Game.Graphics.Worlds.TerrainStroke
+use Libraries.Game.Graphics.Worlds.TerrainStrokeEdit
+use Libraries.Game.Graphics.Worlds.TerrainEditHistory
+use Libraries.Game.Graphics.Worlds.TerrainRegion
+use Libraries.Game.Graphics.Worlds.TerrainTool
+
+/*
+Tests undo and redo for terrain strokes: a region copy is separate from the
+region; a sculpt stroke and a paint stroke undo and redo exactly and mark
+the area for rebuilding; adding and removing regions undo; Cancel puts
+everything back; and TerrainEditHistory keeps its lists in order, empties
+redo after a new stroke, and lets go of the oldest edits past its memory
+limit.
+
+Attribute: Example
+use Worlds.Tests.TerrainStrokeUndoTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainStrokeUndoTest test
+tester:Run(test)
+*/
+class TerrainStrokeUndoTest is WorldsTest
+    TerrainTool tools
+
+    on create
+        SetName("Terrain strokes: undo and redo")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        TestCopy()
+        TestSculptUndo()
+        TestPaintUndo()
+        TestRegionUndo()
+        TestCancel()
+        TestHistory()
+    end
+
+    /*
+    This action makes a terrain of two 64-sample regions side by side, flat
+    at height 0, with no edited areas.
+
+    Attribute: Returns The terrain.
+    */
+    action MakeData returns TerrainData
+        TerrainData data
+        data:SetRegionSize(64)
+        data:AddRegion(0, 0)
+        data:AddRegion(1, 0)
+        data:ClearEditedArea()
+        data:ClearSplatEditedArea()
+        return data
+    end
+
+    /*
+    This action makes a raising brush of radius 4 and strength 2.
+
+    Attribute: Returns The brush.
+    */
+    action MakeRaiseBrush returns TerrainBrush
+        TerrainBrush brush
+        brush:SetTool(tools:SCULPT, tools:ADD)
+        brush:SetSize(4)
+        brush:SetStrength(2)
+        return brush
+    end
+
+    /*
+    This action checks that a region copy has the same values, and doesn't
+    change when the region does.
+    */
+    action TestCopy
+        TerrainRegion region
+        region:SetRegionSize(4)
+        region:SetLocation(2, -3)
+        region:SetHeight(1, 2, 5)
+        region:SetSplat(3, 3, 77)
+        TerrainRegion copy = region:Copy()
+        CheckNumber("copy: same height", copy:GetHeight(1, 2), 5)
+        CheckWhole("copy: same splat", copy:GetSplat(3, 3), 77)
+        CheckWhole("copy: same location", copy:GetLocationZ(), -3)
+        CheckNumber("copy: same highest height", copy:GetHighestHeight(), 5)
+        region:SetHeight(1, 2, 9)
+        CheckNumber("copy: separate from the region", copy:GetHeight(1, 2), 5)
+        CheckWhole("copy: memory size", copy:GetMemorySize(), 128)
+    end
+
+    /*
+    This action undoes and redoes a raise.
+    */
+    action TestSculptUndo
+        TerrainData data = MakeData()
+        TerrainBrush brush = MakeRaiseBrush()
+        TerrainStroke stroke
+        stroke:Begin(data, brush)
+        stroke:Apply(20, 30, 0.5)
+        TerrainStrokeEdit edit = stroke:End()
+        data:ClearEditedArea()
+
+        CheckThat("sculpt: undo name", edit:GetUndoName() = "Undo raise")
+        CheckThat("sculpt: can undo", edit:CanUndo())
+        edit:Undo()
+        CheckNumber("sculpt undo: the center is back", data:GetSampleHeight(20, 30), 0)
+        CheckNumber("sculpt undo: nearby is back", data:GetSampleHeight(22, 30), 0)
+        CheckThat("sculpt undo: marks the area to rebuild", data:HasEditedArea())
+        CheckThat("sculpt undo: the region needs saving", data:GetRegion(0, 0):IsModified())
+        CheckThat("sculpt undo: can redo now", edit:CanRedo())
+        edit:Redo()
+        CheckNumber("sculpt redo: the center is raised again", data:GetSampleHeight(20, 30), 1)
+        CheckNumber("sculpt redo: nearby is raised again", data:GetSampleHeight(22, 30), 0.5)
+    end
+
+    /*
+    This action undoes and redoes painting.
+    */
+    action TestPaintUndo
+        TerrainData data = MakeData()
+        TerrainBrush brush
+        brush:SetTool(tools:TEXTURE, tools:ADD)
+        brush:SetSize(4)
+        brush:SetStrength(100)
+        brush:SetLayer(3)
+        TerrainStroke stroke
+        stroke:Begin(data, brush)
+        stroke:Apply(20, 30, 1)
+        TerrainStrokeEdit edit = stroke:End()
+        data:ClearSplatEditedArea()
+
+        integer red = data:PackSplat(1, 0, 0, 0)
+        integer painted = data:GetSampleSplat(20, 30)
+        edit:Undo()
+        CheckWhole("paint undo: back to red", data:GetSampleSplat(20, 30), red)
+        CheckThat("paint undo: marks the splat area to rebuild", data:HasSplatEditedArea())
+        edit:Redo()
+        CheckWhole("paint redo: painted again", data:GetSampleSplat(20, 30), painted)
+    end
+
+    /*
+    This action adds and removes regions with the REGION tool, and undoes
+    both.
+    */
+    action TestRegionUndo
+        TerrainData data = MakeData()
+        data:SetSampleHeight(70, 10, 4)
+
+        TerrainBrush brush
+        brush:SetTool(tools:REGION, tools:ADD)
+        brush:SetSize(4)
+        TerrainStroke stroke
+        stroke:Begin(data, brush)
+        stroke:Apply(70, 70, 0.1)
+        TerrainStrokeEdit added = stroke:End()
+        CheckThat("region add: there is a region at (1, 1)", data:HasRegion(1, 1))
+        added:Undo()
+        CheckThat("region add undo: the region is gone", not data:HasRegion(1, 1))
+        added:Redo()
+        CheckThat("region add redo: the region is back", data:HasRegion(1, 1))
+
+        brush:SetTool(tools:REGION, tools:SUBTRACT)
+        stroke:Begin(data, brush)
+        stroke:Apply(70, 10, 0.1)
+        TerrainStrokeEdit removed = stroke:End()
+        CheckThat("region remove: the region at (1, 0) is gone", not data:HasRegion(1, 0))
+        removed:Undo()
+        CheckThat("region remove undo: the region is back", data:HasRegion(1, 0))
+        CheckNumber("region remove undo: with its heights", data:GetSampleHeight(70, 10), 4)
+
+        // Adding where there already is a region does nothing.
+        brush:SetTool(tools:REGION, tools:ADD)
+        stroke:Begin(data, brush)
+        stroke:Apply(10, 10, 0.1)
+        CheckThat("region add over a region: nothing changes", stroke:End() = undefined)
+    end
+
+    /*
+    This action cancels a stroke partway.
+    */
+    action TestCancel
+        TerrainData data = MakeData()
+        TerrainBrush brush = MakeRaiseBrush()
+        TerrainStroke stroke
+        stroke:Begin(data, brush)
+        stroke:Apply(20, 30, 0.5)
+        stroke:Apply(66, 10, 0.5)
+        CheckThat("cancel: the stroke changed something", stroke:HasChanged())
+        stroke:Cancel()
+        CheckThat("cancel: the stroke has stopped", not stroke:IsActive())
+        CheckNumber("cancel: the first spot is back", data:GetSampleHeight(20, 30), 0)
+        CheckNumber("cancel: the second spot is back", data:GetSampleHeight(66, 10), 0)
+    end
+
+    /*
+    This action checks TerrainEditHistory's lists and memory limit.
+    */
+    action TestHistory
+        TerrainData data = MakeData()
+        TerrainBrush brush = MakeRaiseBrush()
+        TerrainStroke stroke
+        TerrainEditHistory history
+
+        CheckThat("history: nothing to undo at first", not history:CanUndo())
+        CheckThat("history: undo name when empty", history:GetUndoName() = "Nothing to undo")
+        history:Add(undefined)
+        CheckWhole("history: an undefined edit is ignored", history:GetUndoCount(), 0)
+
+        // Two strokes in region (0, 0). Each edit holds two copies of a
+        // 64 by 64 region: 2 * 64 * 64 * 8 = 65536 bytes.
+        stroke:Begin(data, brush)
+        stroke:Apply(20, 30, 0.5)
+        history:Add(stroke:End())
+        stroke:Begin(data, brush)
+        stroke:Apply(40, 30, 0.5)
+        history:Add(stroke:End())
+        CheckWhole("history: two edits", history:GetUndoCount(), 2)
+        CheckWhole("history: memory", history:GetMemorySize(), 131072)
+
+        history:Undo()
+        CheckNumber("history undo: the newest stroke is undone", data:GetSampleHeight(40, 30), 0)
+        CheckNumber("history undo: the older stroke stays", data:GetSampleHeight(20, 30), 1)
+        CheckThat("history: redo name", history:GetRedoName() = "Redo raise")
+        history:Redo()
+        CheckNumber("history redo: the newest stroke is back", data:GetSampleHeight(40, 30), 1)
+
+        history:Undo()
+        stroke:Begin(data, brush)
+        stroke:Apply(20, 50, 0.5)
+        history:Add(stroke:End())
+        CheckWhole("history: a new stroke empties redo", history:GetRedoCount(), 0)
+        CheckWhole("history: two edits to undo again", history:GetUndoCount(), 2)
+
+        history:SetMemoryLimit(100000)
+        CheckWhole("history: over the limit keeps only the newest", history:GetUndoCount(), 1)
+        history:Undo()
+        CheckNumber("history: the newest undoes", data:GetSampleHeight(20, 50), 0)
+        CheckThat("history: the oldest can't be undone any more", not history:CanUndo())
+        CheckNumber("history: so the oldest stroke stays", data:GetSampleHeight(20, 30), 1)
+
+        history:Empty()
+        CheckWhole("history: empty", history:GetUndoCount() + history:GetRedoCount(), 0)
+    end
+end

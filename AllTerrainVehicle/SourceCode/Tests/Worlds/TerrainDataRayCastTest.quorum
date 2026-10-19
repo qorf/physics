@@ -1,0 +1,90 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainData
+use Libraries.Compute.Vector3
+
+/*
+Tests TerrainData's RayCast, used to pick a point on the ground with the
+mouse. A ray straight down meets flat ground at its height; a slanted ray
+meets it where expected; a level ray meets a slope where the slope reaches
+the ray's height; a ray can cross a gap with no region and meet ground
+beyond; and rays that point away, or stop short, meet nothing.
+
+Attribute: Example
+use Worlds.Tests.TerrainDataRayCastTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainDataRayCastTest test
+tester:Run(test)
+*/
+class TerrainDataRayCastTest is WorldsTest
+    on create
+        SetName("Terrain data ray casting")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        TerrainData data
+        data:SetRegionSize(64)
+        data:AddRegion(0, 0)
+        data:GetRegion(0, 0):Fill(2)
+
+        // Straight down onto flat ground at height 2.
+        Vector3 hit = data:RayCast(MakeVector(10, 10, 20), MakeVector(0, -1, 0), 100)
+        CheckThat("straight down meets the ground", hit not= undefined)
+        CheckNumber("straight down: x", hit:GetX(), 10)
+        CheckNumber("straight down: height", hit:GetY(), 2)
+        CheckNumber("straight down: z", hit:GetZ(), 20)
+
+        // Slanted at 45 degrees from height 12 at x 0: it drops 10 to reach
+        // the ground at x 10. The direction doesn't have to be of length 1.
+        hit = data:RayCast(MakeVector(0, 12, 30), MakeVector(3, -3, 0), 100)
+        CheckThat("slanted meets the ground", hit not= undefined)
+        CheckNumber("slanted: x", hit:GetX(), 10)
+        CheckNumber("slanted: height", hit:GetY(), 2)
+
+        // Too short to reach the ground.
+        CheckThat("a short ray meets nothing", data:RayCast(MakeVector(10, 10, 20), MakeVector(0, -1, 0), 5) = undefined)
+
+        // Pointing up.
+        CheckThat("a ray pointing up meets nothing", data:RayCast(MakeVector(10, 10, 20), MakeVector(0, 1, 0), 100) = undefined)
+
+        // From the empty region before x 0, across the gap, onto the ground.
+        hit = data:RayCast(MakeVector(-20, 5, 10), MakeVector(1, -0.1, 0), 100)
+        CheckThat("across a gap meets the ground", hit not= undefined)
+        CheckNumber("across a gap: x", hit:GetX(), 10)
+
+        // A level ray at height 25 into ground that rises one unit per unit
+        // from x 20: the ground reaches 25 at x 43.
+        integer z = 0
+        repeat while z < 64
+            integer x = 20
+            repeat while x < 64
+                data:SetSampleHeight(x, z, 2 + (x - 20))
+                x = x + 1
+            end
+            z = z + 1
+        end
+        hit = data:RayCast(MakeVector(0, 25, 40), MakeVector(1, 0, 0), 100)
+        CheckThat("a level ray meets the slope", hit not= undefined)
+        CheckNumber("a level ray: x", hit:GetX(), 43)
+        CheckNumber("a level ray: height", hit:GetY(), 25)
+    end
+
+    /*
+    This action makes a vector.
+
+    Attribute: Parameter x The x part.
+    Attribute: Parameter y The y part.
+    Attribute: Parameter z The z part.
+    Attribute: Returns The vector.
+    */
+    action MakeVector(number x, number y, number z) returns Vector3
+        Vector3 result
+        result:Set(x, y, z)
+        return result
+    end
+end

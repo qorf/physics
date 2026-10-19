@@ -2,6 +2,7 @@ use Libraries.Game.Game
 use Libraries.Game.InputMonitor
 use Libraries.Game.Graphics.Model
 use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.Skybox
 use Libraries.Game.Graphics.Camera
 use Libraries.Game.Graphics.DirectionalLight
 use Libraries.Game.Graphics.PointLight
@@ -13,6 +14,15 @@ use Libraries.Game.Graphics.Worlds.TerrainRegionModel
 use Libraries.Game.Graphics.Worlds.TerrainRegion
 use Libraries.Game.Graphics.Worlds.TerrainCollision
 use Libraries.Game.Graphics.Worlds.TerrainStreamer
+use Libraries.Game.Graphics.Worlds.TextureSplat
+use Libraries.Game.Graphics.Worlds.TerrainSplatShaderProgram
+use Libraries.Game.Graphics.Models.Data.Material
+use Libraries.Game.Graphics.Texture
+use Libraries.Game.GameStateManager
+use Libraries.Game.Graphics.Vulkan.VulkanGraphics
+use Libraries.Game.Graphics.Models.Vulkan.ModelBlueprintVulkan
+use Libraries.Game.Graphics.Models.Vulkan.MaterialVulkan
+use Libraries.Game.Graphics.Models.Vulkan.ModelResourcesVulkan
 use Libraries.Compute.Vector3
 use Libraries.System.File
 use Libraries.Compute.Matrix3
@@ -34,6 +44,7 @@ use Libraries.Game.Graphics.Trees.Octree3D
 use Libraries.Game.Graphics.Label
 use Libraries.Game.Layer3D
 use Libraries.Game.Collision.Shapes.Box
+use Libraries.Game.DesktopConfiguration
 
 /*
     A raycast vehicle driving over rolling hills. The hills are a WorldTerrain,
@@ -139,6 +150,47 @@ class DriveOpen is Game
     // easy to see which regions are drawn with less detail, and to watch
     // them change to full detail as the vehicle comes near.
     boolean tintFarTerrain = true
+
+    // Texture splatting. While useSplatting is true, the ground is drawn with
+    // four textures blended by splat weights: grass (red) on flat ground,
+    // rock (green) on slopes, dirt (blue) on the box stacks' pads, and sand
+    // (alpha) in the low valleys. The weights start out by slope, between
+    // rockLowDegrees and rockHighDegrees, and sand where the ground is below
+    // sandHeight. P paints the current layer in front of the vehicle, and C
+    // changes which layer that is. Each texture tile covers layerRepeat
+    // world units. The dirt and sand textures are made here, so no image
+    // files are needed for them.
+    //
+    // Only the terrain's models are drawn with the splat shader; everything
+    // else keeps the default one. While splatting, the far tint isn't shown.
+    boolean useSplatting = true
+    // Whether grass and rock are drawn from AmbientCG texture sets, with
+    // bumps and height blending, rather than plain textures.
+    boolean useTextureSets = true
+
+    // The sky (library item 26, Item26.md): a daytime sky made by
+    // Skyboxes/MakeDaySky.py, behind everything. K hides or shows it, to
+    // compare with no sky.
+    boolean useSkybox = true
+    text skyboxFolder = "Skyboxes/Day/"
+    Skybox skybox
+    boolean skyShown = false
+    boolean kWasDown = false
+    number layerRepeat = 6
+    TerrainSplatShaderProgram splatProgram = undefined
+    number rockLowDegrees = 12
+    number rockHighDegrees = 22
+    number sandHeight = 8
+    integer paintLayer = 2
+    number paintStrength = 0.5
+    number timeUntilLayerChange = 0
+    boolean splatReadyReported = false
+
+    // Whether paint has been put down since the splat texture was last made.
+    // The texture is made again only when P is let go, since each new one
+    // uses up one of the renderer's texture places.
+    boolean paintPending = false
+    TextureSplat groundLayers
 
     // Save check. While checkSaving is true, the terrain is saved to the
     // folder saveFolder once it is built, loaded back into new TerrainData,
@@ -297,12 +349,26 @@ class DriveOpen is Game
     action Main
         // Terrain currently builds its mesh with the Vulkan renderer only.
         
+        DesktopConfiguration desk = GetDesktopConfiguration()
+        desk:resizable = true
+        SetMultisampling(4)
         SetScreenSize(1000, 500)
+        //SetFullScreen(true)
+        
         UseVulkan(true)
         StartGame()
     end
 
     action CreateGame
+        // The splat shader is compiled here, before the first frame, so the
+        // first frame that draws terrain doesn't stall to compile it.
+        if useSplatting and streamTerrain
+            TerrainSplatShaderProgram program
+            program:InstallAsProgram(layerRepeat)
+            splatProgram = program
+            output "Splat shader compiled for the terrain's models: " + program:IsCompiled()
+        end
+
         if cameraFarDistance > 0
             GetCamera3D():SetFar(cameraFarDistance)
         elseif streamTerrain and farRadius > 0
@@ -341,6 +407,14 @@ class DriveOpen is Game
         sunlight:SetDirection(-1, -4, 2)
         sunlight:SetCullingRange(sunCullingRange)
         Add(sunlight)
+
+        if useSkybox
+            skybox:Load(skyboxFolder + "right.png", skyboxFolder + "left.png", skyboxFolder + "top.png",
+                skyboxFolder + "bottom.png", skyboxFolder + "front.png", skyboxFolder + "back.png")
+            SetSkybox(skybox)
+            skyShown = true
+            output "Sky: loaded from " + skyboxFolder + ". K hides or shows it."
+        end
 
         // The stack sites are chosen first, because the terrain flattens the
         // ground under them while it is built.
@@ -386,6 +460,12 @@ class DriveOpen is Game
             end
         end
 
+        boolean kDown = monitor:IsKeyPressed(keys:K)
+        if useSkybox and kDown and not kWasDown
+            ToggleSky()
+        end
+        kWasDown = kDown
+
         if monitor:IsKeyPressed(keys:R)
             ResetVehicle()
         end
@@ -403,7 +483,27 @@ class DriveOpen is Game
             elseif monitor:IsKeyPressed(keys:Q)
                 EditGroundAhead(-editAmount)
                 timeUntilEdit = editInterval
+            elseif useSplatting and streamTerrain and monitor:IsKeyPressed(keys:P)
+                PaintGroundAhead()
+                timeUntilEdit = editInterval
             end
+        end
+
+        if paintPending and not monitor:IsKeyPressed(keys:P)
+            FinishPainting()
+        end
+
+        timeUntilLayerChange = timeUntilLayerChange - seconds
+        if useSplatting and timeUntilLayerChange <= 0 and monitor:IsKeyPressed(keys:C)
+            paintLayer = (paintLayer + 1) mod 4
+            output "Painting layer: " + GetLayerName(paintLayer)
+            timeUntilLayerChange = 0.3
+        end
+
+        if useSplatting and streamTerrain and not splatReadyReported and terrain:AreLayersReady()
+            output "Splat textures are ready; the ground is now splatted."
+            splatReadyReported = true
+            ReportTextureGroups()
         end
 
         // Driving off the edge of the map drops the vehicle into nothing, so
@@ -670,6 +770,9 @@ class DriveOpen is Game
         integer startZ = cast(integer, baseZ / terrainScale)
         data:ImportHeightMap(GenerateHeightMap(), startX, startZ, heightScale * terrainScale, baseY)
         CheckImport(startX, startZ)
+        if useSplatting and streamTerrain
+            GenerateSplat(startX, startZ)
+        end
 
         terrain:SetName("AllTerrainVehicle Hills")
         terrain:SetTexture("Textures/grass.png")
@@ -696,6 +799,13 @@ class DriveOpen is Game
             folder:SetPath(saveFolder)
             if not checkSaving
                 data:Save(folder)
+            end
+            if useSplatting
+                terrain:SetTextureSplat(MakeGroundLayers())
+                if useTextureSets
+                    UseGroundTextureSets()
+                end
+                terrain:SetSplatProgram(splatProgram)
             end
             terrain:SetDrawRadius(drawRadius)
             terrain:SetFarRadius(farRadius)
@@ -1000,6 +1110,231 @@ class DriveOpen is Game
     end
 
     /*
+    This action gives the whole map its first splat weights: grass on flat
+    ground and rock on slopes, blended between rockLowDegrees and
+    rockHighDegrees; then sand where the ground is low, and dirt on the
+    stacks' pads.
+
+    Attribute: Parameter startX The map's first sample along x.
+    Attribute: Parameter startZ The map's first sample along z.
+    */
+    action GenerateSplat(integer startX, integer startZ)
+        TerrainData data = terrain:GetData()
+        data:GenerateSplatBySlope(startX, startZ, mapSize, mapSize, 0, 1, rockLowDegrees, rockHighDegrees)
+
+        // Sand in the valleys, fading in over the last 3 units below
+        // sandHeight.
+        integer z = startZ
+        repeat while z < startZ + mapSize
+            integer x = startX
+            repeat while x < startX + mapSize
+                number height = data:GetSampleHeight(x, z)
+                number sand = math:Clamp((sandHeight - height) / 3, 0, 1)
+                if sand > 0
+                    integer code = data:GetSampleSplat(x, z)
+                    number keep = 1 - sand
+                    data:SetSampleSplat(x, z, data:PackSplat(data:GetSplatWeight(code, 0) * keep,
+                        data:GetSplatWeight(code, 1) * keep, data:GetSplatWeight(code, 2) * keep,
+                        data:GetSplatWeight(code, 3) * keep + sand))
+                end
+                x = x + 1
+            end
+            z = z + 1
+        end
+
+        // Dirt on the pads under the box stacks.
+        integer i = 0
+        repeat while i < stackSites:GetSize()
+            Vector3 site = stackSites:Get(i)
+            data:PaintSplat(site:GetX(), site:GetZ(), padRadius + padBlend, 2, 1)
+            i = i + 1
+        end
+        data:ClearSplatEditedArea()
+    end
+
+    /*
+    This action gives the grass and rock layers AmbientCG texture sets
+    (library item 24): Ground037, mossy ground, for grass, and Rocks002,
+    pebbles, for rock. They then have bumps, roughness and ambient
+    occlusion, and blend with each other by height. Dirt and sand stay the
+    plain speckled textures.
+    */
+    action UseGroundTextureSets
+        Material grass
+        grass:SetTextureSet("Textures/Ground037_1K-PNG", "Ground037_1K-PNG")
+        grass:SetTextureScale(3)
+        terrain:SetLayerMaterial(0, grass)
+
+        Material rock
+        rock:SetTextureSet("Textures/Rocks002_1K-PNG", "Rocks002_1K-PNG")
+        rock:SetTextureScale(2.5)
+        terrain:SetLayerMaterial(1, rock)
+    end
+
+    /*
+    This action hides the sky, or shows it again, so the scene can be
+    compared with and without it.
+    */
+    action ToggleSky
+        if skyShown
+            SetSkybox(undefined)
+            skyShown = false
+            output "Sky: hidden."
+        else
+            SetSkybox(skybox)
+            skyShown = true
+            output "Sky: shown."
+        end
+    end
+
+    /*
+    This action makes the four ground textures: grass and rock from files,
+    and dirt and sand made here from colored noise.
+
+    Attribute: Returns The four textures, as a TextureSplat.
+    */
+    action MakeGroundLayers returns TextureSplat
+        Texture grass
+        grass:LoadFromFile("Textures/grass.png", true)
+        Texture rock
+        rock:LoadFromFile("Textures/rock.png", true)
+        groundLayers:SetRed(grass)
+        groundLayers:SetGreen(rock)
+        groundLayers:SetBlue(MakeSpeckledTexture(0.42, 0.31, 0.2, 0.25))
+        groundLayers:SetAlpha(MakeSpeckledTexture(0.86, 0.78, 0.56, 0.12))
+        return groundLayers
+    end
+
+    /*
+    This action makes a small texture of one color with a random grain, so
+    it reads as ground rather than a flat color. Random speckles tile
+    without seams.
+
+    Attribute: Parameter red The color's red, from 0 to 1.
+    Attribute: Parameter green The color's green, from 0 to 1.
+    Attribute: Parameter blue The color's blue, from 0 to 1.
+    Attribute: Parameter grain How much lighter or darker a speckle can be, from 0 to 1.
+    Attribute: Returns The texture.
+    */
+    action MakeSpeckledTexture(number red, number green, number blue, number grain) returns Texture
+        PixelMap map
+        Format format
+        format:SetValue(format:RGBA8888)
+        map:CreatePixelMap(64, 64, format)
+        Random speckles
+        speckles:SetSeed(42)
+        Color color
+        integer y = 0
+        repeat while y < 64
+            integer x = 0
+            repeat while x < 64
+                number shade = 1 + (2 * speckles:RandomNumber() - 1) * grain
+                map:SetPixel(x, y, color:CustomColor(math:Clamp(red * shade, 0, 1), math:Clamp(green * shade, 0, 1),
+                    math:Clamp(blue * shade, 0, 1), 1))
+                x = x + 1
+            end
+            y = y + 1
+        end
+        Texture made
+        // Mipmaps keep the speckles from shimmering in the distance.
+        made:LoadFromPixelMap(map, map:GetFormat(), true)
+        return made
+    end
+
+    /*
+    This action writes to the console how the renderer has grouped the
+    textures, to check whether the terrain's textures have pushed others,
+    such as the car's, out of the first group. The renderer binds one group
+    at a time, and its group size comes from the device's limits.
+    */
+    action ReportTextureGroups
+        GameStateManager gameState
+        VulkanGraphics graphics = cast(VulkanGraphics, gameState:GetGameGraphics())
+        output "Texture check: " + graphics:GetMaxDescriptorsPerStage() + " textures per group."
+        output "Texture check: ground layers at " + DescribeTexture(groundLayers:GetRed()) + ", " +
+            DescribeTexture(groundLayers:GetGreen()) + ", " + DescribeTexture(groundLayers:GetBlue()) + ", " +
+            DescribeTexture(groundLayers:GetAlpha())
+        if terrain:GetRegionModelCount() > 0
+            ModelResourcesVulkan resources = cast(ModelResourcesVulkan, terrain:GetRegionModel(0):GetResources())
+            output "Texture check: a region's splat texture at " + DescribeTexture(resources:GetTexture())
+        end
+
+        ModelBlueprintVulkan carBlueprint = cast(ModelBlueprintVulkan, chassis:GetModelBlueprint())
+        Array<MaterialVulkan> materials = carBlueprint:GetMaterials()
+        text groups = ""
+        integer i = 0
+        repeat while i < materials:GetSize()
+            groups = groups + " " + materials:Get(i):GetTextureGroupIndex()
+            i = i + 1
+        end
+        output "Texture check: the car's " + materials:GetSize() + " materials are in texture groups" + groups
+    end
+
+    /*
+    This action describes where a texture is in the renderer.
+
+    Attribute: Parameter checked The texture.
+    Attribute: Returns Its index and group, as text.
+    */
+    action DescribeTexture(Texture checked) returns text
+        if checked = undefined
+            return "(none)"
+        end
+        return "index " + checked:GetVulkanTextureIndex() + " group " + checked:GetVulkanTextureGroupIndex()
+    end
+
+    /*
+    This action returns the name of a splat layer.
+
+    Attribute: Parameter layer 0 for red, 1 green, 2 blue, 3 alpha.
+    Attribute: Returns The name of the ground texture on that layer.
+    */
+    action GetLayerName(integer layer) returns text
+        if layer = 0
+            return "grass"
+        elseif layer = 1
+            return "rock"
+        elseif layer = 2
+            return "dirt"
+        end
+        return "sand"
+    end
+
+    /*
+    This action paints the current layer onto the ground in a circle in
+    front of the vehicle. Only the splat weights change here; the splat
+    texture is made again by FinishPainting, when P is let go.
+    */
+    action PaintGroundAhead
+        Vector3 heading = GetHeading()
+        number x = chassis:GetX() + heading:GetX() * editAhead
+        number z = chassis:GetZ() + heading:GetZ() * editAhead
+        TerrainData data = terrain:GetData()
+        if not data:HasHeight(x, z)
+            return now
+        end
+        data:PaintSplat(x, z, editRadius, paintLayer, paintStrength)
+        paintPending = true
+    end
+
+    /*
+    This action makes the splat texture again after painting, so the paint
+    shows. The renderer can't yet reuse a texture's place, so each new
+    splat texture uses another one, and after about 25 the splat texture
+    leaves the group of places the splat shader can use. A warning is
+    written when that is close.
+    */
+    action FinishPainting
+        terrain:Rebuild()
+        paintPending = false
+        integer made = terrain:GetSplatTextureCount()
+        output "Painted " + GetLayerName(paintLayer) + "; splat textures made so far: " + made + "."
+        if made >= 20
+            output "Warning: the renderer can't reuse texture places yet, so after a few more strokes painting will stop showing properly."
+        end
+    end
+
+    /*
     This action raises or lowers the ground in a circle in front of the
     vehicle, then rebuilds the regions that changed. The console shows where
     the change was and how many regions were rebuilt.
@@ -1017,7 +1352,8 @@ class DriveOpen is Game
         data:RaiseArea(x, z, editRadius, amount)
         integer rebuilt = terrain:Rebuild()
         output "Changed the ground at (" + math:Round(x, 1) + ", " + math:Round(z, 1) + "), rebuilt " + rebuilt + " regions. " +
-            "Slope there: " + math:Round(data:GetSlope(x, z), 1) + " degrees."
+            "Slope there: " + math:Round(data:GetSlope(x, z), 1) + " degrees. " +
+            "Meshes so far: " + terrain:GetInPlaceBuildCount() + " updated in place, " + terrain:GetNewMeshBuildCount() + " new."
     end
 
     /*

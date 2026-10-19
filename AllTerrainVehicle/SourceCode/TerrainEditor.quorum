@@ -1,0 +1,1723 @@
+use Libraries.Game.Game
+use Libraries.Game.InputMonitor
+use Libraries.Game.GameStateManager
+use Libraries.Game.Layer3D
+use Libraries.Game.Graphics.Camera
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Graphics.PixelMap
+use Libraries.Game.Graphics.Format
+use Libraries.Game.Graphics.Texture
+use Libraries.Game.Graphics.Label
+use Libraries.Game.Graphics.FramesPerSecondLabel
+use Libraries.Game.Graphics.Worlds.WorldTerrain
+use Libraries.Game.Graphics.Worlds.TerrainData
+use Libraries.Game.Graphics.Worlds.TerrainRegion
+use Libraries.Game.Graphics.Worlds.TerrainBrush
+use Libraries.Game.Graphics.Worlds.TerrainBrushPreview
+use Libraries.Game.Graphics.Worlds.TerrainStroke
+use Libraries.Game.Graphics.Worlds.TerrainStrokeEdit
+use Libraries.Game.Graphics.Worlds.TerrainEditHistory
+use Libraries.Game.Graphics.Worlds.TerrainTool
+use Libraries.Game.Graphics.Worlds.TerrainGenerator
+use Libraries.Game.Graphics.Worlds.TextureSplat
+use Libraries.Game.Graphics.Worlds.TerrainSplatShaderProgram
+use Libraries.Game.Graphics.Models.Data.Material
+use Libraries.Interface.Accessibility
+use Libraries.Interface.Events.KeyboardEvent
+use Libraries.Interface.Events.MouseEvent
+use Libraries.Compute.Vector3
+use Libraries.Compute.Ray
+use Libraries.Compute.Math
+use Libraries.Compute.Random
+use Libraries.Containers.Integer32BitArray
+use Libraries.Containers.Number32BitArray
+use Libraries.System.File
+
+/*
+TerrainEditor is a program for shaping and painting terrain, and nothing
+else: no vehicle, no physics. It opens the terrain saved in worldFolder, or
+makes a new one from noise if there isn't one, and saves back to the same
+folder.
+
+Everything the mouse does, the keyboard can do too. The brush is either
+where the mouse points on the ground, or, after an arrow key, at the point
+the camera looks at. Changes to the brush, the camera and the ground are
+written to the console and announced to a screen reader.
+
+Brush:
+- Left mouse button, or Space: hold to use the brush.
+- Moving the mouse: moves the brush to the ground under it.
+- Arrow keys: move the brush (and the camera with it) across the ground,
+  relative to the way the camera faces. Hold Shift for longer steps.
+- 1 to 9: choose the tool: 1 raise, 2 lower, 3 smooth, 4 flatten, 5 ramp,
+  6 paint, 7 blend paint, 8 add region, 9 remove region.
+- [ and ]: smaller and larger brush. - and =: weaker and stronger.
+  ; and ': softer and sharper falloff.
+- L: next ground texture to paint (grass, rock, dirt, sand).
+- F: flatten to the height where each stroke starts, or to a set height.
+- T: set the flatten height to the ground under the brush.
+- G: limit the brush to flat ground, to steep ground, or neither.
+- R: set the ramp's start, then its end, at the brush.
+- Escape: cancel the stroke in progress.
+
+Making worlds (each one is undoable):
+- N: choose a preset: rolling hills, mountains, plateaus, canyons, flat.
+  Shift and N: remake the whole world with it, and auto paint it.
+- K: choose a stamp: hill, mountain, mesa, crater, ridge. , and . make it
+  lower and higher, / turns it, and Enter presses it into the ground at the
+  brush, as big as the brush.
+- X: erode the ground under the brush with rain and settling. Shift and X:
+  the whole world, which takes a while.
+- U: auto paint under the brush: rock on slopes, sand low down, dirt in
+  hollows, grass elsewhere. Shift and U: the whole world.
+
+Camera:
+- Right mouse button drag, or Q and E: turn around the brush.
+- Right mouse button drag, or Home and End: tilt up and down.
+- Mouse wheel, or Page Up and Page Down: closer and further.
+- Middle mouse button drag, or the arrow keys: move across the ground.
+- C: look at the brush, after moving it with the mouse.
+
+Other:
+- Control (or Command) and Z: undo. Control and Y, or Control, Shift and Z:
+  redo.
+- Control and S: save.
+- I: describe the ground under the brush and the brush settings.
+- A: describe the area under the brush.
+- H: list these keys.
+
+The key choices are a first pass, to be changed as the editor is used.
+
+Attribute: Example
+use Libraries.Game.Game
+
+// TerrainEditor is a main program: set it as the project's main file and run
+// it. Its settings, such as worldFolder, are fields at the top of the class.
+*/
+class TerrainEditor is Game
+    // Where the terrain is loaded from and saved to.
+    text worldFolder = "EditorTerrain"
+
+    // The size and shape of a new world, made when worldFolder has none:
+    // newWorldRegions by newWorldRegions regions, centered on the origin,
+    // with rolling hills up to newWorldHeight tall. Presets made with N use
+    // the same height, or twice it for mountains.
+    integer regionSize = 64
+    number vertexSpacing = 0.5
+    integer newWorldRegions = 8
+    number newWorldHeight = 30
+    integer newWorldSeed = 2026
+
+    // Painting: how far apart each ground texture repeats, and the slopes,
+    // in degrees, where a new world turns from grass to rock.
+    number layerRepeat = 6
+    number textureRepeat = 4
+
+    // Whether grass and rock are drawn from texture sets, with bumps and
+    // height blending, rather than plain textures, and how softly the sets
+    // blend where they meet (B steps through blendSoftnesses).
+    boolean useTextureSets = true
+    integer blendSoftnessIndex = 1
+    number rockLowDegrees = 25
+    number rockHighDegrees = 40
+
+    // How far an arrow key moves the brush, in samples, and how many times
+    // further with Shift.
+    integer keyStepSamples = 2
+    integer shiftStepFactor = 8
+
+    WorldTerrain terrain
+    TerrainBrush brush
+    TerrainStroke stroke
+    TerrainEditHistory history
+    TerrainTool tools
+    TerrainGenerator generator
+    TerrainBrushPreview preview
+    TextureSplat groundLayers
+    TerrainSplatShaderProgram splatProgram = undefined
+
+    InputMonitor monitor
+    KeyboardEvent keys
+    MouseEvent mice
+    Math math
+
+    // For each key code, whether it was down last frame, and how long it
+    // has been held for repeating (-1 when not held).
+    Integer32BitArray keyWasDown
+    Number32BitArray keyHeldSeconds
+
+    // The camera turns around the focus, the point on the ground it looks
+    // at. Yaw and pitch are in degrees.
+    number focusX = 0
+    number focusZ = 0
+    number cameraYaw = 30
+    number cameraPitch = 45
+    number cameraDistance = 70
+    boolean cameraKeysHeld = false
+
+    // Where the brush is, and whether that is on the ground.
+    boolean brushOnGround = false
+    number brushX = 0
+    number brushZ = 0
+    boolean mouseMode = false
+    integer lastMouseX = 0
+    integer lastMouseY = 0
+    boolean hasLastMouse = false
+
+    // Where the preview was last placed, to know when it must move.
+    number previewX = 0
+    number previewZ = 0
+    number previewSize = 0
+
+    boolean stroking = false
+    boolean waitForRelease = false
+
+    // The ramp's start, while it is being set.
+    boolean rampStarted = false
+    number rampStartX = 0
+    number rampStartZ = 0
+    number rampStartHeight = 0
+
+    // 0 no slope limit, 1 flat ground only, 2 steep ground only.
+    integer slopeChoice = 0
+
+    // The world-making tools' choices: the preset, and the stamp's shape,
+    // height in world units, and turn in degrees. The stamp's shape is made
+    // when it is chosen, stampWidth by stampWidth numbers.
+    integer presetChoice = 0
+    integer stampChoice = 1
+    number stampHeight = 15
+    number stampTurn = 0
+    integer stampWidth = 129
+    Number32BitArray stampShape = undefined
+
+    // Set when a new splat texture is made, so its place in the renderer is
+    // written to the console once the renderer has given it one. This is a
+    // check on the renderer's texture groups (VulkanChanges.md #13, #19, #22).
+    boolean reportSplatTexture = true
+
+    Label infoLabel
+    FramesPerSecondLabel fpsLabel
+    DirectionalLight sunlight
+    number timeUntilInfo = 0
+    Accessibility accessibility = undefined
+
+    action Main
+        // The terrain's meshes and splat shader need the Vulkan renderer.
+        SetScreenSize(1200, 700)
+        UseVulkan(true)
+        StartGame()
+    end
+
+    action CreateGame
+        keyWasDown:SetSize(256)
+        keyHeldSeconds:SetSize(256)
+        integer i = 0
+        repeat while i < 256
+            keyWasDown:Set(i, 0)
+            keyHeldSeconds:Set(i, -1)
+            i = i + 1
+        end
+
+        GameStateManager manager
+        accessibility = manager:GetAccessibility()
+
+        // The splat shader is compiled before the first frame, so that frame
+        // doesn't stall to compile it.
+        TerrainSplatShaderProgram program
+        program:InstallAsProgram(layerRepeat)
+        splatProgram = program
+
+        GetCamera3D():SetFar(2000)
+        Color colors
+        sunlight:SetIntensity(2.5)
+        sunlight:SetColor(colors:LightGray())
+        sunlight:SetDirection(-1, -4, 2)
+        Add(sunlight)
+
+        TerrainData data = terrain:GetData()
+        File folder = GetWorldFolder()
+        File settings
+        settings:SetPath(worldFolder + "/terrain.json")
+        if settings:Exists()
+            data:Load(folder)
+            data:ClearEditedArea()
+            data:ClearSplatEditedArea()
+            output "Loaded " + data:GetRegionCount() + " regions from " + folder:GetAbsolutePath()
+        else
+            MakeNewWorld(data)
+            output "Made a new world of " + data:GetRegionCount() + " regions. Control and S saves it to " + folder:GetAbsolutePath()
+        end
+
+        terrain:SetName("Edited terrain")
+        terrain:SetCollisionMode(terrain:COLLISION_DISABLED)
+        terrain:SetTexture("Textures/grass.png")
+        terrain:SetTextureRepeat(textureRepeat)
+        terrain:SetTextureSplat(MakeGroundLayers())
+        if useTextureSets
+            UseGroundTextureSets()
+            terrain:SetHeightBlendSoftness(GetBlendSoftness(blendSoftnessIndex))
+        end
+        terrain:SetSplatProgram(splatProgram)
+        terrain:Build()
+        i = 0
+        repeat while i < terrain:GetRegionModelCount()
+            Add(terrain:GetRegionModel(i))
+            i = i + 1
+        end
+
+        CenterOnWorld()
+        brush:SetTool(tools:SCULPT, tools:ADD)
+        brush:SetSize(6)
+        brush:SetStrength(3)
+
+        MoveBrushToFocus()
+        preview:Place(data, brushX, brushZ, brush:GetSize())
+        previewX = brushX
+        previewZ = brushZ
+        previewSize = brush:GetSize()
+        Add(preview)
+
+        infoLabel:SetPosition(10, 10)
+        OutlineLabel(infoLabel)
+        OutlineLabel(fpsLabel)
+        Add(infoLabel)
+        Add(fpsLabel)
+        PlaceCamera()
+
+        Announce("Terrain editor. " + data:GetRegionCount() + " regions. Brush: " + brush:GetDescription() + ". Press H for the keys.")
+    end
+
+    action Update(number seconds)
+        Layer3D layer = GetCurrentLayer3D()
+        // This tells the terrain when its ground textures are ready.
+        terrain:Update(layer, focusX, focusZ)
+
+        HandleCommands()
+        HandleCamera(seconds)
+        HandleBrushPosition(seconds)
+        HandleStroke(seconds)
+        PlaceCamera()
+        UpdatePreview()
+
+        timeUntilInfo = timeUntilInfo - seconds
+        if timeUntilInfo <= 0
+            UpdateInfo()
+            timeUntilInfo = 0.2
+        end
+        if reportSplatTexture
+            ReportSplatTexture()
+        end
+    end
+
+    /*
+    This action writes to the console where the renderer put the newest
+    splat texture, once it has a place: its index, and which group of
+    textures it is in. The splat shader finds it by its index within the
+    first group, so a splat texture outside group 0 can't be read properly
+    and the ground looks wrong.
+    */
+    action ReportSplatTexture
+        Texture splat = terrain:GetSplatTexture()
+        if splat = undefined
+            return now
+        end
+        integer index = splat:GetVulkanTextureIndex()
+        if index < 0
+            return now
+        end
+        integer group = splat:GetVulkanTextureGroupIndex()
+        output "Splat texture check: index " + index + ", group " + group + ", " + terrain:GetSplatTextureCount() + " made so far."
+        if group > 0
+            output "Splat texture check: it is outside group 0, so the splat shader can't read it and the ground will look wrong."
+        end
+        reportSplatTexture = false
+    end
+
+    /*
+    This action makes a new world: newWorldRegions by newWorldRegions regions
+    centered on the origin, with the rolling hills preset, auto painted.
+
+    Attribute: Parameter data The empty terrain to fill.
+    */
+    action MakeNewWorld(TerrainData data)
+        data:SetRegionSize(regionSize)
+        data:SetVertexSpacing(vertexSpacing)
+        integer half = newWorldRegions / 2
+        integer locationZ = -half
+        repeat while locationZ < newWorldRegions - half
+            integer locationX = -half
+            repeat while locationX < newWorldRegions - half
+                data:AddRegion(locationX, locationZ)
+                locationX = locationX + 1
+            end
+            locationZ = locationZ + 1
+        end
+        integer start = -half * regionSize
+        integer width = newWorldRegions * regionSize
+        generator:SetSeed(newWorldSeed)
+        generator:SetPaintRules(rockLowDegrees, rockHighDegrees, 3, 1.5, 0.4)
+        generator:GeneratePreset(data, generator:PRESET_ROLLING_HILLS, start, start, width, width, newWorldHeight)
+        generator:AutoPaint(data, start, start, start + width - 1, start + width - 1)
+        data:ClearEditedArea()
+        data:ClearSplatEditedArea()
+    end
+
+    /*
+    This action returns the folder the terrain is saved in.
+
+    Attribute: Returns The folder.
+    */
+    action GetWorldFolder returns File
+        File folder
+        folder:SetPath(worldFolder)
+        return folder
+    end
+
+    /*
+    This action points the camera at the middle of all the regions.
+    */
+    action CenterOnWorld
+        TerrainData data = terrain:GetData()
+        integer count = data:GetRegionCount()
+        if count = 0
+            return now
+        end
+        number size = data:GetRegionSize() * data:GetVertexSpacing()
+        number totalX = 0
+        number totalZ = 0
+        integer i = 0
+        repeat while i < count
+            TerrainRegion region = data:GetRegionAtIndex(i)
+            totalX = totalX + (region:GetLocationX() + 0.5) * size
+            totalZ = totalZ + (region:GetLocationZ() + 0.5) * size
+            i = i + 1
+        end
+        focusX = totalX / count
+        focusZ = totalZ / count
+    end
+
+    /*
+    This action handles the keys that do one thing each time they are
+    pressed: choosing tools, changing the brush, undo and redo, saving, and
+    the descriptions.
+    */
+    action HandleCommands
+        boolean command = IsCommandDown()
+        boolean shift = IsShiftDown()
+
+        // Undo, redo and save use Control or Command.
+        boolean undoKey = JustPressed(keys:Z)
+        boolean redoKey = JustPressed(keys:Y)
+        boolean saveKey = JustPressed(keys:S)
+        if command
+            if undoKey and shift
+                RedoEdit()
+            elseif undoKey
+                UndoEdit()
+            elseif redoKey
+                RedoEdit()
+            elseif saveKey
+                SaveWorld()
+            end
+        end
+
+        if JustPressed(keys:NUM_1)
+            ChooseTool(tools:SCULPT, tools:ADD)
+        end
+        if JustPressed(keys:NUM_2)
+            ChooseTool(tools:SCULPT, tools:SUBTRACT)
+        end
+        if JustPressed(keys:NUM_3)
+            ChooseTool(tools:SCULPT, tools:AVERAGE)
+        end
+        if JustPressed(keys:NUM_4)
+            ChooseTool(tools:HEIGHT, tools:REPLACE)
+        end
+        if JustPressed(keys:NUM_5)
+            ChooseTool(tools:SCULPT, tools:GRADIENT)
+        end
+        if JustPressed(keys:NUM_6)
+            ChooseTool(tools:TEXTURE, tools:ADD)
+        end
+        if JustPressed(keys:NUM_7)
+            ChooseTool(tools:TEXTURE, tools:AVERAGE)
+        end
+        if JustPressed(keys:NUM_8)
+            ChooseTool(tools:REGION, tools:ADD)
+        end
+        if JustPressed(keys:NUM_9)
+            ChooseTool(tools:REGION, tools:SUBTRACT)
+        end
+
+        if JustPressed(keys:LEFT_BRACKET)
+            brush:SetSize(math:MaximumOf(0.5, brush:GetSize() * 0.8))
+            Announce("Size " + math:Round(brush:GetSize(), 2))
+        end
+        if JustPressed(keys:RIGHT_BRACKET)
+            brush:SetSize(math:MinimumOf(200, brush:GetSize() * 1.25))
+            Announce("Size " + math:Round(brush:GetSize(), 2))
+        end
+        if JustPressed(keys:MINUS)
+            brush:SetStrength(math:MaximumOf(0.01, brush:GetStrength() * 0.8))
+            Announce("Strength " + math:Round(brush:GetStrength(), 2))
+        end
+        if JustPressed(keys:EQUALS)
+            brush:SetStrength(math:MinimumOf(1000, brush:GetStrength() * 1.25))
+            Announce("Strength " + math:Round(brush:GetStrength(), 2))
+        end
+        if JustPressed(keys:SEMICOLON)
+            brush:SetGamma(math:MaximumOf(0.25, brush:GetGamma() - 0.25))
+            Announce("Falloff " + math:Round(brush:GetGamma(), 2) + ", softer")
+        end
+        if JustPressed(keys:APOSTROPHE)
+            brush:SetGamma(math:MinimumOf(8, brush:GetGamma() + 0.25))
+            Announce("Falloff " + math:Round(brush:GetGamma(), 2) + ", sharper")
+        end
+
+        if JustPressed(keys:L)
+            brush:SetLayer((brush:GetLayer() + 1) mod 4)
+            Announce("Paint " + GetLayerName(brush:GetLayer()))
+        end
+        if JustPressed(keys:F)
+            brush:SetFlattenToStart(not brush:FlattensToStart())
+            if brush:FlattensToStart()
+                Announce("Flatten to the height where each stroke starts")
+            else
+                Announce("Flatten to height " + math:Round(brush:GetTargetHeight(), 2))
+            end
+        end
+        if JustPressed(keys:T)
+            SetFlattenHeight()
+        end
+        if JustPressed(keys:G)
+            ChangeSlopeLimit()
+        end
+        if JustPressed(keys:B)
+            ChangeBlendSoftness()
+        end
+        if JustPressed(keys:R)
+            SetRampPoint()
+        end
+        if JustPressed(keys:ESCAPE)
+            CancelStroke()
+        end
+        if JustPressed(keys:C)
+            if brushOnGround
+                focusX = brushX
+                focusZ = brushZ
+                Announce("Looking at the brush")
+            end
+        end
+        if JustPressed(keys:I)
+            Announce(DescribeGround(brushX, brushZ) + ". Brush: " + brush:GetDescription() + ". " + history:GetUndoName() + ".")
+        end
+        if JustPressed(keys:A)
+            Announce(DescribeArea())
+        end
+        if JustPressed(keys:H)
+            AnnounceHelp()
+        end
+
+        // The world-making tools.
+        if JustPressed(keys:N)
+            if shift
+                RemakeWorld()
+            else
+                presetChoice = (presetChoice + 1) mod generator:GetPresetCount()
+                Announce("Preset: " + generator:GetPresetName(presetChoice) + ". Shift and N remakes the whole world with it.")
+            end
+        end
+        if JustPressed(keys:K)
+            stampChoice = (stampChoice + 1) mod generator:GetStampCount()
+            stampShape = undefined
+            Announce(DescribeStamp() + ". Enter presses it into the ground.")
+        end
+        if JustPressed(keys:COMMA)
+            stampHeight = math:MaximumOf(0.5, stampHeight * 0.8)
+            Announce("Stamp height " + math:Round(stampHeight, 1))
+        end
+        if JustPressed(keys:PERIOD)
+            stampHeight = math:MinimumOf(500, stampHeight * 1.25)
+            Announce("Stamp height " + math:Round(stampHeight, 1))
+        end
+        if JustPressed(keys:SLASH)
+            stampTurn = stampTurn + 45
+            if stampTurn >= 360
+                stampTurn = stampTurn - 360
+            end
+            Announce("Stamp turned " + math:Round(stampTurn, 0) + " degrees")
+        end
+        if JustPressed(keys:ENTER)
+            PlaceStamp()
+        end
+        if JustPressed(keys:X)
+            if shift
+                ErodeWorld()
+            else
+                ErodeUnderBrush()
+            end
+        end
+        if JustPressed(keys:U)
+            if shift
+                AutoPaintWorld()
+            else
+                AutoPaintUnderBrush()
+            end
+        end
+    end
+
+    /*
+    This action describes the stamp: its shape, height and turn.
+
+    Attribute: Returns The description.
+    */
+    action DescribeStamp returns text
+        return "Stamp: " + generator:GetStampName(stampChoice) + ", height " + math:Round(stampHeight, 1) +
+            ", turned " + math:Round(stampTurn, 0) + " degrees, as big as the brush"
+    end
+
+    /*
+    This action starts an undoable operation over a rectangle of samples,
+    keeping copies of the regions it covers. It returns false, and does
+    nothing, during a stroke.
+
+    Attribute: Parameter name What the operation does, for undo.
+    Attribute: Parameter changesShape True if it changes heights.
+    Attribute: Parameter changesSplat True if it changes splat weights.
+    Attribute: Parameter minimumX The rectangle's smallest sample along x.
+    Attribute: Parameter minimumZ The rectangle's smallest sample along z.
+    Attribute: Parameter maximumX The rectangle's largest sample along x.
+    Attribute: Parameter maximumZ The rectangle's largest sample along z.
+    Attribute: Returns True if the operation started.
+    */
+    action StartOperation(text name, boolean changesShape, boolean changesSplat, integer minimumX, integer minimumZ,
+            integer maximumX, integer maximumZ) returns boolean
+        if stroking
+            Announce("Finish the stroke first")
+            return false
+        end
+        stroke:BeginOperation(terrain:GetData(), name, changesShape, changesSplat)
+        stroke:CopyArea(minimumX, minimumZ, maximumX, maximumZ)
+        return true
+    end
+
+    /*
+    This action finishes an operation: adds it to the undo history, redraws
+    the ground, and announces it.
+
+    Attribute: Parameter message What to announce.
+    */
+    action FinishOperation(text message)
+        TerrainStrokeEdit edit = stroke:End()
+        history:Add(edit)
+        RedrawAfterEdit()
+        text said = message
+        if edit not= undefined and edit:ChangesSplat()
+            said = said + AddPaintWarning()
+        end
+        Announce(said)
+    end
+
+    /*
+    This action presses the stamp into the ground at the brush.
+    */
+    action PlaceStamp
+        if not brushOnGround
+            Announce("The brush isn't over the ground")
+            return now
+        end
+        if stampShape = undefined
+            stampShape = generator:MakeStampShape(stampChoice, stampWidth)
+        end
+        TerrainData data = terrain:GetData()
+        number reach = brush:GetSize() * 1.4143
+        text name = "stamp a " + generator:GetStampName(stampChoice)
+        if StartOperation(name, true, false, data:GetSampleX(brushX - reach) - 1, data:GetSampleZ(brushZ - reach) - 1,
+                data:GetSampleX(brushX + reach) + 2, data:GetSampleZ(brushZ + reach) + 2)
+            generator:Stamp(data, stampShape, stampWidth, brushX, brushZ, brush:GetSize(), stampTurn, stampHeight,
+                generator:GetStampMode(stampChoice))
+            FinishOperation(name + " done. " + DescribeArea() + " U auto paints it.")
+        end
+    end
+
+    /*
+    This action erodes the square of ground under the brush. The drops of
+    rain start there, and may run on one brush size past it.
+    */
+    action ErodeUnderBrush
+        if not brushOnGround
+            Announce("The brush isn't over the ground")
+            return now
+        end
+        TerrainData data = terrain:GetData()
+        number radius = brush:GetSize()
+        integer minimumX = data:GetSampleX(brushX - radius)
+        integer minimumZ = data:GetSampleZ(brushZ - radius)
+        integer maximumX = data:GetSampleX(brushX + radius) + 1
+        integer maximumZ = data:GetSampleZ(brushZ + radius) + 1
+        // Drops start under the brush, and may run on one brush size past
+        // it, so ground is carried downhill and away instead of settling back
+        // under the brush.
+        integer runOn = cast(integer, math:Ceiling(radius / data:GetVertexSpacing()))
+        integer runMinimumX = minimumX - runOn
+        integer runMinimumZ = minimumZ - runOn
+        integer runMaximumX = maximumX + runOn
+        integer runMaximumZ = maximumZ + runOn
+        if StartOperation("erode", true, false, runMinimumX - 1, runMinimumZ - 1, runMaximumX + 1, runMaximumZ + 1)
+            integer drops = (maximumX - minimumX + 1) * (maximumZ - minimumZ + 1)
+            generator:Erode(data, minimumX, minimumZ, maximumX, maximumZ, runMinimumX, runMinimumZ, runMaximumX, runMaximumZ, drops)
+            FinishOperation("erode done, " + drops + " drops of rain. " + DescribeArea())
+        end
+    end
+
+    /*
+    This action erodes the whole world, with one drop of rain for every
+    eight samples.
+    */
+    action ErodeWorld
+        TerrainData data = terrain:GetData()
+        if data:GetRegionCount() = 0
+            return now
+        end
+        integer minimumX = GetWorldMinimumX()
+        integer minimumZ = GetWorldMinimumZ()
+        integer maximumX = GetWorldMaximumX()
+        integer maximumZ = GetWorldMaximumZ()
+        output "Eroding the whole world; this takes a while."
+        if StartOperation("erode the world", true, false, minimumX, minimumZ, maximumX, maximumZ)
+            integer drops = (maximumX - minimumX + 1) * (maximumZ - minimumZ + 1) / 8
+            generator:Erode(data, minimumX, minimumZ, maximumX, maximumZ, drops)
+            FinishOperation("The whole world is eroded, " + drops + " drops of rain.")
+        end
+    end
+
+    /*
+    This action auto paints the square of ground under the brush.
+    */
+    action AutoPaintUnderBrush
+        if not brushOnGround
+            Announce("The brush isn't over the ground")
+            return now
+        end
+        TerrainData data = terrain:GetData()
+        number radius = brush:GetSize()
+        integer minimumX = data:GetSampleX(brushX - radius)
+        integer minimumZ = data:GetSampleZ(brushZ - radius)
+        integer maximumX = data:GetSampleX(brushX + radius) + 1
+        integer maximumZ = data:GetSampleZ(brushZ + radius) + 1
+        if StartOperation("auto paint", false, true, minimumX, minimumZ, maximumX, maximumZ)
+            generator:AutoPaint(data, minimumX, minimumZ, maximumX, maximumZ)
+            if data:HasSplatEditedArea()
+                FinishOperation("auto paint done. " + DescribeArea())
+            else
+                // Nothing changed, so the operation's edit is dropped:
+                // there's nothing to undo or redraw.
+                stroke:End()
+                Announce("auto paint changed nothing here. " + DescribeArea())
+            end
+        end
+    end
+
+    /*
+    This action auto paints the whole world.
+    */
+    action AutoPaintWorld
+        TerrainData data = terrain:GetData()
+        if data:GetRegionCount() = 0
+            return now
+        end
+        if StartOperation("auto paint the world", false, true, GetWorldMinimumX(), GetWorldMinimumZ(),
+                GetWorldMaximumX(), GetWorldMaximumZ())
+            generator:AutoPaint(data, GetWorldMinimumX(), GetWorldMinimumZ(), GetWorldMaximumX(), GetWorldMaximumZ())
+            if data:HasSplatEditedArea()
+                FinishOperation("The whole world is auto painted.")
+            else
+                stroke:End()
+                Announce("Auto paint changed nothing; the world already matches the rules.")
+            end
+        end
+    end
+
+    /*
+    This action remakes every region with the chosen preset, with a new seed
+    each time, and auto paints it.
+    */
+    action RemakeWorld
+        TerrainData data = terrain:GetData()
+        if data:GetRegionCount() = 0
+            return now
+        end
+        integer minimumX = GetWorldMinimumX()
+        integer minimumZ = GetWorldMinimumZ()
+        integer maximumX = GetWorldMaximumX()
+        integer maximumZ = GetWorldMaximumZ()
+        text name = "make " + generator:GetPresetName(presetChoice)
+        if StartOperation(name, true, true, minimumX, minimumZ, maximumX, maximumZ)
+            generator:SetSeed(generator:GetSeed() + 1)
+            generator:GeneratePreset(data, presetChoice, minimumX, minimumZ, maximumX - minimumX + 1, maximumZ - minimumZ + 1,
+                GetPresetHeight(presetChoice))
+            generator:AutoPaint(data, minimumX, minimumZ, maximumX, maximumZ)
+            FinishOperation("The world is now " + generator:GetPresetName(presetChoice) + ", seed " +
+                math:Round(generator:GetSeed(), 0) + ". Control Z undoes it.")
+        end
+    end
+
+    /*
+    This action returns how tall a preset's ground is made.
+
+    Attribute: Parameter preset The preset.
+    Attribute: Returns The tallest the ground can be, in world units.
+    */
+    action GetPresetHeight(integer preset) returns number
+        if preset = generator:PRESET_MOUNTAINS
+            return newWorldHeight * 2
+        elseif preset = generator:PRESET_FLAT
+            return 0
+        end
+        return newWorldHeight
+    end
+
+    /*
+    This action returns the smallest sample along x that any region has.
+
+    Attribute: Returns The sample.
+    */
+    action GetWorldMinimumX returns integer
+        return GetWorldEdge(true, true)
+    end
+
+    /*
+    This action returns the smallest sample along z that any region has.
+
+    Attribute: Returns The sample.
+    */
+    action GetWorldMinimumZ returns integer
+        return GetWorldEdge(false, true)
+    end
+
+    /*
+    This action returns the largest sample along x that any region has.
+
+    Attribute: Returns The sample.
+    */
+    action GetWorldMaximumX returns integer
+        return GetWorldEdge(true, false)
+    end
+
+    /*
+    This action returns the largest sample along z that any region has.
+
+    Attribute: Returns The sample.
+    */
+    action GetWorldMaximumZ returns integer
+        return GetWorldEdge(false, false)
+    end
+
+    /*
+    This action finds one edge of the rectangle of samples all the regions
+    cover.
+
+    Attribute: Parameter alongX True for an edge along x, false for along z.
+    Attribute: Parameter smallest True for the smallest sample, false for the largest.
+    Attribute: Returns The sample at that edge.
+    */
+    action GetWorldEdge(boolean alongX, boolean smallest) returns integer
+        TerrainData data = terrain:GetData()
+        integer size = data:GetRegionSize()
+        integer edge = 0
+        integer i = 0
+        repeat while i < data:GetRegionCount()
+            TerrainRegion region = data:GetRegionAtIndex(i)
+            integer location = region:GetLocationZ()
+            if alongX
+                location = region:GetLocationX()
+            end
+            integer sample = location * size
+            if not smallest
+                sample = sample + size - 1
+            end
+            if i = 0
+                edge = sample
+            elseif smallest and sample < edge
+                edge = sample
+            elseif not smallest and sample > edge
+                edge = sample
+            end
+            i = i + 1
+        end
+        return edge
+    end
+
+    /*
+    This action turns, tilts, moves and zooms the camera, from the mouse
+    and from the keyboard.
+
+    Attribute: Parameter seconds The time since the last frame.
+    */
+    action HandleCamera(number seconds)
+        integer mouseX = monitor:GetMouseX()
+        integer mouseY = monitor:GetMouseY()
+        integer moveX = 0
+        integer moveY = 0
+        if hasLastMouse
+            moveX = mouseX - lastMouseX
+            moveY = mouseY - lastMouseY
+        end
+        boolean turning = monitor:IsMouseButtonPressed(mice:RIGHT)
+        boolean panning = monitor:IsMouseButtonPressed(mice:MIDDLE)
+
+        // The mouse: right drag turns and tilts, middle drag moves.
+        if turning
+            cameraYaw = cameraYaw + moveX * 0.3
+            cameraPitch = math:Clamp(cameraPitch + moveY * 0.3, 5, 89)
+        elseif panning
+            number scale = cameraDistance * 0.0015
+            number yaw = math:DegreesToRadians(cameraYaw)
+            focusX = focusX - (math:Cosine(yaw) * moveX + math:Sine(yaw) * moveY) * scale
+            focusZ = focusZ - (-math:Sine(yaw) * moveX + math:Cosine(yaw) * moveY) * scale
+        end
+        integer scrolled = monitor:IsScrolled()
+        if scrolled not= 0
+            cameraDistance = math:Clamp(cameraDistance * math:RaiseToPower(0.9, scrolled), 3, 1500)
+        end
+
+        // The keyboard: Q and E turn, Home and End tilt, Page Up and Page
+        // Down zoom. The camera's position is announced when they are let go.
+        boolean keyHeld = false
+        if monitor:IsKeyPressed(keys:Q)
+            cameraYaw = cameraYaw - 90 * seconds
+            keyHeld = true
+        end
+        if monitor:IsKeyPressed(keys:E)
+            cameraYaw = cameraYaw + 90 * seconds
+            keyHeld = true
+        end
+        if monitor:IsKeyPressed(keys:HOME)
+            cameraPitch = math:Clamp(cameraPitch + 45 * seconds, 5, 89)
+            keyHeld = true
+        end
+        if monitor:IsKeyPressed(keys:END)
+            cameraPitch = math:Clamp(cameraPitch - 45 * seconds, 5, 89)
+            keyHeld = true
+        end
+        if monitor:IsKeyPressed(keys:PAGE_UP)
+            cameraDistance = math:Clamp(cameraDistance * math:RaiseToPower(0.4, seconds), 3, 1500)
+            keyHeld = true
+        end
+        if monitor:IsKeyPressed(keys:PAGE_DOWN)
+            cameraDistance = math:Clamp(cameraDistance * math:RaiseToPower(2.5, seconds), 3, 1500)
+            keyHeld = true
+        end
+        if cameraKeysHeld and not keyHeld
+            Announce(DescribeCamera())
+        end
+        cameraKeysHeld = keyHeld
+
+        // Keep the yaw from 0 to 360, for describing it.
+        repeat while cameraYaw < 0
+            cameraYaw = cameraYaw + 360
+        end
+        repeat while cameraYaw >= 360
+            cameraYaw = cameraYaw - 360
+        end
+    end
+
+    /*
+    This action moves the brush: with the arrow keys, which move the camera's
+    focus across the ground and put the brush there; or with the mouse,
+    which puts the brush on the ground under the pointer.
+
+    Attribute: Parameter seconds The time since the last frame.
+    */
+    action HandleBrushPosition(number seconds)
+        TerrainData data = terrain:GetData()
+        number step = keyStepSamples * data:GetVertexSpacing()
+        if IsShiftDown()
+            step = step * shiftStepFactor
+        end
+        number yaw = math:DegreesToRadians(cameraYaw)
+        number forwardX = math:Sine(yaw)
+        number forwardZ = math:Cosine(yaw)
+        number rightX = forwardZ
+        number rightZ = -forwardX
+
+        number moveForward = 0
+        number moveRight = 0
+        if RepeatPressed(keys:UP, seconds)
+            moveForward = moveForward + 1
+        end
+        if RepeatPressed(keys:DOWN, seconds)
+            moveForward = moveForward - 1
+        end
+        if RepeatPressed(keys:RIGHT, seconds)
+            moveRight = moveRight + 1
+        end
+        if RepeatPressed(keys:LEFT, seconds)
+            moveRight = moveRight - 1
+        end
+
+        integer mouseX = monitor:GetMouseX()
+        integer mouseY = monitor:GetMouseY()
+        boolean mouseMoved = hasLastMouse and (mouseX not= lastMouseX or mouseY not= lastMouseY)
+        boolean dragging = monitor:IsMouseButtonPressed(mice:RIGHT) or monitor:IsMouseButtonPressed(mice:MIDDLE)
+
+        if moveForward not= 0 or moveRight not= 0
+            // The keyboard takes over from the mouse, starting where the
+            // brush was.
+            if mouseMode and brushOnGround
+                focusX = brushX
+                focusZ = brushZ
+            end
+            mouseMode = false
+            focusX = focusX + (forwardX * moveForward + rightX * moveRight) * step
+            focusZ = focusZ + (forwardZ * moveForward + rightZ * moveRight) * step
+            MoveBrushToFocus()
+            Announce(DescribeGround(brushX, brushZ))
+        elseif mouseMoved and not dragging
+            mouseMode = true
+        end
+
+        if mouseMode
+            PickBrushFromMouse(mouseX, mouseY)
+        end
+        lastMouseX = mouseX
+        lastMouseY = mouseY
+        hasLastMouse = true
+    end
+
+    /*
+    This action puts the brush at the camera's focus.
+    */
+    action MoveBrushToFocus
+        brushX = focusX
+        brushZ = focusZ
+        brushOnGround = terrain:GetData():HasHeight(brushX, brushZ)
+    end
+
+    /*
+    This action puts the brush on the ground under the mouse pointer, if
+    the pointer is over the ground.
+
+    Attribute: Parameter mouseX The pointer's position across the screen.
+    Attribute: Parameter mouseY The pointer's position up the screen.
+    */
+    action PickBrushFromMouse(integer mouseX, integer mouseY)
+        Camera camera = GetCamera3D()
+        // GetPickRay mirrors x across the screen (the world is left-handed),
+        // which put the brush on the wrong side, so x is mirrored here first.
+        Ray ray = camera:GetPickRay(camera:GetWidth() - mouseX, mouseY)
+        Vector3 hit = terrain:GetData():RayCast(ray:GetOrigin(), ray:GetDirection(), 2000)
+        if hit = undefined
+            brushOnGround = false
+        else
+            brushX = hit:GetX()
+            brushZ = hit:GetZ()
+            brushOnGround = true
+        end
+    end
+
+    /*
+    This action starts, continues and finishes strokes. A stroke is made
+    while Space is held, or the left mouse button while the brush follows
+    the mouse.
+
+    Attribute: Parameter seconds The time since the last frame.
+    */
+    action HandleStroke(number seconds)
+        boolean wanted = monitor:IsKeyPressed(keys:SPACE) or (mouseMode and monitor:IsMouseButtonPressed(mice:LEFT))
+        if waitForRelease
+            if not wanted
+                waitForRelease = false
+            end
+            return now
+        end
+
+        if wanted and not stroking and brushOnGround
+            if brush:GetTool() = tools:SCULPT and brush:GetOperation() = tools:GRADIENT and not brush:HasGradient()
+                Announce("Set the ramp first: press R at its start, then at its end.")
+                waitForRelease = true
+                return now
+            end
+            stroke:Begin(terrain:GetData(), brush)
+            stroking = true
+        end
+
+        if stroking
+            if wanted
+                if brushOnGround
+                    stroke:Apply(brushX, brushZ, seconds)
+                    ShowStrokeProgress()
+                end
+            else
+                FinishStroke()
+            end
+        end
+    end
+
+    /*
+    This action redraws the ground during a stroke. Shape changes are shown
+    every frame; paint is shown when the stroke ends, since each new splat
+    texture uses up a texture place in the renderer.
+    */
+    action ShowStrokeProgress
+        integer tool = brush:GetTool()
+        if tool = tools:REGION
+            terrain:UpdateRegionModels(GetCurrentLayer3D())
+            terrain:Rebuild()
+        elseif tools:ChangesShape(tool)
+            terrain:Rebuild()
+        end
+    end
+
+    /*
+    This action finishes a stroke: adds it to the undo history, redraws the
+    ground, and announces what changed.
+    */
+    action FinishStroke
+        TerrainStrokeEdit edit = stroke:End()
+        stroking = false
+        if edit = undefined
+            if brush:GetTool() = tools:REGION and brush:GetOperation() = tools:ADD
+                Announce("Nothing changed: there is already land here. Add region works past the edge of the land, where there is no ground yet.")
+            elseif brush:GetTool() = tools:REGION
+                Announce("Nothing changed: there is no land here to remove.")
+            else
+                Announce("Nothing changed")
+            end
+            return now
+        end
+        history:Add(edit)
+        RedrawAfterEdit()
+        text regionWord = " regions"
+        if edit:GetRegionCount() = 1
+            regionWord = " region"
+        end
+        text message = edit:GetName() + " done, " + edit:GetRegionCount() + regionWord + " touched. " + DescribeArea()
+        if edit:ChangesSplat()
+            message = message + AddPaintWarning()
+        end
+        Announce(message)
+    end
+
+    /*
+    This action cancels the stroke in progress, putting the ground back.
+    */
+    action CancelStroke
+        if not stroking
+            return now
+        end
+        stroke:Cancel()
+        stroking = false
+        waitForRelease = true
+        RedrawAfterEdit()
+        Announce("Stroke canceled")
+    end
+
+    /*
+    This action undoes the newest stroke.
+    */
+    action UndoEdit
+        if stroking
+            Announce("Finish the stroke before undoing")
+            return now
+        end
+        TerrainStrokeEdit edit = history:Undo()
+        if edit = undefined
+            Announce("Nothing to undo")
+            return now
+        end
+        RedrawAfterEdit()
+        if history:CanUndo()
+            Announce(edit:GetUndoName() + ". Next: " + history:GetUndoName() + ".")
+        else
+            Announce(edit:GetUndoName() + ". Nothing more to undo.")
+        end
+    end
+
+    /*
+    This action redoes the most recently undone stroke.
+    */
+    action RedoEdit
+        if stroking
+            Announce("Finish the stroke before redoing")
+            return now
+        end
+        TerrainStrokeEdit edit = history:Redo()
+        if edit = undefined
+            Announce("Nothing to redo")
+            return now
+        end
+        RedrawAfterEdit()
+        Announce(edit:GetRedoName())
+    end
+
+    /*
+    This action brings the drawn terrain up to date after a stroke, an undo
+    or a redo: models for added or removed regions, then the meshes and
+    splat texture the change touched.
+    */
+    action RedrawAfterEdit
+        integer splatsBefore = terrain:GetSplatTextureCount()
+        terrain:UpdateRegionModels(GetCurrentLayer3D())
+        terrain:Rebuild()
+        previewSize = 0
+        if terrain:GetSplatTextureCount() not= splatsBefore
+            reportSplatTexture = true
+        end
+    end
+
+    /*
+    This action returns a warning once paint strokes have used up most of
+    the texture places the renderer can give the splat texture.
+
+    Attribute: Returns The warning, or nothing.
+    */
+    action AddPaintWarning returns text
+        integer made = terrain:GetSplatTextureCount()
+        if made >= 20
+            return " Warning: " + made + " splat textures made. The renderer can't reuse texture places yet, so after a few more paint strokes, paint stops showing properly. Save and restart the editor to reset this."
+        end
+        return ""
+    end
+
+    /*
+    This action saves the terrain to worldFolder. Regions removed with the
+    region brush are left out of the saved list, so they stay removed.
+    */
+    action SaveWorld
+        if stroking
+            Announce("Finish the stroke before saving")
+            return now
+        end
+        TerrainData data = terrain:GetData()
+        File folder = GetWorldFolder()
+        data:ForgetRegionsNotLoaded()
+        data:Save(folder)
+        Announce("Saved " + data:GetRegionCount() + " regions to " + folder:GetAbsolutePath())
+    end
+
+    /*
+    This action chooses the brush's tool and operation, and announces it.
+
+    Attribute: Parameter tool The tool.
+    Attribute: Parameter operation The operation.
+    */
+    action ChooseTool(integer tool, integer operation)
+        if stroking
+            FinishStroke()
+        end
+        brush:SetTool(tool, operation)
+        text message = brush:GetDescription()
+        if tool = tools:SCULPT and operation = tools:GRADIENT and not brush:HasGradient()
+            message = message + ". Press R at the ramp's start, then at its end."
+        end
+        Announce(message)
+    end
+
+    /*
+    This action sets the flatten height to the ground under the brush.
+    */
+    action SetFlattenHeight
+        if not brushOnGround
+            Announce("The brush isn't over the ground")
+            return now
+        end
+        number height = terrain:GetData():GetSurfaceHeight(brushX, brushZ)
+        brush:SetTargetHeight(height)
+        brush:SetFlattenToStart(false)
+        Announce("Flatten height " + math:Round(height, 2))
+    end
+
+    /*
+    This action steps through the slope limits: none, flat ground only
+    (under 15 degrees), and steep ground only (over 25 degrees).
+    */
+    action ChangeSlopeLimit
+        slopeChoice = (slopeChoice + 1) mod 3
+        if slopeChoice = 0
+            brush:ClearSlopeRange()
+            Announce("Any slope")
+        elseif slopeChoice = 1
+            brush:SetSlopeRange(0, 15)
+            Announce("Flat ground only, under 15 degrees")
+        else
+            brush:SetSlopeRange(25, 90)
+            Announce("Steep ground only, over 25 degrees")
+        end
+    end
+
+    /*
+    This action sets the ramp's start at the brush, or, if the start is
+    set, its end, which finishes the ramp.
+    */
+    action SetRampPoint
+        if not brushOnGround
+            Announce("The brush isn't over the ground")
+            return now
+        end
+        number height = terrain:GetData():GetSurfaceHeight(brushX, brushZ)
+        if not rampStarted
+            rampStartX = brushX
+            rampStartZ = brushZ
+            rampStartHeight = height
+            rampStarted = true
+            Announce("Ramp start at height " + math:Round(height, 2) + ". Move to where it should end, higher or lower, then press R again.")
+        else
+            brush:SetGradient(rampStartX, rampStartZ, rampStartHeight, brushX, brushZ, height)
+            rampStarted = false
+            number length = math:SquareRoot((brushX - rampStartX) * (brushX - rampStartX) + (brushZ - rampStartZ) * (brushZ - rampStartZ))
+            number degrees = 0
+            if length > 0
+                degrees = math:RadiansToDegrees(math:InverseTangent(math:AbsoluteValue(height - rampStartHeight) / length))
+            end
+            text message = "Ramp from height " + math:Round(rampStartHeight, 2) + " to " + math:Round(height, 2) + ", " +
+                math:Round(length, 1) + " long, a slope of " + math:Round(degrees, 0) + " degrees. Choose tool 5 and hold the brush along it."
+            if degrees < 3
+                message = message + " It is nearly level, so it will look like flattening. For a slope you can see, put its ends at different heights, such as the bottom and top of a hill."
+            end
+            Announce(message)
+        end
+    end
+
+    /*
+    This action places the camera around its focus, by its yaw, pitch and
+    distance.
+    */
+    action PlaceCamera
+        TerrainData data = terrain:GetData()
+        number focusY = 0
+        if data:HasHeight(focusX, focusZ)
+            focusY = data:GetSurfaceHeight(focusX, focusZ)
+        end
+        number yaw = math:DegreesToRadians(cameraYaw)
+        number pitch = math:DegreesToRadians(cameraPitch)
+        number level = math:Cosine(pitch) * cameraDistance
+        Camera camera = GetCamera3D()
+        camera:SetPosition(focusX - math:Sine(yaw) * level, focusY + math:Sine(pitch) * cameraDistance,
+            focusZ - math:Cosine(yaw) * level)
+        camera:SetUp(0, 1, 0)
+        camera:LookAt(focusX, focusY, focusZ)
+    end
+
+    /*
+    This action moves the brush preview when the brush has moved, changed
+    size, or the ground under it may have changed, and hides it when the
+    brush isn't over the ground.
+    */
+    action UpdatePreview
+        if not brushOnGround
+            preview:Hide()
+            return now
+        end
+        preview:Show()
+        if stroking or brushX not= previewX or brushZ not= previewZ or brush:GetSize() not= previewSize
+            preview:Place(terrain:GetData(), brushX, brushZ, brush:GetSize())
+            previewX = brushX
+            previewZ = brushZ
+            previewSize = brush:GetSize()
+        end
+    end
+
+    /*
+    This action refreshes the line of text at the bottom of the screen: the
+    brush, the ground under it, and what undo would do.
+    */
+    action UpdateInfo
+        text ground = "The brush is off the ground"
+        if brushOnGround
+            ground = DescribeGround(brushX, brushZ)
+        end
+        infoLabel:SetText(brush:GetDescription() + "  |  " + ground + "  |  " + history:GetUndoName())
+    end
+
+    /*
+    This action describes the ground at a point: where it is, how high and
+    steep it is, and which ground texture shows most.
+
+    Attribute: Parameter worldX The point along x.
+    Attribute: Parameter worldZ The point along z.
+    Attribute: Returns The description.
+    */
+    action DescribeGround(number worldX, number worldZ) returns text
+        TerrainData data = terrain:GetData()
+        if not data:HasHeight(worldX, worldZ)
+            return "x " + math:Round(worldX, 1) + ", z " + math:Round(worldZ, 1) + ", no ground here"
+        end
+        integer code = data:GetSampleSplat(data:GetSampleX(worldX), data:GetSampleZ(worldZ))
+        return "x " + math:Round(worldX, 1) + ", z " + math:Round(worldZ, 1) +
+            ", height " + math:Round(data:GetSurfaceHeight(worldX, worldZ), 1) +
+            ", slope " + math:Round(data:GetSlope(worldX, worldZ), 0) + " degrees, " + GetLayerName(GetMainLayer(code))
+    end
+
+    /*
+    This action describes the ground under the brush: its lowest and highest
+    heights, its steepest slope, and its main ground textures.
+
+    Attribute: Returns The description.
+    */
+    action DescribeArea returns text
+        if not brushOnGround
+            return "The brush isn't over the ground."
+        end
+        TerrainData data = terrain:GetData()
+        number spacing = data:GetVertexSpacing()
+        number radius = brush:GetSize()
+        integer firstX = data:GetSampleX(brushX - radius)
+        integer lastX = data:GetSampleX(brushX + radius) + 1
+        integer firstZ = data:GetSampleZ(brushZ - radius)
+        integer lastZ = data:GetSampleZ(brushZ + radius) + 1
+
+        boolean found = false
+        number lowest = 0
+        number highest = 0
+        number steepest = 0
+        integer redCount = 0
+        integer greenCount = 0
+        integer blueCount = 0
+        integer alphaCount = 0
+        integer z = firstZ
+        repeat while z <= lastZ
+            integer x = firstX
+            repeat while x <= lastX
+                number offsetX = x * spacing - brushX
+                number offsetZ = z * spacing - brushZ
+                if offsetX * offsetX + offsetZ * offsetZ < radius * radius and data:HasSample(x, z)
+                    number height = data:GetSampleHeight(x, z)
+                    if not found
+                        lowest = height
+                        highest = height
+                        found = true
+                    end
+                    if height < lowest
+                        lowest = height
+                    end
+                    if height > highest
+                        highest = height
+                    end
+                    number slope = data:GetSlope(x * spacing, z * spacing)
+                    if slope > steepest
+                        steepest = slope
+                    end
+                    integer layer = GetMainLayer(data:GetSampleSplat(x, z))
+                    if layer = 0
+                        redCount = redCount + 1
+                    elseif layer = 1
+                        greenCount = greenCount + 1
+                    elseif layer = 2
+                        blueCount = blueCount + 1
+                    else
+                        alphaCount = alphaCount + 1
+                    end
+                end
+                x = x + 1
+            end
+            z = z + 1
+        end
+        if not found
+            return "There is no ground under the brush."
+        end
+        integer total = redCount + greenCount + blueCount + alphaCount
+        return "Under the brush: heights from " + math:Round(lowest, 1) + " to " + math:Round(highest, 1) +
+            ", steepest slope " + math:Round(steepest, 0) + " degrees, " +
+            DescribeShare("grass", redCount, total) + DescribeShare("rock", greenCount, total) +
+            DescribeShare("dirt", blueCount, total) + DescribeShare("sand", alphaCount, total)
+    end
+
+    /*
+    This action describes how much of an area one ground texture covers, or
+    nothing if it covers none.
+
+    Attribute: Parameter name The texture's name.
+    Attribute: Parameter count How many samples it covers most.
+    Attribute: Parameter total How many samples there are.
+    Attribute: Returns The description, such as "grass 70 percent. ", or nothing.
+    */
+    action DescribeShare(text name, integer count, integer total) returns text
+        if count = 0 or total = 0
+            return ""
+        end
+        integer percent = cast(integer, math:Round(100.0 * count / total))
+        if percent < 1
+            return name + " under 1 percent. "
+        end
+        return name + " " + percent + " percent. "
+    end
+
+    /*
+    This action describes where the camera is: which way it faces, how far it
+    looks down, and how far it is from what it looks at.
+
+    Attribute: Returns The description.
+    */
+    action DescribeCamera returns text
+        return "Camera facing " + math:Round(cameraYaw, 0) + " degrees, looking down " + math:Round(cameraPitch, 0) +
+            " degrees, " + math:Round(cameraDistance, 0) + " away"
+    end
+
+    /*
+    This action returns which ground texture has the most weight in packed
+    splat weights.
+
+    Attribute: Parameter code The packed weights.
+    Attribute: Returns 0 for red, 1 green, 2 blue, 3 alpha.
+    */
+    action GetMainLayer(integer code) returns integer
+        TerrainData data = terrain:GetData()
+        integer best = 0
+        number bestWeight = data:GetSplatWeight(code, 0)
+        integer channel = 1
+        repeat while channel < 4
+            number weight = data:GetSplatWeight(code, channel)
+            if weight > bestWeight
+                best = channel
+                bestWeight = weight
+            end
+            channel = channel + 1
+        end
+        return best
+    end
+
+    /*
+    This action returns the name of a ground texture.
+
+    Attribute: Parameter layer 0 for red, 1 green, 2 blue, 3 alpha.
+    Attribute: Returns The name.
+    */
+    action GetLayerName(integer layer) returns text
+        if layer = 0
+            return "grass"
+        elseif layer = 1
+            return "rock"
+        elseif layer = 2
+            return "dirt"
+        end
+        return "sand"
+    end
+
+    /*
+    This action writes every key to the console and announces a short
+    summary.
+    */
+    action AnnounceHelp
+        output "Terrain editor keys:"
+        output "  Left mouse or Space: use the brush. Mouse or arrow keys (Shift for longer steps): move the brush."
+        output "  1 raise, 2 lower, 3 smooth, 4 flatten, 5 ramp, 6 paint, 7 blend paint, 8 add region, 9 remove region."
+        output "  [ ] size, - = strength, ; ' falloff, L paint texture, F flatten to start, T flatten height here,"
+        output "  G slope limit, R ramp start and end, B how softly grass and rock blend, Escape cancel stroke."
+        output "  Right mouse drag, or Q E and Home End: turn and tilt. Wheel, or Page Up and Page Down: zoom."
+        output "  Middle mouse drag, or arrow keys: move. C: look at the brush."
+        output "  Control or Command with Z undo, Y redo, S save. I describe here, A describe the area, H these keys."
+        output "  N preset (Shift N remakes the world), K stamp, comma and period stamp height, slash turn, Enter stamp,"
+        output "  X erode under the brush (Shift X the world), U auto paint under the brush (Shift U the world)."
+        Announce("Keys: Space or left mouse uses the brush. Arrows move it. 1 to 9 choose tools. " +
+            "Brackets size, minus and equals strength. Q and E turn, Home and End tilt, Page Up and Page Down zoom. " +
+            "Control Z undo, Control Y redo, Control S save. I describes here, A the area. " +
+            "N presets, K stamps, Enter stamps, X erodes, U auto paints, with Shift for the whole world. The full list is in the console.")
+    end
+
+    /*
+    This action makes a label's text white with a black outline, so it can
+    be read over any ground or sky.
+
+    Attribute: Parameter label The label.
+    */
+    action OutlineLabel(Label label)
+        Color color
+        label:SetFontColor(color:White())
+        label:SetFontOutlineThickness(2)
+        label:SetFontOutlineColor(color:Black())
+    end
+
+    /*
+    This action writes a message to the console and the screen, and sends it
+    to a screen reader if one is running.
+
+    Attribute: Parameter message The message.
+    */
+    action Announce(text message)
+        output message
+        infoLabel:SetText(message)
+        timeUntilInfo = 2
+        if accessibility not= undefined
+            accessibility:Notify(infoLabel, message)
+        end
+    end
+
+    /*
+    This action returns true if a key went down since the last frame. Call
+    it once per frame for each key it is used with.
+
+    Attribute: Parameter key The key code, from KeyboardEvent.
+    Attribute: Returns True on the frame the key is pressed.
+    */
+    action JustPressed(integer key) returns boolean
+        boolean down = monitor:IsKeyPressed(key)
+        boolean was = keyWasDown:Get(key) = 1
+        if down
+            keyWasDown:Set(key, 1)
+        else
+            keyWasDown:Set(key, 0)
+        end
+        return down and not was
+    end
+
+    /*
+    This action returns true when a key goes down, and then again and again
+    while it is held: after 0.4 seconds, every 0.08 seconds. Call it once per
+    frame for each key it is used with.
+
+    Attribute: Parameter key The key code, from KeyboardEvent.
+    Attribute: Parameter seconds The time since the last frame.
+    Attribute: Returns True on the frames the key should act.
+    */
+    action RepeatPressed(integer key, number seconds) returns boolean
+        if not monitor:IsKeyPressed(key)
+            keyHeldSeconds:Set(key, -1)
+            return false
+        end
+        number held = keyHeldSeconds:Get(key)
+        if held < 0
+            keyHeldSeconds:Set(key, 0)
+            return true
+        end
+        held = held + seconds
+        if held >= 0.4
+            keyHeldSeconds:Set(key, 0.32)
+            return true
+        end
+        keyHeldSeconds:Set(key, held)
+        return false
+    end
+
+    /*
+    This action returns true if Control or Command is held.
+
+    Attribute: Returns True if either is down.
+    */
+    action IsCommandDown returns boolean
+        return monitor:IsKeyPressed(keys:CONTROL_LEFT) or monitor:IsKeyPressed(keys:CONTROL_RIGHT) or
+            monitor:IsKeyPressed(keys:META_LEFT) or monitor:IsKeyPressed(keys:META_RIGHT)
+    end
+
+    /*
+    This action returns true if Shift is held.
+
+    Attribute: Returns True if either Shift key is down.
+    */
+    action IsShiftDown returns boolean
+        return monitor:IsKeyPressed(keys:SHIFT_LEFT) or monitor:IsKeyPressed(keys:SHIFT_RIGHT)
+    end
+
+    /*
+    This action gives the grass and rock layers AmbientCG texture sets
+    (library item 24): Ground037, mossy ground, for grass, and Rocks002,
+    pebbles, for rock. They then have bumps, roughness and ambient
+    occlusion, and blend with each other by height. Dirt and sand stay the
+    plain speckled textures.
+    */
+    action UseGroundTextureSets
+        Material grass
+        grass:SetTextureSet("Textures/Ground037_1K-PNG", "Ground037_1K-PNG")
+        grass:SetTextureScale(3)
+        terrain:SetLayerMaterial(0, grass)
+
+        Material rock
+        rock:SetTextureSet("Textures/Rocks002_1K-PNG", "Rocks002_1K-PNG")
+        rock:SetTextureScale(2.5)
+        terrain:SetLayerMaterial(1, rock)
+    end
+
+    /*
+    This action returns one of the height blend softnesses B steps through.
+
+    Attribute: Parameter index 0 to 3, from crisp to soft.
+    Attribute: Returns The softness.
+    */
+    action GetBlendSoftness(integer index) returns number
+        if index = 0
+            return 0.05
+        elseif index = 1
+            return 0.2
+        elseif index = 2
+            return 0.5
+        end
+        return 1
+    end
+
+    /*
+    This action steps to the next height blend softness, from crisp to soft
+    and back, and says which it is.
+    */
+    action ChangeBlendSoftness
+        if not terrain:HasLayerMaterials()
+            Announce("Blend softness only applies to texture set layers, which are off")
+            return now
+        end
+        blendSoftnessIndex = (blendSoftnessIndex + 1) mod 4
+        number softness = GetBlendSoftness(blendSoftnessIndex)
+        terrain:SetHeightBlendSoftness(softness)
+        text name = "crisp"
+        if blendSoftnessIndex = 1
+            name = "medium"
+        elseif blendSoftnessIndex = 2
+            name = "soft"
+        elseif blendSoftnessIndex = 3
+            name = "softest"
+        end
+        Announce("Grass and rock blend " + name + ", softness " + softness)
+    end
+
+    /*
+    This action makes the four ground textures: grass and rock from files,
+    and dirt and sand made here from colored noise, the same as DriveOpen.
+
+    Attribute: Returns The four textures, as a TextureSplat.
+    */
+    action MakeGroundLayers returns TextureSplat
+        Texture grass
+        grass:LoadFromFile("Textures/grass.png", true)
+        Texture rock
+        rock:LoadFromFile("Textures/rock.png", true)
+        groundLayers:SetRed(grass)
+        groundLayers:SetGreen(rock)
+        groundLayers:SetBlue(MakeSpeckledTexture(0.42, 0.31, 0.2, 0.25))
+        groundLayers:SetAlpha(MakeSpeckledTexture(0.86, 0.78, 0.56, 0.12))
+        return groundLayers
+    end
+
+    /*
+    This action makes a small texture of one color with a random grain.
+
+    Attribute: Parameter red The color's red, from 0 to 1.
+    Attribute: Parameter green The color's green, from 0 to 1.
+    Attribute: Parameter blue The color's blue, from 0 to 1.
+    Attribute: Parameter grain How much lighter or darker a speckle can be, from 0 to 1.
+    Attribute: Returns The texture.
+    */
+    action MakeSpeckledTexture(number red, number green, number blue, number grain) returns Texture
+        PixelMap map
+        Format format
+        format:SetValue(format:RGBA8888)
+        map:CreatePixelMap(64, 64, format)
+        Random speckles
+        speckles:SetSeed(42)
+        Color color
+        integer y = 0
+        repeat while y < 64
+            integer x = 0
+            repeat while x < 64
+                number shade = 1 + (2 * speckles:RandomNumber() - 1) * grain
+                map:SetPixel(x, y, color:CustomColor(math:Clamp(red * shade, 0, 1), math:Clamp(green * shade, 0, 1),
+                    math:Clamp(blue * shade, 0, 1), 1))
+                x = x + 1
+            end
+            y = y + 1
+        end
+        Texture made
+        // Mipmaps keep the speckles from shimmering in the distance.
+        made:LoadFromPixelMap(map, map:GetFormat(), true)
+        return made
+    end
+end

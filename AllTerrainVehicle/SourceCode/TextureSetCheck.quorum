@@ -1,0 +1,302 @@
+use Libraries.Game.Game
+use Libraries.Game.InputMonitor
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Label
+use Libraries.Game.Graphics.Drawable
+use Libraries.Game.Graphics.AmbientLight
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Graphics.Models.Data.Material
+use Libraries.Game.Graphics.Models.Data.ModelData
+use Libraries.Game.Graphics.Models.Data.ModelBuilder
+use Libraries.Game.Graphics.Models.Vulkan.ModelManagerVulkan
+use Libraries.Game.Graphics.Models.Vulkan.ModelBlueprintVulkan
+use Libraries.Interface.Events.KeyboardEvent
+use Libraries.Containers.Array
+use Libraries.Compute.Math
+use Libraries.Compute.Vector4
+
+/*
+TextureSetCheck shows materials made from texture sets (library item 24,
+Item24.md): separate color, normal, roughness, ambient occlusion and height
+maps, here AmbientCG's Rocks002.
+
+The first version showed only a grey window (2026-10-19), so this one starts
+with just a label and a sun, and adds one thing per key press, writing each
+step to the console, to find which part blanks the window:
+
+- P: a plain box, the old way, with only the color map as its texture
+  (green marker cube in front).
+- G: a box with Rocks002 as a texture set and its OpenGL normal map (red
+  marker).
+- D: the same set with its DirectX normal map (blue marker).
+- A: an ambient light.
+- L: start the sun circling. Until then it stays still.
+- T and B: stop the sun so it just grazes the faces toward the camera, from
+  above (T) or below (B). GL and DX normal maps differ only in which way is
+  up on a face, so this is the light that tells them apart: on the box with
+  the right convention, the stones look lit on the side the light comes
+  from; on the wrong one they look lit from the opposite side, like dents.
+
+The second version showed nothing even before any box was added, while
+other programs worked. The one thing only this program did was to aim its
+sun again every frame, so the sun now holds still until L is pressed. A red
+square in the corner shows that 2D drawing works.
+
+The third version found the cause: a new Material's diffuse is (0, 0, 0, 0),
+not undefined, so the boxes drew see-through (VulkanChanges.md, H). The
+boxes now set a white diffuse. The orange reference box that hung over the
+middle box is gone, since its shadow looked like a black square on it; the
+marker cubes replace "left", "right" and "middle", which depend on which way
+the camera faces.
+
+Every two seconds the console says the game is still running, so a hang can
+be told apart from a blank picture.
+
+When everything shows: a sun circles slowly. On the two texture set boxes
+the rocks' bumps should catch the light and move with it, while the plain
+box stays flat. The box whose bumps light up on the side facing the sun has
+the right normal map convention for Quorum.
+
+Attribute: Example
+// TextureSetCheck is a main program: set it as the project's main file and
+// run it.
+*/
+class TextureSetCheck is Game
+    text setFolder = "Textures/Rocks002_1K-PNG"
+    text setName = "Rocks002_1K-PNG"
+
+    Model glBox
+    Model dxBox
+    Model plainBox
+    DirectionalLight sun
+    Label label
+    Math math
+    InputMonitor monitor
+    KeyboardEvent keys
+    number sunAngle = 0
+    number timeUntilHeartbeat = 2
+    integer frames = 0
+
+    boolean plainAdded = false
+    boolean glAdded = false
+    boolean dxAdded = false
+    boolean ambientAdded = false
+    boolean sunMoving = false
+    boolean lWasDown = false
+    boolean tWasDown = false
+    boolean bWasDown = false
+    Drawable marker
+    Model plainMarker
+    Model glMarker
+    Model dxMarker
+    boolean pWasDown = false
+    boolean gWasDown = false
+    boolean dWasDown = false
+    boolean aWasDown = false
+
+    action Main
+        SetScreenSize(1000, 500)
+        UseVulkan(true)
+        StartGame()
+    end
+
+    action CreateGame
+        Color colors
+        sun:SetColor(colors:White())
+        sun:SetIntensity(2.5)
+        Add(sun)
+        PlaceSun()
+
+        GetCamera3D():SetPosition(0, 3, -9)
+        GetCamera3D():LookAt(0, 0, 0)
+
+        // The boxes are made first, before the label's letters make their
+        // textures, so the boxes' textures get low places among the
+        // textures. Only texture groups 0 to 2 are drawn today
+        // (VulkanChanges.md #22). The keys add them to the scene.
+        Material plain
+        plain:SetTexturePath(setFolder + "/" + setName + "_Color.png")
+        plain:SetRoughness(0.8)
+        LoadBoxWith(plainBox, plain, "Texture set check: plain")
+        plainBox:SetPosition(3, 0, 0)
+
+        Material glRock
+        glRock:SetTextureSet(setFolder, setName)
+        glRock:SetRoughness(0.8)
+        LoadBoxWith(glBox, glRock, "Texture set check: GL")
+        glBox:SetPosition(-3, 0, 0)
+
+        Material dxRock
+        dxRock:SetTextureSet(setFolder, setName)
+        dxRock:SetNormalMapPath(setFolder + "/" + setName + "_NormalDX.png")
+        dxRock:SetNormalMapDirectX(true)
+        LoadBoxWith(dxBox, dxRock, "Texture set check: DX")
+        dxBox:SetPosition(0, 0, 0)
+
+        label:SetPosition(10, 10)
+        label:SetText("P plain box (green), G texture set GL (red), D texture set DX (blue), A ambient, L move the sun, T and B sun from above and below")
+        Add(label)
+        marker:LoadFilledRectangle(40, 40, colors:Red())
+        marker:SetPosition(10, 440)
+        Add(marker)
+
+        // A small colored cube sits in front of each box, low down so its
+        // shadow can't fall on the box, to tell the boxes apart on screen:
+        // green for plain, red for GL, blue for DX.
+        plainMarker:LoadBox(0.4, 0.4, 0.4, colors:Green())
+        plainMarker:SetPosition(3, -0.8, -1.4)
+        glMarker:LoadBox(0.4, 0.4, 0.4, colors:Red())
+        glMarker:SetPosition(-3, -0.8, -1.4)
+        dxMarker:LoadBox(0.4, 0.4, 0.4, colors:Blue())
+        dxMarker:SetPosition(0, -0.8, -1.4)
+        plainMarker:SetCastsShadows(false)
+        glMarker:SetCastsShadows(false)
+        dxMarker:SetCastsShadows(false)
+        output "Texture set check: started. Press P, G, D or A, one at a time."
+    end
+
+    action Update(number seconds)
+        frames = frames + 1
+        boolean lDown = monitor:IsKeyPressed(keys:L)
+        if lDown and not lWasDown and not sunMoving
+            sunMoving = true
+            PlaceSun()
+            output "Texture set check: the sun starts moving."
+        end
+        lWasDown = lDown
+
+        // T and B hold the sun still, just grazing the faces toward the
+        // camera from above or from below. Only light along a face's up and
+        // down shows a normal map's convention, since GL and DX differ only
+        // there.
+        boolean tDown = monitor:IsKeyPressed(keys:T)
+        if tDown and not tWasDown
+            sunMoving = false
+            sun:SetDirection(0, -1, 0.2)
+            output "Texture set check: the sun grazes the front faces from above. Stones should look lit on top and shadowed underneath."
+        end
+        tWasDown = tDown
+        boolean bDown = monitor:IsKeyPressed(keys:B)
+        if bDown and not bWasDown
+            sunMoving = false
+            sun:SetDirection(0, 1, 0.2)
+            output "Texture set check: the sun grazes the front faces from below. Stones should look lit underneath and shadowed on top."
+        end
+        bWasDown = bDown
+        if sunMoving
+            sunAngle = sunAngle + 20 * seconds
+            if sunAngle >= 360
+                sunAngle = sunAngle - 360
+            end
+            PlaceSun()
+        end
+
+        timeUntilHeartbeat = timeUntilHeartbeat - seconds
+        if timeUntilHeartbeat <= 0
+            output "Texture set check: still running, " + frames + " frames so far. Texture groups: plain " + GetGroup(plainBox) + ", GL " + GetGroup(glBox) + ", DX " + GetGroup(dxBox) +
+                " (only groups 0 to 2 are drawn)."
+            timeUntilHeartbeat = 2
+        end
+
+        boolean pDown = monitor:IsKeyPressed(keys:P)
+        if pDown and not pWasDown and not plainAdded
+            Add(plainBox)
+            Add(plainMarker)
+            plainAdded = true
+            output "Texture set check: added the plain box (green marker)."
+            Describe("plain box", plainBox)
+        end
+        pWasDown = pDown
+
+        boolean gDown = monitor:IsKeyPressed(keys:G)
+        if gDown and not gWasDown and not glAdded
+            Add(glBox)
+            Add(glMarker)
+            glAdded = true
+            output "Texture set check: added the GL texture set box (red marker)."
+            Describe("GL box", glBox)
+        end
+        gWasDown = gDown
+
+        boolean dDown = monitor:IsKeyPressed(keys:D)
+        if dDown and not dWasDown and not dxAdded
+            Add(dxBox)
+            Add(dxMarker)
+            dxAdded = true
+            output "Texture set check: added the DX texture set box (blue marker)."
+        end
+        dWasDown = dDown
+
+        boolean aDown = monitor:IsKeyPressed(keys:A)
+        if aDown and not aWasDown and not ambientAdded
+            AmbientLight ambient
+            ambient:SetColor(0.35, 0.35, 0.35, 1)
+            SetAmbientLight(ambient)
+            ambientAdded = true
+            output "Texture set check: added the ambient light."
+        end
+        aWasDown = aDown
+    end
+
+    /*
+    This action returns the texture group of a model's first material, which
+    decides whether the renderer draws it (groups 0 to 2 only, today).
+
+    Attribute: Parameter model The model.
+    Attribute: Returns The group, or -1 if not known yet.
+    */
+    action GetGroup(Model model) returns integer
+        if model:GetModelBlueprint() = undefined
+            return -1
+        end
+        ModelBlueprintVulkan modelBlueprint = cast(ModelBlueprintVulkan, model:GetModelBlueprint())
+        return modelBlueprint:GetMeshes():Get(0):GetMaterial():GetTextureGroupIndex()
+    end
+
+    /*
+    This action writes where a model is, how big it is, and whether it is
+    showing, to check why a box might not be seen.
+
+    Attribute: Parameter name What to call the model.
+    Attribute: Parameter model The model.
+    */
+    action Describe(text name, Model model)
+        output "Texture set check: " + name + " at (" + model:GetX() + ", " + model:GetY() + ", " + model:GetZ() + "), size " +
+            model:GetWidth() + " by " + model:GetHeight() + " by " + model:GetDepth() + ", showing " + model:IsShowing()
+    end
+
+    /*
+    This action points the sun from its current angle around the boxes,
+    from above and a little in front.
+    */
+    action PlaceSun
+        number radians = math:DegreesToRadians(sunAngle)
+        sun:SetDirection(-math:Cosine(radians), -1.2, -math:Sine(radians) + 0.5)
+    end
+
+    /*
+    This action loads a 2 by 2 by 2 box made with the given material.
+
+    Attribute: Parameter box The model to load.
+    Attribute: Parameter material The box's material.
+    Attribute: Parameter key A name for the box's model data, different for each box.
+    */
+    action LoadBoxWith(Model box, Material material, text key)
+        // A new Material's diffuse is a zero vector, not undefined, so
+        // without this the box's color is multiplied by 0 and its alpha is
+        // 0, and the box can't be seen (VulkanChanges.md, H).
+        Vector4 diffuse
+        diffuse:Set(1, 1, 1, 1)
+        material:SetDiffuse(diffuse)
+        ModelBuilder builder
+        ModelData data = builder:CreateBox(2, 2, 2)
+        data:SetID(key)
+        Array<Material> materials
+        materials:Add(material)
+        data:SetMaterials(materials)
+        ModelManagerVulkan manager
+        ModelBlueprintVulkan boxBlueprint = manager:GetModelBlueprint(data)
+        box:Load(boxBlueprint)
+    end
+end

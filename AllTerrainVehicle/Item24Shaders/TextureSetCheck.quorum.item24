@@ -1,0 +1,132 @@
+use Libraries.Game.Game
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Label
+use Libraries.Game.Graphics.AmbientLight
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Graphics.Models.Data.Material
+use Libraries.Game.Graphics.Models.Data.ModelData
+use Libraries.Game.Graphics.Models.Data.ModelBuilder
+use Libraries.Game.Graphics.Models.Vulkan.ModelManagerVulkan
+use Libraries.Game.Graphics.Models.Vulkan.ModelBlueprintVulkan
+use Libraries.Containers.Array
+use Libraries.Compute.Math
+
+/*
+TextureSetCheck shows materials made from texture sets (library item 24,
+Item24.md): separate color, normal, roughness, ambient occlusion and height
+maps, here AmbientCG's Rocks002. Three boxes sit in a row:
+
+- left: Rocks002 as a texture set, with its OpenGL normal map (NormalGL);
+- middle: the same set with its DirectX normal map (NormalDX);
+- right: the old way, only the color map as a plain texture.
+
+A sun circles slowly, so the light comes from every side in turn. On the
+two left boxes the rocks' bumps should catch the light and cast soft
+shading that moves with the sun, while the right box stays flat. Cracks
+should look darker than on the right box even where the sun doesn't reach
+(ambient occlusion). The box whose bumps light up on the side facing the sun
+has the right normal map convention for Quorum; the other looks lit from
+the wrong side. Their shadows on each other should have no holes.
+
+Attribute: Example
+// TextureSetCheck is a main program: set it as the project's main file and
+// run it.
+*/
+class TextureSetCheck is Game
+    text setFolder = "Textures/Rocks002_1K-PNG"
+    text setName = "Rocks002_1K-PNG"
+
+    Model glBox
+    Model dxBox
+    Model plainBox
+    DirectionalLight sun
+    Label label
+    Math math
+    number sunAngle = 0
+
+    action Main
+        SetScreenSize(1000, 500)
+        UseVulkan(true)
+        StartGame()
+    end
+
+    action CreateGame
+        Color colors
+        AmbientLight ambient
+        ambient:SetColor(0.35, 0.35, 0.35, 1)
+        SetAmbientLight(ambient)
+        sun:SetColor(colors:White())
+        sun:SetIntensity(2.5)
+        Add(sun)
+        PlaceSun()
+
+        Material glRock
+        glRock:SetTextureSet(setFolder, setName)
+        glRock:SetRoughness(0.8)
+        LoadBoxWith(glBox, glRock, "Texture set check: GL")
+        glBox:SetPosition(-3, 0, 0)
+        Add(glBox)
+
+        Material dxRock
+        dxRock:SetTextureSet(setFolder, setName)
+        dxRock:SetNormalMapPath(setFolder + "/" + setName + "_NormalDX.png")
+        dxRock:SetNormalMapDirectX(true)
+        LoadBoxWith(dxBox, dxRock, "Texture set check: DX")
+        dxBox:SetPosition(0, 0, 0)
+        Add(dxBox)
+
+        Material plain
+        plain:SetTexturePath(setFolder + "/" + setName + "_Color.png")
+        plain:SetRoughness(0.8)
+        LoadBoxWith(plainBox, plain, "Texture set check: plain")
+        plainBox:SetPosition(3, 0, 0)
+        Add(plainBox)
+
+        GetCamera3D():SetPosition(0, 3, -9)
+        GetCamera3D():LookAt(0, 0, 0)
+
+        label:SetPosition(10, 10)
+        label:SetText("Left: texture set, NormalGL.  Middle: texture set, NormalDX.  Right: color only.")
+        Add(label)
+        output "Texture set check: " + glRock:GetColorMapPath() + ", normal " + glRock:GetNormalMapPath() +
+            ", roughness " + glRock:GetRoughnessMapPath() + ", AO " + glRock:GetAmbientOcclusionMapPath() +
+            ", height " + glRock:GetHeightMapPath()
+    end
+
+    action Update(number seconds)
+        sunAngle = sunAngle + 20 * seconds
+        if sunAngle >= 360
+            sunAngle = sunAngle - 360
+        end
+        PlaceSun()
+    end
+
+    /*
+    This action points the sun from its current angle around the boxes,
+    from above and a little in front.
+    */
+    action PlaceSun
+        number radians = math:DegreesToRadians(sunAngle)
+        sun:SetDirection(-math:Cosine(radians), -1.2, -math:Sine(radians) + 0.5)
+    end
+
+    /*
+    This action loads a 2 by 2 by 2 box made with the given material.
+
+    Attribute: Parameter box The model to load.
+    Attribute: Parameter material The box's material.
+    Attribute: Parameter key A name for the box's model data, different for each box.
+    */
+    action LoadBoxWith(Model box, Material material, text key)
+        ModelBuilder builder
+        ModelData data = builder:CreateBox(2, 2, 2)
+        data:SetID(key)
+        Array<Material> materials
+        materials:Add(material)
+        data:SetMaterials(materials)
+        ModelManagerVulkan manager
+        ModelBlueprintVulkan boxBlueprint = manager:GetModelBlueprint(data)
+        box:Load(boxBlueprint)
+    end
+end

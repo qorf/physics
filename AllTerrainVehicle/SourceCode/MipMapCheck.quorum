@@ -1,0 +1,207 @@
+use Libraries.Game.Game
+use Libraries.Game.InputMonitor
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Label
+use Libraries.Game.Graphics.Texture
+use Libraries.Game.Graphics.PixelMap
+use Libraries.Game.Graphics.Format
+use Libraries.Game.Graphics.AmbientLight
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Interface.Events.KeyboardEvent
+use Libraries.Compute.Vector4
+use Libraries.Compute.Math
+
+/*
+MipMapCheck shows what mipmaps and anisotropic filtering do (library item
+25, Item25.md). Two long floors run away from the camera, covered in the
+same fine black and white checkerboard:
+
+- the floor with a red cube at its near end has no mipmaps;
+- the floor with a green cube has mipmaps.
+
+The camera drifts slowly, since shimmer shows in motion. Far away, the
+floor without mipmaps should crawl with moiré patterns and sparkle, while
+the one with mipmaps fades to an even grey. In the middle distance, the
+floor with mipmaps should stay checkered rather than blur, thanks to
+anisotropic filtering.
+
+Keys:
+- M: stop or start the camera drifting.
+- Up and Down: move the camera higher or lower, for steeper or lower
+  angles.
+
+Attribute: Example
+// MipMapCheck is a main program: set it as the project's main file and run
+// it.
+*/
+class MipMapCheck is Game
+    // The checkerboard's size in pixels, and each square's size.
+    integer textureSize = 256
+    integer squareSize = 4
+    // The floors' size in world units, and how many times the texture
+    // repeats across and along each.
+    number floorWidth = 20
+    number floorDepth = 400
+    number repeatsAcross = 5
+    number repeatsAlong = 100
+
+    Texture plainTexture
+    Texture mipMappedTexture
+    Model plainFloor
+    Model mipMappedFloor
+    Model plainMarker
+    Model mipMappedMarker
+    DirectionalLight sun
+    AmbientLight ambient
+    Label label
+    InputMonitor monitor
+    KeyboardEvent keys
+    Math math
+
+    boolean drifting = true
+    boolean mWasDown = false
+    number driftTime = 0
+    number cameraHeight = 3
+    boolean reported = false
+
+    action Main
+        SetScreenSize(1000, 600)
+        UseVulkan(true)
+        StartGame()
+    end
+
+    action CreateGame
+        Color colors
+
+        plainTexture:LoadFromPixelMap(MakeCheckerboard())
+        PixelMap mipMap = MakeCheckerboard()
+        mipMappedTexture:LoadFromPixelMap(mipMap, mipMap:GetFormat(), true)
+
+        Vector4 coordinates
+        coordinates:Set(0, 0, repeatsAcross, repeatsAlong)
+        plainFloor:LoadPlane(floorWidth, floorDepth, plainTexture, coordinates)
+        plainFloor:SetPosition(-floorWidth / 2 - 1, 0, floorDepth / 2)
+        Add(plainFloor)
+        mipMappedFloor:LoadPlane(floorWidth, floorDepth, mipMappedTexture, coordinates)
+        mipMappedFloor:SetPosition(floorWidth / 2 + 1, 0, floorDepth / 2)
+        Add(mipMappedFloor)
+
+        plainMarker:LoadBox(1, 1, 1, colors:Red())
+        plainMarker:SetPosition(-floorWidth / 2 - 1, 0.5, 3)
+        Add(plainMarker)
+        mipMappedMarker:LoadBox(1, 1, 1, colors:Green())
+        mipMappedMarker:SetPosition(floorWidth / 2 + 1, 0.5, 3)
+        Add(mipMappedMarker)
+
+        sun:SetColor(colors:White())
+        sun:SetIntensity(1.5)
+        sun:SetDirection(0.3, -1, 0.4)
+        Add(sun)
+        ambient:SetColor(0.5, 0.5, 0.5, 1)
+        SetAmbientLight(ambient)
+
+        GetCamera3D():SetFar(1000)
+        PlaceCamera()
+
+        label:SetPosition(10, 10)
+        label:SetText("Red cube: no mipmaps. Green cube: mipmaps. M stops the camera, Up and Down change its height.")
+        Add(label)
+
+        output "Mipmap check: started. The red cube's floor has no mipmaps; the green cube's floor has them."
+    end
+
+    action Update(number seconds)
+        boolean mDown = monitor:IsKeyPressed(keys:M)
+        if mDown and not mWasDown
+            drifting = not drifting
+            if drifting
+                output "Mipmap check: the camera drifts."
+            else
+                output "Mipmap check: the camera holds still."
+            end
+        end
+        mWasDown = mDown
+
+        if monitor:IsKeyPressed(keys:UP)
+            cameraHeight = math:Clamp(cameraHeight + 2 * seconds, 0.5, 40)
+        end
+        if monitor:IsKeyPressed(keys:DOWN)
+            cameraHeight = math:Clamp(cameraHeight - 2 * seconds, 0.5, 40)
+        end
+
+        if drifting
+            driftTime = driftTime + seconds
+        end
+        PlaceCamera()
+
+        // Texture places are given during a frame, so the report waits
+        // until both textures have one.
+        if not reported and plainTexture:GetVulkanTextureIndex() >= 0 and mipMappedTexture:GetVulkanTextureIndex() >= 0
+            Describe("no mipmaps (red)", plainTexture)
+            Describe("mipmaps (green)", mipMappedTexture)
+            reported = true
+        end
+    end
+
+    /*
+    This action places the camera between the floors' near ends, looking
+    down them, swaying slowly from side to side and forward and back.
+    */
+    action PlaceCamera
+        number sideways = 3 * math:Sine(driftTime * 0.4)
+        number forward = 2 * math:Sine(driftTime * 0.25)
+        GetCamera3D():SetPosition(sideways, cameraHeight, forward - 6)
+        GetCamera3D():LookAt(sideways * 0.5, 0, forward + 60)
+    end
+
+    /*
+    This action writes whether a texture asked for mipmaps, and how many
+    levels that gives it.
+
+    Attribute: Parameter name What to call the texture.
+    Attribute: Parameter texture The texture.
+    */
+    action Describe(text name, Texture texture)
+        integer levels = 1
+        if texture:UsesMipMaps()
+            integer size = textureSize
+            repeat while size > 1
+                size = size / 2
+                levels = levels + 1
+            end
+        end
+        output "Mipmap check: texture with " + name + " is at place " + texture:GetVulkanTextureIndex() +
+            ", asked for mipmaps: " + texture:UsesMipMaps() + ", so " + levels + " level(s)."
+    end
+
+    /*
+    This action makes a black and white checkerboard, the hardest pattern
+    for a texture far away: without mipmaps it breaks up into moiré.
+
+    Attribute: Returns The checkerboard.
+    */
+    action MakeCheckerboard returns PixelMap
+        PixelMap map
+        Format format
+        format:SetValue(format:RGBA8888)
+        map:CreatePixelMap(textureSize, textureSize, format)
+        Color colors
+        Color black = colors:Black()
+        Color white = colors:White()
+        integer y = 0
+        repeat while y < textureSize
+            integer x = 0
+            repeat while x < textureSize
+                if ((x / squareSize) + (y / squareSize)) mod 2 = 0
+                    map:SetPixel(x, y, white)
+                else
+                    map:SetPixel(x, y, black)
+                end
+                x = x + 1
+            end
+            y = y + 1
+        end
+        return map
+    end
+end

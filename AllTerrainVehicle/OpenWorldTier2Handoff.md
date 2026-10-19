@@ -5,7 +5,10 @@ so work can move between machines. The overall picture is in
 `OpenWorlds.md` and `OpenWorldsHandoff.md`. Tier 1's record is in
 `OpenWorldTier1Handoff.md`.
 
-Last updated: 2026-10-17, after planning. **No code written yet.**
+Last updated: 2026-10-18. **Paused.** Goal 1 (several ground textures,
+blended) was done another way, as the splatting work in
+`TextureSplattingPlan.md`. The rest of this plan (control map, auto shader,
+paintable maps, holes) hasn't started.
 
 ## Rules for this work
 
@@ -26,8 +29,20 @@ for the user to approve (L1, L2, L3).
 
 ## Where we are
 
-- Planning done (this file). Waiting for the user to approve L1 (and
-  ideally L2 and L3), and the plan.
+- **Goal 1 is working** through `TextureSplattingPlan.md`: four layers
+  blended by splat weights, with slope-based weights and painting in
+  DriveOpen. It uses one splat texture for the whole map, not one per
+  region, because of the texture-group limit (`VulkanChanges.md` #19, #20).
+- **L1 is done** (library order 9, `Item9.md`, 2026-10-18). The terrain
+  draws with its own `TerrainSplatShaderProgram`.
+- **L2 and L3** (mipmaps and anisotropy, library orders 10 and 8) are
+  applied as `Item25.md` (2026-10-19), being tested. L4 (order 6) is not
+  started.
+- **Per-layer normal, roughness and AO** (this tier's PBR goal) work
+  through texture sets (`Item24.md`, `TerrainMaterialsPlan.md`), with
+  height blending.
+- Goals 2 to 5 are not started. Tier 4's paint brushes (`TierFour.md`)
+  build on the splat data.
 
 ## Goal
 
@@ -102,6 +117,8 @@ J = `quorum-language/Plugins/QuorumPlugins/src/main/java/plugins/quorum/Librarie
 
 ### But the painter ignores them (needs L1)
 
+**Resolved 2026-10-18 by L1 (library order 9).** Kept as the record of why.
+
 - `VulkanPainter3D` binds one pipeline for the whole geometry pass. The
   code says "TO-DO: Support custom shaders for 3D." (G/Vulkan/VulkanPainter3D.quorum:1098, and 1453).
 - Batches go into draw queues chosen only by texture group
@@ -149,7 +166,7 @@ J = `quorum-language/Plugins/QuorumPlugins/src/main/java/plugins/quorum/Librarie
 
 | # | Change | Size | Needed for |
 |---|---|---|---|
-| **L1** | **Per-model shader programs in `VulkanPainter3D`:** use `Model:GetShaderProgram()` when set, else the default. Split draw queues by program (or batch on blueprint plus program). In `End`, bind each program's pipeline (made lazily against `sceneRenderPass`) before its queues. Keep the shadow pass drawing every queue with the default shadow pipeline. Custom programs must use the default layout. | ~40-60 lines, `VulkanPainter3D.quorum` and `VulkanPainter3DBatch.quorum`, no Java | Everything in Tier 2 |
+| **L1** (done 2026-10-18, `Item9.md`) | **Per-model shader programs in `VulkanPainter3D`:** use `Model:GetShaderProgram()` when set, else the default. Split draw queues by program (or batch on blueprint plus program). In `End`, bind each program's pipeline (made lazily against `sceneRenderPass`) before its queues. Keep the shadow pass drawing every queue with the default shadow pipeline. Custom programs must use the default layout. | ~40-60 lines, `VulkanPainter3D.quorum` and `VulkanPainter3DBatch.quorum`, no Java | Everything in Tier 2 |
 | **L2** | **Mipmaps.** New `BlitImageCommand` (Quorum and Java; there is no blit today). Images get `IMAGE_USAGE_TRANSFER_SOURCE_BIT` and a full mip chain, built with barriers and blits per level. The view gets the level count. | ~110 lines plus ~60 Java | Ground textures that don't shimmer (`VulkanChanges.md` #7) |
 | **L3** | **Sampler:** linear mip mode and anisotropic filtering on the default sampler. `VulkanDevice.java` already turns on the device feature when supported. Must be set before any pipeline is made, since the sampler is built into every layout. | ~5 lines | Sharp ground at low angles (`VulkanChanges.md` #8) |
 | L4 | Fix the override index mismatch: write the local index in the group | ~1 line Java | Only once there is more than one texture group |
@@ -213,8 +230,7 @@ Each step ends with tests or a DriveOpen run, then an update to this file.
 
 ## Open decisions for the user
 
-1. **Approve L1** (per-model shader programs in the Vulkan painter)? Tier 2
-   can't start drawing without it. Steps 1 and 2 can start now without it.
+1. ~~**Approve L1**~~: done (library order 9).
 2. **Approve L2 and L3** (mipmaps, anisotropic filtering), now or later?
 3. **Ground textures:** use `grass.png` and `rock.png` from TerrainSplatting
    (128 by 128, origin and license unknown), or does the user have a
@@ -223,6 +239,8 @@ Each step ends with tests or a DriveOpen run, then an update to this file.
 
 ## Known limits carried from Tier 1
 
-- Every rebuild leaks the old mesh (`VulkanChanges.md` #3). Control
-  textures rebuilt after painting will leak the old texture the same way,
-  unless texture freeing is added too.
+- ~~Every rebuild leaks the old mesh~~: fixed by library order 7; meshes are
+  updated in place.
+- Textures still can't be updated or freed (`VulkanChanges.md` #20), so the
+  splat texture rebuilt after each paint stroke leaks the old one. This is
+  the same problem for a control map.

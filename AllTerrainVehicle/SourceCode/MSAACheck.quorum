@@ -1,0 +1,213 @@
+use Libraries.Game.Game
+use Libraries.Game.InputMonitor
+use Libraries.Game.GameStateManager
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Label
+use Libraries.Game.Graphics.Skybox
+use Libraries.Game.Graphics.AmbientLight
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Graphics.Vulkan.VulkanGraphics
+use Libraries.Interface.Events.KeyboardEvent
+use Libraries.Containers.Array
+use Libraries.Compute.Math
+
+/*
+MSAACheck tests multisample anti-aliasing under Vulkan (library item 27,
+Item27.md). The scene is made to show stair-stepped edges: a row of thin
+posts going into the distance, thin wires at a slight angle, and three
+boxes turning slowly, one in front of another, against the day sky and
+over a ground plane with shadows. The camera sways slowly, since
+stair-stepping shows most in motion.
+
+Keys:
+- M steps the sample count: 1 (off), 2, 4, 8, and back to 1.
+- P stops or starts the camera's sway.
+
+Every two seconds the console says the count asked for, the count used
+(what the device can do), and the average frame time.
+
+What to see:
+1. At 1: stair-stepped, crawling edges, as before MSAA.
+2. At 4: smooth edges on the posts, wires and box outlines, with no dark or
+   light rim against the sky.
+3. Where boxes overlap, smooth edges and no bright or dark fringes.
+4. Shadows and lighting unchanged on the surfaces.
+5. Changing the count gives a short pause, and no errors.
+6. Resizing the window with MSAA on still works.
+
+Attribute: Example
+// MSAACheck is a main program: set it as the project's main file and run
+// it.
+*/
+class MSAACheck is Game
+    Skybox skybox
+    Label label
+    InputMonitor monitor
+    KeyboardEvent keys
+    Math math
+    DirectionalLight sun
+    AmbientLight ambient
+    Model ground
+    Array<Model> posts
+    Array<Model> wires
+    Array<Model> turningBoxes
+
+    boolean swaying = true
+    number swayTime = 0
+    boolean mWasDown = false
+    boolean pWasDown = false
+
+    // For the average frame time.
+    number timeUntilReport = 2
+    number reportSeconds = 0
+    integer reportFrames = 0
+
+    action Main
+        SetScreenSize(1000, 600)
+        UseVulkan(true)
+        StartGame()
+    end
+
+    action CreateGame
+        text folder = "Skyboxes/Day/"
+        skybox:Load(folder + "right.png", folder + "left.png", folder + "top.png", folder + "bottom.png",
+            folder + "front.png", folder + "back.png")
+        SetSkybox(skybox)
+
+        Color colors
+        sun:SetColor(colors:White())
+        sun:SetIntensity(2)
+        sun:SetDirection(-0.5, -1, 0.7)
+        Add(sun)
+        ambient:SetColor(0.45, 0.45, 0.45, 1)
+        SetAmbientLight(ambient)
+
+        ground:LoadBox(80, 0.2, 120, colors:CustomColor(0.45, 0.55, 0.35, 1))
+        ground:SetPosition(0, -0.1, 50)
+        Add(ground)
+
+        // A row of thin posts going away from the camera, on each side.
+        integer i = 0
+        repeat while i < 20
+            Model leftPost
+            leftPost:LoadBox(0.08, 3, 0.08, colors:CustomColor(0.3, 0.25, 0.2, 1))
+            leftPost:SetPosition(-3, 1.5, 4 + i * 4)
+            Add(leftPost)
+            posts:Add(leftPost)
+            Model rightPost
+            rightPost:LoadBox(0.08, 3, 0.08, colors:CustomColor(0.3, 0.25, 0.2, 1))
+            rightPost:SetPosition(3, 1.5, 4 + i * 4)
+            Add(rightPost)
+            posts:Add(rightPost)
+            i = i + 1
+        end
+
+        // Thin wires across the view, tilted slightly, against the sky.
+        i = 0
+        repeat while i < 4
+            Model wire
+            wire:LoadBox(30, 0.03, 0.03, colors:Black())
+            wire:SetPosition(0, 4 + i * 0.8, 20 + i * 6)
+            wire:Rotate(0, 0, 1, 3 + i * 2)
+            Add(wire)
+            wires:Add(wire)
+            i = i + 1
+        end
+
+        // Three boxes turning slowly, overlapping on screen.
+        Model redBox
+        redBox:LoadBox(1.5, 1.5, 1.5, colors:Red())
+        redBox:SetPosition(-1, 1.2, 9)
+        Model blueBox
+        blueBox:LoadBox(1.5, 1.5, 1.5, colors:Blue())
+        blueBox:SetPosition(0.3, 1.6, 12)
+        Model whiteBox
+        whiteBox:LoadBox(1.5, 1.5, 1.5, colors:White())
+        whiteBox:SetPosition(1.4, 1.0, 10.5)
+        turningBoxes:Add(redBox)
+        turningBoxes:Add(blueBox)
+        turningBoxes:Add(whiteBox)
+        i = 0
+        repeat while i < turningBoxes:GetSize()
+            Add(turningBoxes:Get(i))
+            i = i + 1
+        end
+
+        GetCamera3D():SetFar(500)
+        PlaceCamera()
+
+        label:SetPosition(10, 10)
+        label:SetText("M sample count (1, 2, 4, 8), P stop or start the sway")
+        Add(label)
+
+        output "MSAA check: started with MSAA off. Press M to step the sample count."
+    end
+
+    action Update(number seconds)
+        boolean mDown = monitor:IsKeyPressed(keys:M)
+        if mDown and not mWasDown
+            integer nextCount = GetMultisampling() * 2
+            if nextCount > 8
+                nextCount = 1
+            end
+            SetMultisampling(nextCount)
+            output "MSAA check: asked for " + nextCount + " samples per pixel."
+        end
+        mWasDown = mDown
+
+        boolean pDown = monitor:IsKeyPressed(keys:P)
+        if pDown and not pWasDown
+            swaying = not swaying
+        end
+        pWasDown = pDown
+
+        if swaying
+            swayTime = swayTime + seconds
+        end
+        PlaceCamera()
+
+        integer i = 0
+        repeat while i < turningBoxes:GetSize()
+            turningBoxes:Get(i):Rotate(0, 1, 0, (10 + i * 7) * seconds)
+            i = i + 1
+        end
+
+        reportSeconds = reportSeconds + seconds
+        reportFrames = reportFrames + 1
+        timeUntilReport = timeUntilReport - seconds
+        if timeUntilReport <= 0
+            number milliseconds = 1000 * reportSeconds / reportFrames
+            output "MSAA check: asked for " + GetMultisampling() + ", using " + GetUsedSamples() + ", average frame " +
+                math:Round(milliseconds, 2) + " ms."
+            timeUntilReport = 2
+            reportSeconds = 0
+            reportFrames = 0
+        end
+    end
+
+    /*
+    This action places the camera above the start of the posts, looking
+    down the row, swaying slowly from side to side.
+    */
+    action PlaceCamera
+        number sideways = 1.2 * math:Sine(swayTime * 0.5)
+        GetCamera3D():SetPosition(sideways, 2.2, -2)
+        GetCamera3D():LookAt(sideways * 0.3, 1.8, 20)
+    end
+
+    /*
+    This action returns how many samples per pixel are really used: the
+    count asked for, or less if the device can't do it.
+
+    Attribute: Returns The sample count in use.
+    */
+    action GetUsedSamples returns integer
+        GameStateManager manager
+        if manager:GetGameGraphics() is VulkanGraphics
+            VulkanGraphics graphics = cast(VulkanGraphics, manager:GetGameGraphics())
+            return graphics:GetUsableMultisampleCount()
+        end
+        return 1
+    end
+end

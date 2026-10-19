@@ -5,9 +5,11 @@ drawn and collided with at a cost that doesn't grow with the world's size.
 Updated after every completed operation, so work can move between machines.
 The overall picture is in `OpenWorlds.md` and `OpenWorldsHandoff.md`.
 
-Last updated: 2026-10-17, after distant terrain (far models) was written.
-**Not yet compiled.** The user put Tier 2 (texturing) on hold and
-started Tier 3.
+Last updated: 2026-10-18. Steps 1 and 2 and distant terrain are done and
+running in DriveOpen. Step 3 is deferred, and the clipmap is not started.
+Since then, work moved to texture splatting (a Tier 2 feature, in
+`TextureSplattingPlan.md`) and the library changes it needed (orders 7 and
+9 in `LibraryChangesPlan.md`). Next is Tier 4 (`TierFour.md`).
 
 ## Where we are
 
@@ -25,9 +27,14 @@ started Tier 3.
 - **Step 3, floating origin: deferred.** The region grid tops out at about
   8 km, where 32-bit floats are still precise to about 1 mm, so there is
   nothing to fix yet (explained to the user 2026-10-17).
-- **Distant terrain with less detail: written, waiting for a run.** No
-  library changes. The user chose it from the list of work that needs no
-  library changes.
+- **Distant terrain with less detail: done.** No library changes. After
+  the tint and taller hills (below), it has been running in every DriveOpen
+  run since (for example "12 drawn in full, 52 drawn far", 2026-10-18). The
+  checks under "To check distant terrain" were not each reported on
+  separately.
+- **Since 2026-10-18,** rebuilds of region and far models update their
+  meshes in place (library order 7, `Item7.md`), and with splatting both
+  draw with their own shader program (library order 9, `Item9.md`).
 
 ### Distant terrain: what was written
 
@@ -108,7 +115,8 @@ started Tier 3.
   - `heightScale` raised from 24 to 120.
   - `farSkirtDepth = 6`, since steeper hills leave larger cracks.
   - The render tree check's region top raised from 40 to 80.
-- **Waiting for a run.** Expected: red-tinted hills out to the map's edge,
+- **Ran (2026-10-17):** the hills showed, and led to the changes below.
+  Expected: red-tinted hills out to the map's edge,
   turning to untinted full detail about 40 units from the vehicle.
 
 ### Hills the vehicle can climb
@@ -119,7 +127,8 @@ started Tier 3.
   = 0.3, then 120 × 0.0125 = 1.5.
 - Now `heightScale` = 80 and a new `hillFrequency` = 0.005 (a hill about
   every 100 units instead of 40): 80 × 0.005 = 0.4. That is tall, wide hills
-  that are a little steeper than the original. **Waiting for a run.**
+  that are a little steeper than the original. **Ran:** the vehicle has
+  driven and edited these hills in the runs since.
 
 ### Vehicle tuned for the taller hills (DriveOpen only; Main unchanged)
 
@@ -135,7 +144,7 @@ started Tier 3.
     body model and would float.
   - Engine force went from 3000 to 5000 (reverse from 2000 to 3000).
     Gravity on the 800 kg vehicle at 30 degrees is about 3900.
-- **Waiting for a run.**
+- **Ran:** used in every DriveOpen run since.
 
 ### To check distant terrain
 
@@ -614,8 +623,9 @@ Terrain3D's layout (TILE, EDGE, FILL and TRIM pieces, 7 levels, snapping at
 - **Collision is unchanged,** from step 1, since it reads `TerrainData` on
   the CPU.
 - **Before the GPU version, a CPU stand-in could prove the layout:**
-  rebuild the ring pieces' meshes on the CPU when the camera snaps. It leaks
-  until S1 or `VulkanChanges.md` #3 lands, so it's only for a short test.
+  rebuild the ring pieces' meshes on the CPU when the camera snaps. Since
+  `VulkanChanges.md` #3 (library order 7), a piece whose vertex count stays
+  the same can be updated in place, so this no longer leaks.
 
 ### 4. Background terrain
 
@@ -648,7 +658,7 @@ Terrain3D's layout (TILE, EDGE, FILL and TRIM pieces, 7 levels, snapping at
 |---|---|---|---|---|
 | S1 | **Freeing GPU memory:** the Java `StopMapping` fix, a deferred-deletion queue, `MeshVulkan`/`ModelBlueprintVulkan`/`ModelResourcesVulkan` dispose, remove from the blueprint cache, prune painter batches by age | ~200-250 lines, ~6 files, plus Java | Streaming drawn regions | `VulkanChanges.md` #1, #2, #5, #15 |
 | S2 | Vertex-buffer override per model, "before drawing" compute hook, compute to vertex barrier | ~30-60 lines | Clipmap, compute route | new |
-| S3 | Per-model shader programs in the Vulkan painter | ~40-60 lines | Clipmap, vertex route; Tier 2 | Tier 2 L1, `VulkanChanges.md` #6 |
+| S3 | Per-model shader programs in the Vulkan painter. **Done 2026-10-18** (library order 9, `Item9.md`) | about 230 lines with comments | Clipmap, vertex route; Tier 2 | Tier 2 L1, `VulkanChanges.md` #6 |
 | S4 | Pass a user buffer address to a shader: a field in the material, or a larger instance record | ~30-80 lines, Java and 3 shaders if the instance record grows | Clipmap, vertex route | new |
 | S5 | Camera-relative drawing | ~40 lines | Large worlds without jitter | `VulkanChanges.md` #16 |
 | S6 | Distance fog in the lighting shader | ~20-40 lines | Hiding the far edge | `VulkanChanges.md` #17 |
@@ -665,15 +675,15 @@ Terrain3D's layout (TILE, EDGE, FILL and TRIM pieces, 7 levels, snapping at
 3. **Floating origin experiment** in DriveOpen (no library change), with a
    larger region grid or a test at large coordinates.
 4. **Library: S1 (freeing).** Then streaming of drawn region models.
-5. **Choose the clipmap route.** If Tier 2 is done first, S3 already
-   exists, and the vertex route needs only S4. Otherwise the compute route
+5. **Choose the clipmap route.** S3 now exists (library order 9), so the
+   vertex route needs only S4. Otherwise the compute route
    (S2) is the smaller step.
 6. **Background terrain, S6 fog, S5 camera-relative drawing,** as needed.
 
 ## Open decisions for the user
 
-1. **Order of Tier 2 and Tier 3.** Doing Tier 2 first gives S3 (per-model
-   shaders), which makes the vertex-route clipmap cheaper.
+1. ~~**Order of Tier 2 and Tier 3.**~~ Settled by events: splatting (Tier 2)
+   came first and brought S3, so the vertex-route clipmap now needs only S4.
 2. **Clipmap route:** vertex (Terrain3D's way, editing without rebuilds) or
    compute (smaller hook)?
 3. **Which library changes to approve,** and when: S1 is needed before

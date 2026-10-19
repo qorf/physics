@@ -11,6 +11,7 @@ use Libraries.Game.Graphics.Models.Data.MeshData
 use Libraries.Game.Graphics.Models.Data.Material
 use Libraries.Game.Graphics.Models.Vulkan.ModelManagerVulkan
 use Libraries.Game.Graphics.Models.Vulkan.ModelBlueprintVulkan
+use Libraries.Game.Graphics.Models.Vulkan.MeshVulkan
 
 /*
 A TerrainRegionFarModel draws one region with less detail, for when it is
@@ -65,12 +66,35 @@ class TerrainRegionFarModel is TerrainPatch
     // Whether the ground this model draws has changed since it was built.
     boolean needsRebuild = false
 
+    // Whether the model is drawn with texture splatting, and which samples
+    // the terrain's splat texture covers, as in TerrainRegionModel.
+    boolean usesSplat = false
+    integer splatStartX = 0
+    integer splatStartZ = 0
+    integer splatWidth = 1
+    integer splatDepth = 1
+
+    // The blueprint this model last loaded, and the region size, step and
+    // splat setting it was built with. A rebuild with the same ones updates
+    // that blueprint's mesh in place instead of making a new one.
+    ModelBlueprintVulkan loadedBlueprint = undefined
+    integer loadedRegionSize = 0
+    integer loadedStep = 0
+    boolean loadedWithSplat = false
+
+    // Whether rebuilds may update the mesh in place, as in TerrainRegionModel.
+    boolean inPlaceUpdates = true
+
+    // Whether the last build updated the mesh in place.
+    boolean builtInPlace = false
+
     /*
     This action builds the model for one region, and places it in the world.
     The region's heights must be loaded while it is built, but not after.
 
-    Building again makes a new mesh. The renderer cannot yet free the old
-    one, so its memory stays in use. See VulkanChanges.md.
+    Building again updates the mesh in place when the region size, step and
+    splat setting are unchanged. Otherwise it makes a new mesh, and the
+    renderer cannot yet free the old one. See VulkanChanges.md.
 
     Attribute: Parameter data The heights of the whole terrain.
     Attribute: Parameter region The region this model draws.
@@ -94,7 +118,13 @@ class TerrainRegionFarModel is TerrainPatch
 
         Measure(data, locationX * regionSize, locationZ * regionSize, regionSize)
         MeshData mesh = BuildMesh(regionSize, data:GetVertexSpacing(), textureRepeat)
-        LoadMesh(mesh)
+        builtInPlace = UpdateMeshInPlace(mesh, regionSize)
+        if not builtInPlace
+            LoadMesh(mesh)
+            loadedRegionSize = regionSize
+            loadedStep = step
+            loadedWithSplat = usesSplat
+        end
         if texture not= undefined
             GetResources():SetTexture(texture)
         end
@@ -118,6 +148,53 @@ class TerrainRegionFarModel is TerrainPatch
     action PlaceInWorld
         parent:TerrainPatch:PlaceInWorld()
         SetY(GetBaseHeight() - skirtDepth)
+    end
+
+    /*
+    This action sets whether the model is drawn with texture splatting. It
+    takes effect the next time the model is built.
+
+    Attribute: Parameter splat True to draw with texture splatting.
+    */
+    action SetUsesSplat(boolean splat)
+        usesSplat = splat
+    end
+
+    /*
+    This action sets whether building again may update the existing mesh in
+    place, rather than making a new one. It is on by default.
+
+    Attribute: Parameter inPlace True to update meshes in place when possible.
+    */
+    action SetInPlaceUpdates(boolean inPlace)
+        inPlaceUpdates = inPlace
+    end
+
+    /*
+    This action returns true if the last build updated the existing mesh in
+    place, or false if it loaded a new mesh.
+
+    Attribute: Returns True if the last build was an update in place.
+    */
+    action WasBuiltInPlace returns boolean
+        return builtInPlace
+    end
+
+    /*
+    This action sets which samples the terrain's splat texture covers, so
+    the model's texture coordinates point at the right pixels. It takes
+    effect the next time the model is built.
+
+    Attribute: Parameter startX The first sample along x the splat texture covers.
+    Attribute: Parameter startZ The first sample along z the splat texture covers.
+    Attribute: Parameter width How many samples the splat texture covers along x.
+    Attribute: Parameter depth How many samples the splat texture covers along z.
+    */
+    action SetSplatArea(integer startX, integer startZ, integer width, integer depth)
+        splatStartX = startX
+        splatStartZ = startZ
+        splatWidth = width
+        splatDepth = depth
     end
 
     /*
@@ -214,9 +291,17 @@ class TerrainRegionFarModel is TerrainPatch
                 bitangent:Set(normal)
                 bitangent:CrossProduct(tangent)
 
+                // With splatting, the texture coordinates are the vertex's
+                // place in the terrain's splat texture, as in
+                // TerrainRegionModel.
+                number u = (firstX + x) * spacing / textureRepeat
+                number v = (firstZ + z) * spacing / textureRepeat
+                if usesSplat
+                    u = (firstX + x - splatStartX + 0.5) / splatWidth
+                    v = (firstZ + z - splatStartZ + 0.5) / splatDepth
+                end
                 SetVertex(vertices, normals, tangents, bitangents, textureCoordinates, vertex,
-                    x, GetPatchHeight(x, z) - bottom, z, normal, tangent, bitangent,
-                    (firstX + x) * spacing / textureRepeat, (firstZ + z) * spacing / textureRepeat)
+                    x, GetPatchHeight(x, z) - bottom, z, normal, tangent, bitangent, u, v)
                 column = column + 1
             end
             row = row + 1
@@ -391,6 +476,29 @@ class TerrainRegionFarModel is TerrainPatch
     end
 
     /*
+    This action gives the loaded mesh new vertices, if it can be done in
+    place: a mesh has been loaded, in-place updates are on, and the region
+    size, step and splat setting match what the mesh was built with. The
+    triangles depend on the region size and step, and the material on the
+    splat setting.
+
+    Attribute: Parameter mesh The newly built mesh.
+    Attribute: Parameter regionSize The number of samples along each side of a region.
+    Attribute: Returns True if the mesh was updated, or false if it must be loaded instead.
+    */
+    private action UpdateMeshInPlace(MeshData mesh, integer regionSize) returns boolean
+        if inPlaceUpdates = false or loadedBlueprint = undefined
+            return false
+        end
+        if loadedRegionSize not= regionSize or loadedStep not= step or loadedWithSplat not= usesSplat
+            return false
+        end
+        MeshVulkan loadedMesh = loadedBlueprint:GetMeshes():Get(0)
+        loadedMesh:UpdateVertices(mesh)
+        return true
+    end
+
+    /*
     This action turns a mesh into a model blueprint and loads it. Each build
     gets its own name, since the renderer keeps blueprints by name.
 
@@ -408,6 +516,11 @@ class TerrainRegionFarModel is TerrainPatch
         Vector4 diffuse
         diffuse:Set(1, 1, 1, 1)
         material:SetDiffuse(diffuse)
+        // A negative metallic value marks terrain for the splat shader.
+        if usesSplat
+            material:SetMetallic(-1)
+            material:SetRoughness(0.9)
+        end
         Array<Material> materials
         materials:Add(material)
 
@@ -419,5 +532,6 @@ class TerrainRegionFarModel is TerrainPatch
         ModelManagerVulkan manager
         ModelBlueprintVulkan farBlueprint = manager:GetModelBlueprint(modelData)
         Load(farBlueprint)
+        loadedBlueprint = farBlueprint
     end
 end

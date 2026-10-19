@@ -1,0 +1,125 @@
+use Libraries.Game.Game
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.Drawable
+use Libraries.Game.Graphics.Format
+use Libraries.Game.Graphics.Label
+use Libraries.Game.Graphics.PixelMap
+use Libraries.Game.Graphics.Texture
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.DirectionalLight
+
+/*
+TextureUpdateCheck checks, on its own, whether loading new pixels into a
+texture that is already loaded shows on screen, with the Vulkan renderer.
+Since library item 20 (Item20.md), a texture loaded again at the same size
+is copied into its existing image, keeping its place among the textures.
+
+It draws one 2D square with a 64 by 64 texture, and every second loads the
+same Texture object again with the other color: red, then blue, then red.
+The same texture is also used by two 3D boxes: the left one has it as its
+own texture, and the right one is a plain white box given it as a texture
+override, the way terrain is given its splat texture.
+
+Whatever doesn't change color with the square doesn't see the update.
+(First run, 2026-10-19: the square changes, at index 0.)
+
+The console says which color was loaded and the texture's place, which
+should stay the same.
+
+Attribute: Example
+// TextureUpdateCheck is a main program: set it as the project's main file
+// and run it.
+*/
+class TextureUpdateCheck is Game
+    Texture texture
+    Drawable square
+    Model texturedBox
+    Model overriddenBox
+    DirectionalLight light
+    Label label
+    number timeUntilChange = 1
+    boolean showingRed = true
+    integer changes = 0
+
+    action Main
+        SetScreenSize(800, 500)
+        UseVulkan(true)
+        StartGame()
+    end
+
+    action CreateGame
+        texture:LoadFromPixelMap(MakePixels(true))
+        square:Load(texture)
+        square:SetSize(200, 200)
+        square:SetPosition(100, 100)
+        Add(square)
+        label:SetPosition(10, 10)
+        label:SetText("All three should change between red and blue")
+        Add(label)
+
+        // Two boxes behind the square's corner: the left with the texture
+        // as its own, the right white with the texture as an override.
+        texturedBox:LoadBox(2, 2, 2, texture)
+        texturedBox:SetPosition(-2, 0, 0)
+        Add(texturedBox)
+        Color colors
+        overriddenBox:LoadBox(2, 2, 2, colors:White())
+        overriddenBox:GetResources():SetTexture(texture)
+        overriddenBox:SetPosition(2, 0, 0)
+        Add(overriddenBox)
+        // The light's color is set, as DriveOpen does for its sun; without
+        // it the boxes were black (first 3D run). It shines from behind the
+        // camera, onto the faces the camera sees.
+        light:SetColor(colors:White())
+        light:SetDirection(0.3, -1, 1)
+        light:SetIntensity(2.5)
+        Add(light)
+        GetCamera3D():SetPosition(0, 3, -8)
+        GetCamera3D():LookAt(0, 0, 0)
+        output "Loaded red."
+    end
+
+    action Update(number seconds)
+        timeUntilChange = timeUntilChange - seconds
+        if timeUntilChange <= 0
+            showingRed = not showingRed
+            texture:LoadFromPixelMap(MakePixels(showingRed))
+            changes = changes + 1
+            text name = "blue"
+            if showingRed
+                name = "red"
+            end
+            output "Loaded " + name + " again into the same texture (" + changes + " reloads). Its place: index " +
+                texture:GetVulkanTextureIndex() + ", group " + texture:GetVulkanTextureGroupIndex() + "."
+            timeUntilChange = 1
+        end
+    end
+
+    /*
+    This action makes a 64 by 64 image of one color.
+
+    Attribute: Parameter red True for red, false for blue.
+    Attribute: Returns The image.
+    */
+    action MakePixels(boolean red) returns PixelMap
+        PixelMap map
+        Format format
+        format:SetValue(format:RGBA8888)
+        map:CreatePixelMap(64, 64, format)
+        Color color
+        Color fill = color:Blue()
+        if red
+            fill = color:Red()
+        end
+        integer y = 0
+        repeat while y < 64
+            integer x = 0
+            repeat while x < 64
+                map:SetPixel(x, y, fill)
+                x = x + 1
+            end
+            y = y + 1
+        end
+        return map
+    end
+end

@@ -1,0 +1,105 @@
+package Worlds.Tests
+
+use Libraries.Game.Graphics.Worlds.TerrainBrush
+use Libraries.Game.Graphics.Worlds.TerrainTool
+use Libraries.Containers.Number32BitArray
+
+/*
+Tests TerrainBrush and TerrainTool. The round falloff is full at the center,
+half at half the radius, and nothing at the edge. Gamma sharpens it. A shape
+replaces the falloff and turns with the rotation. The slope range, the ramp
+height, and which tools and operations go together are checked too.
+
+Attribute: Example
+use Worlds.Tests.TerrainBrushTest
+use Libraries.Testing.Tester
+
+Tester tester
+TerrainBrushTest test
+tester:Run(test)
+*/
+class TerrainBrushTest is WorldsTest
+    on create
+        SetName("Terrain brush settings and falloff")
+    end
+
+    /*
+    This action runs the test.
+    */
+    action Run
+        TerrainTool tools
+        TerrainBrush brush
+        brush:SetTool(tools:SCULPT, tools:ADD)
+        brush:SetSize(4)
+
+        // The round falloff.
+        CheckNumber("full weight at the center", brush:GetWeight(0, 0), 1)
+        CheckNumber("half weight at half the radius", brush:GetWeight(2, 0), 0.5)
+        CheckNumber("half weight at half the radius along z", brush:GetWeight(0, -2), 0.5)
+        CheckNumber("no weight at the radius", brush:GetWeight(4, 0), 0)
+        CheckNumber("no weight past the radius", brush:GetWeight(5, 0), 0)
+        CheckNumber("spacing is a quarter of the size", brush:GetSpacing(), 1)
+
+        // Gamma 2 squares the falloff.
+        brush:SetGamma(2)
+        CheckNumber("gamma 2 squares the weight", brush:GetWeight(2, 0), 0.25)
+        CheckNumber("gamma keeps the center full", brush:GetWeight(0, 0), 1)
+        brush:SetGamma(1)
+
+        // A shape: 3 by 3, full in the middle, half just to the right
+        // (along x), nothing elsewhere.
+        Number32BitArray values
+        values:SetSize(9)
+        integer i = 0
+        repeat while i < 9
+            values:Set(i, 0)
+            i = i + 1
+        end
+        values:Set(4, 1)
+        values:Set(5, 0.5)
+        brush:SetSize(3)
+        brush:SetShape(values, 3)
+        CheckThat("the brush has a shape", brush:HasShape())
+        CheckNumber("the shape's middle", brush:GetWeight(0, 0), 1)
+        CheckNumber("the shape to the right", brush:GetWeight(2, 0), 0.5)
+        CheckNumber("the shape to the left", brush:GetWeight(-2, 0), 0)
+        CheckNumber("outside the shape's square", brush:GetWeight(3.5, 0), 0)
+
+        // Turned a quarter turn, the half-strength part moves from +x to +z.
+        brush:SetRotation(90)
+        CheckNumber("turned shape along z", brush:GetWeight(0, 2), 0.5)
+        CheckNumber("turned shape no longer along x", brush:GetWeight(2, 0), 0)
+        brush:ClearShape()
+        CheckThat("the shape is gone", not brush:HasShape())
+
+        // The slope range.
+        CheckThat("any slope is allowed with no range", brush:IsSlopeAllowed(80))
+        brush:SetSlopeRange(10, 30)
+        CheckThat("a slope inside the range", brush:IsSlopeAllowed(20))
+        CheckThat("a slope below the range", not brush:IsSlopeAllowed(5))
+        CheckThat("a slope above the range", not brush:IsSlopeAllowed(40))
+        brush:ClearSlopeRange()
+        CheckThat("no range after clearing", brush:IsSlopeAllowed(40))
+
+        // The ramp: from height 0 at (0, 0) to height 20 at (10, 0).
+        CheckThat("no ramp at first", not brush:HasGradient())
+        brush:SetGradient(0, 0, 0, 10, 0, 20)
+        CheckNumber("ramp halfway", brush:GetGradientHeight(5, 3), 10)
+        CheckNumber("ramp before its start", brush:GetGradientHeight(-5, 0), 0)
+        CheckNumber("ramp past its end", brush:GetGradientHeight(15, 0), 20)
+
+        // Tools and operations.
+        CheckThat("raise is valid", tools:IsValid(tools:SCULPT, tools:ADD))
+        CheckThat("sculpt replace is not valid", not tools:IsValid(tools:SCULPT, tools:REPLACE))
+        CheckThat("flatten is valid", tools:IsValid(tools:HEIGHT, tools:REPLACE))
+        CheckThat("painting is valid", tools:IsValid(tools:TEXTURE, tools:ADD))
+        CheckThat("region removal is valid", tools:IsValid(tools:REGION, tools:SUBTRACT))
+        CheckThat("raise's name", brush:GetName() = "raise")
+        CheckThat("smooth's name", tools:GetName(tools:SCULPT, tools:AVERAGE) = "smooth")
+        CheckThat("flatten's name", tools:GetName(tools:HEIGHT, tools:REPLACE) = "flatten")
+        CheckThat("sculpting changes the shape", tools:ChangesShape(tools:SCULPT))
+        CheckThat("painting doesn't change the shape", not tools:ChangesShape(tools:TEXTURE))
+        CheckThat("painting changes splat weights", tools:ChangesSplat(tools:TEXTURE))
+        CheckThat("there is a description", brush:GetDescription() not= "")
+    end
+end

@@ -1,14 +1,21 @@
 # Vulkan renderer: bugs and changes for later
 
-Written 2026-10-17 during the Open Worlds work. **Nothing here has been
-changed.** These are all standard library changes, so each one needs the
-user's go-ahead before it is made.
+Written 2026-10-17 during the Open Worlds work, and added to since. These
+are all standard library changes, so each one needs the user's go-ahead
+before it is made. The order they're done in, and their status, is in
+`LibraryChangesPlan.md`.
+
+**Applied on `TerrainShader` (2026-10-18, not committed):** #3
+(`Item7.md`), #6 (`Item9.md`), #23, and the model half of #21. Everything
+else is not started.
 
 Paths:
 - **G/** = `quorum-language/Quorum/Library/Standard/Libraries/Game/Graphics/`
 - **J/** = `quorum-language/Plugins/QuorumPlugins/src/main/java/plugins/quorum/Libraries/Game/Graphics/`
 
-Line numbers were right on 2026-10-17.
+Line numbers were right on 2026-10-17. Orders 7, 9 and 12 have since moved
+lines in `MeshVulkan`, `ModelManagerVulkan`, `VulkanPainter3D` and
+`VulkanPainter3DBatch`, so line numbers there are approximate.
 
 ## Summary
 
@@ -16,10 +23,10 @@ Line numbers were right on 2026-10-17.
 |---|---|---|---|---|
 | 1 | `StopMapping` passes the wrong handle to VMA | Bug (Java) | A few lines | Any freeing of buffers |
 | 2 | Mesh GPU memory is never freed | Missing feature | ~200–250 lines, ~6 files | Tier 3 (regions loading and unloading) |
-| 3 | A mesh can't be updated after it is made | Missing feature | ~60–80 lines, 2 files | Tier 1 step 5 (editing) |
+| 3 | A mesh can't be updated after it is made (**applied**) | Missing feature | ~60–80 lines, 2 files | Tier 1 step 5 (editing) |
 | 4 | Copy barrier misses the vertex shader stage | Bug | A few lines | Any mesh upload, more so with updates |
 | 5 | Animated models leak buffers when their blueprint changes | Bug | Part of #2 | Animated models |
-| 6 | `Model:SetShaderProgram` is ignored | Missing feature | Medium | Tier 2 (terrain shader) |
+| 6 | `Model:SetShaderProgram` is ignored (**applied**) | Missing feature | Medium | Tier 2 (terrain shader) |
 | 7 | No mipmaps | Missing feature | Medium | Tier 2 (tiled ground textures) |
 | 8 | Anisotropic filtering is off | Setting | Small | Tier 2 (ground at low angles) |
 | 9 | Only `R8G8B8A8_UNORM` textures | Limitation | Medium | Only if terrain maps move into textures |
@@ -32,6 +39,12 @@ Line numbers were right on 2026-10-17.
 | 16 | No camera-relative drawing | Missing feature | ~40 lines (Java) | Large worlds |
 | 17 | No fog or distance fade | Missing feature | ~20-40 lines | Hiding the far edge |
 | 18 | Draw queues fixed at 8192 instances | Limitation | Small | Many objects |
+| 19 | Texture groups sized by the uniform buffer limit (31 on the user's Mac); multi-group drawing broken | Bug (confirmed) | Small for the limit; the multi-group path needs review | Any game with more than about 30 textures |
+| 20 | Textures can't be updated; texture places never reused (**same-size updates applied**) | Missing feature | Medium | Painting splat maps |
+| 21 | Resources are recorded into a command buffer that isn't recording while the window is minimized (**models and textures fixed**) | Bug | Small | Any loading while minimized |
+| 22 | The default draw loops count frames in flight instead of texture groups, so groups 3 and up are never drawn | Bug (found reading the code) | A few lines | Any game with more than about 90 textures |
+| 23 | Models keep piling into batches while the window is minimized, and the first frame after restoring overflows the instance buffer (**applied**) | Bug (crash, confirmed) | About 6 lines | Any 3D game that is minimized for a few seconds |
+| 24 | Materials can't use texture sets (separate color, normal, roughness, AO and height maps) | Missing feature | Medium (Quorum, Java helper, 4 shaders) | Terrain materials; any model with an AmbientCG set. **Applied** 2026-10-19 (`Item24.md`) |
 
 ## 1. `StopMapping` passes the wrong handle (bug)
 
@@ -127,6 +140,11 @@ free them only once every frame that might use them has finished.
 
 ## 3. A mesh can't be updated after it is made (missing feature)
 
+**Status (2026-10-18): applied on branch `TerrainShader`, waiting for a
+run.** The design and exact code are in `Item7.md`. It also adds a pause
+guard to `ModelManagerVulkan` (item 21) and a barrier after mesh copies, which
+covers #4 for meshes.
+
 **What happens now:** `MeshVulkan:TransferBuffers`
 (G/Models/Vulkan/MeshVulkan.quorum:183-211) copies only once, because of a
 `dataTransferred` flag. To change a mesh today, a game must build a whole
@@ -203,6 +221,9 @@ for a compute-based terrain mesh in Tier 3.
 
 ## 6. `Model:SetShaderProgram` is ignored (missing feature)
 
+**Status (2026-10-18): applied on branch `TerrainShader`, waiting for a
+run.** See `Item9.md`.
+
 **Where:** G/Vulkan/VulkanPainter3D.quorum:1099-1100. Every model in the
 geometry pass is drawn with one default pipeline. The shadow pass also uses
 one fixed pipeline (about line 1236). `Model` has `SetShaderProgram`
@@ -219,6 +240,8 @@ pays for it.
 
 ## 7. No mipmaps (missing feature)
 
+**Applied with #8 in `Item25.md` (2026-10-19), waiting for a run.**
+
 **Where:** G/Vulkan/VulkanTextureManager.quorum, `ProcessPendingTextures`
 (about lines 115-200). Images are made with one mip level, and the shared
 sampler uses nearest mip mode. Repeating textures, like ground, shimmer and
@@ -229,6 +252,9 @@ look noisy in the distance.
 mode to linear and its maximum level of detail to match.
 
 ## 8. Anisotropic filtering is off (setting)
+
+**Applied with #7 in `Item25.md`.** The device feature is already turned on
+when supported (`VulkanDevice.java`); only the sampler needs it.
 
 **Where:** the default sampler in `VulkanTextureManager.quorum` (about line
 73) uses `VulkanSamplerInfo` defaults, which turn anisotropy off. The device
@@ -260,6 +286,9 @@ stage.
 
 ## 11. Skybox not implemented (missing feature)
 
+**Applied as `Item26.md` (2026-10-19), waiting for a run with
+`SkyboxCheck`.** OpenGL and Vulkan draw it through `SkyboxShaderProgram`.
+
 **Where:** G/Vulkan/VulkanPainter3D.quorum:1689-1690, `SetSkybox` prints
 "NYI". Needed for open worlds later.
 
@@ -277,6 +306,9 @@ stage.
 new numbers.
 
 ## Suggested order
+
+**Superseded** by `LibraryChangesPlan.md`, which covers every item here.
+Kept as the first idea:
 
 1. **#1** on its own. It's a real bug and a small change.
 2. **#3 and #4** when Tier 1 reaches editing (step 5).
@@ -344,6 +376,180 @@ position and the camera position. About 20-40 lines plus settings.
 for every queue (about 1676-1682), with no growth.
 
 **Fix:** grow a queue (or add another) when it fills.
+
+## 19. Texture groups are sized by the uniform buffer limit (suspected bug)
+
+**Where:** G/Vulkan/VulkanGraphics.quorum `GetMaxDescriptorsPerStage`
+(about line 894) uses `limits:GetMaxPerStageDescriptorUniformBuffers()`. It
+sizes the global texture array and texture groups in
+`VulkanTextureManager:Create`. The binding holds sampled images, so the
+limit should be `maxPerStageDescriptorSampledImages` (or the update-after-bind
+version, since the set is update-after-bind). On Apple GPUs through MoltenVK
+the uniform buffer limit can be small, so groups would be small, and any
+game with more textures than that falls into the multi-group path, which has
+bugs (#13).
+
+**Status: confirmed 2026-10-17** on the user's Mac: `31 textures per group`.
+With about 125 textures loaded before it (the splatting prototype's first
+design), the car's materials were in group 4, and **the car wasn't drawn at
+all**. Splat textures beyond group 0 didn't show properly either (#13). So
+the multi-group path is broken for materials too, not only for the texture
+override, and this limit makes any game with more than about 30 textures
+hit it.
+
+## 20. A texture can't be updated, and texture places are never reused (missing feature)
+
+**Status (2026-10-19): applied on `TerrainShader`** for same-size reloads
+(`Item20.md`): a texture loaded again at the same size keeps its image and
+index. Different sizes still get a new place, and nothing is freed (#2).
+
+**Confirmed blocking (2026-10-18):** in `TerrainEditor`, each paint stroke's
+new splat texture lands at index 72 and up (group 2), after the labels'
+glyph textures, so the splat shader can't read it and the ground turns grey.
+Updating the splat texture in place would keep it at its first index (5).
+
+**Where:** G/Vulkan/VulkanTextureManager.quorum `ProcessPendingTextures`
+(about lines 186-195). Every load, including loading new pixels into an
+existing `Texture`, makes a new image and takes the next texture place
+(`nextTextureID`). The `recycledTextureIDs` branch is an unfinished TO-DO.
+So anything that changes a texture often, like a painted splat map, uses up
+places, and with #19 it soon leaves the first group.
+
+**Fix:** a way to write new pixels into an existing texture's image
+(staging copy plus barriers, like a first load, keeping its place). And
+reuse places of freed textures once frames in flight are done (with #2's
+deferred deletion).
+
+
+## 21. Recording while the window is minimized (bug)
+
+**Where:** G/Vulkan/VulkanGraphics.quorum:410-428 and Game.quorum about
+lines 801-806.
+
+When the window is minimized, `BeginNextFrame` returns before it resets and
+begins the frame's command buffer. `Game` still calls
+`textures:ProcessPendingTextures()` and `models:ProcessPendingResources()`,
+which record copy commands into that command buffer while it isn't
+recording. That is invalid Vulkan use.
+
+**Fixed for models** in Item 7: `ModelManagerVulkan:ProcessPendingResources`
+returns early while rendering is paused and keeps its waiting work. **Still
+open for textures:** `VulkanTextureManager` needs the same guard.
+
+
+## 22. The draw loops count frames, not texture groups (bug)
+
+**Where:** G/Vulkan/VulkanPainter3D.quorum, the geometry pass loop and the
+shadow pass's list of default queues (`i < drawQueues:GetSize()`).
+
+`drawQueues` has one entry per frame in flight (usually 3), and each entry
+is an array of queues indexed by texture group. The loops use the outer size
+as the number of groups. So only groups 0 to 2 are ever drawn, and a model
+whose textures are in group 3 or later silently disappears. Groups 0 to 2
+also get queues made even when unused.
+
+**Fix:** loop to `drawQueues:Get(resourceIndex):GetSize()`. It changes which
+models are drawn, so it's its own reviewed item. The custom-program loops
+added in #6 already loop over texture groups.
+
+
+## 23. Minimizing piles models into batches, then crashes (bug)
+
+**Seen:** 2026-10-18. DriveOpen was minimized, then restored, and crashed
+with `BufferOverflowException` in
+`VulkanDrawQueue3DInstanceMappedMemory.TransferInstanceData`, called from
+`VulkanPainter3DBatch:ProcessBatch` in `VulkanPainter3D:End`.
+
+**Why:** while the window is minimized, `VulkanPainter3D:Begin` and `End`
+return early, but `Layer3D:Draw` still calls `Render(model)` for every
+visible model. `Render` adds the model to its batch, and only `End` (through
+`PrepareForNextFrame`) empties the batches. So every paused frame adds every
+model again. With about 100 models, a little over a second at 60 frames a
+second passes the 8192 instances a draw queue holds. The first frame after
+restoring tries to write them all and overflows. Animated models pile up in
+`animatedModels` the same way.
+
+This predates Items 7 and 9; nothing they changed is on this path.
+
+**Fix (applied 2026-10-18 on `TerrainShader`, waiting for a run):**
+- a new field `boolean framePaused`;
+- `Begin` sets it from `graphics:IsRenderingPaused()` and returns early when
+  it's true, as before;
+- `Render` returns right away when it's true.
+
+Since `Begin` runs before every `Render` in `Layer3D:Draw`, the paused frame
+adds nothing to the batches.
+
+## 25. No anti-aliasing for 3D (missing feature)
+
+**Applied as `Item27.md` (2026-10-19), waiting for a run.** MSAA for the
+scene (G-buffer) pass, resolved in the pass, with coverage-aware lighting;
+`Game:SetMultisampling(samples)`, Vulkan only, off by default. Also fixed
+there: the lighting pass listed the scene's albedo attachment instead of its
+own `lightColorAttachment` (identical until MSAA). Plan: `MSAAPlan.md`.
+
+## 26. The 3D view is stretched and blurry after a resize (bug)
+
+Found 2026-10-19 (the user confirmed it in DriveOpen). `RegenerateSwapchain`
+remade the swapchain's framebuffers, but `VulkanPainter3D` kept its G-buffer,
+lighting and MSAA images at the first window size, and never freed old
+images when it remade them. **Applied as `Item28.md`, waiting for a run:**
+the painter remembers its framebuffer size, remakes everything when the
+swapchain's size or the MSAA count changes, and frees the old images.
+
+## 27. Lit models turn black after the 3D passes are remade (bug)
+
+Found 2026-10-19: with 3D MSAA on, a resize turned every lit model black
+(the sky still showed). Two old bugs, exposed once Item 28 made the passes
+get remade: the shadow projection buffers are linked only once
+(`shadowProjectionResourcesLinked` never cleared), and the shadow maps are
+linked only when their framebuffers are first made (the disposal loop in
+`RegenerateRenderPasses` walks an empty array). **Applied as `Item30.md`,
+waiting for a run:** the flag is cleared and the existing shadow maps are
+linked into the new descriptor sets.
+
+## 28. `VulkanPainter3DBatch` boxes integers every frame (performance)
+
+Raised by the user (2026-10-19): `drawQueueUses` was an `Array<integer>`,
+so every `Set` while counting meshes per texture group made a boxed
+`Integer`, a steady stream of garbage each frame. **Applied on
+`TerrainShader` (2026-10-19, uncommitted), waiting for a run:**
+- an `Integer32BitArray` with a capacity (4 to start), grown by doubling
+  and copying when a higher texture group appears (`EnsureUsesCapacity`),
+  so the size never has to be known ahead and nothing is made after the
+  first frames;
+- `drawQueueUseCount`, one past the highest group used, bounds the loops;
+- the draw loop now looks up a group's draw queue only when that group was
+  used. Looking one up makes the queue if it doesn't exist, so before this
+  a batch using only group 2 also made queues for groups 0 and 1.
+
+Noticed while there: `Integer32BitArray.java`'s `Set` checks
+`index > ints.length` instead of `>=`, so setting one past the end throws a
+Java `ArrayIndexOutOfBoundsException` rather than Quorum's
+`InvalidLocationError`. Harmless here (the batch never does it), but worth
+fixing with item B (`LibraryChangesPlan.md` order 1).
+
+## 29. `vSyncEnabled` was ignored under Vulkan (bug)
+
+Found 2026-10-19 while looking into TerrainWalk. Vulkan always used FIFO
+(`VulkanSwapchainInfo`'s default), and `DesktopDisplay.SetVSync` only acts for
+OpenGL, so `DesktopConfiguration.vSyncEnabled` and `Game:SetVSync` did
+nothing under Vulkan. **Applied on `TerrainShader` (2026-10-19, uncommitted,
+Java changed), waiting for a run:**
+- `VulkanGraphics:Initialize` sets the present mode from `vSyncEnabled`:
+  true gives FIFO, false gives IMMEDIATE;
+- `VulkanSwapchain.java` checks the surface's present modes and falls back
+  to FIFO (always available) when the requested one isn't offered, writing
+  the mode used back to the swapchain info;
+- the default stays `false` (the user's choice), so **Vulkan games now run
+  uncapped (IMMEDIATE) by default**, as OpenGL already did. A game sets
+  `vSyncEnabled = true` or calls `SetVSync(true)` for FIFO;
+- `SetVSync`'s documentation said vSync was on by default, and now says off;
+- setting the present mode through `DesktopConfiguration.vulkanOptions` is
+  now always overridden by `vSyncEnabled`.
+
+Related, in TerrainWalk (project only): the ball's "snap back" was the camera
+being placed before the physics step; `CameraFollower` places it after.
 
 ## Other library bugs found along the way
 
@@ -430,3 +636,82 @@ purpose would get it back.)
 **Workaround used now:** `TerrainCollision` and `WorldTerrain` call
 `SetCollidable` before adding an item again.
 
+
+### D. `EditorLayer3D` input-group overrides (checked: not a bug)
+
+**Checked 2026-10-18** while reading Quorum Studio for Tier 4. Studio's copy
+of the library (2026-09-25) has three `EditorLayer3D` overrides that put
+added items in the scene editor's input group: `Add(Item3D)`,
+`Add(integer, Item3D)` and `AddToFront`. The current library keeps
+`Add(Item3D)`, which still sets the group (line 219). The other two went
+because the frustum-culling change removed those actions from `Layer3D`
+itself. So nothing is lost.
+
+### E. `PixelMap:SetPixel` blends by default (surprising; to discuss)
+
+**Found:** 2026-10-19, while finding why terrain splatting never showed.
+
+`PixelMap` keeps one blending setting shared by every PixelMap, and it
+starts as source-over (`PixelMap.java`, `SetBlend(BLEND_SOURCE_OVER)`).
+libGDX's `gdx2d_set_pixel` blends the new pixel with the old one when
+blending is on. So `SetPixel` with a color whose alpha is 0 leaves a new
+(empty) map unchanged.
+
+That's reasonable for drawing pictures, but surprising for writing raw data
+into pixels (splat weights, packed numbers), where every byte should be
+stored as given. The project works around it by setting `Blending:NONE`
+while writing, then putting the old setting back.
+
+**Options to discuss:**
+- document it on `SetPixel`;
+- add a `SetPixelExactly` (or a parameter) that never blends;
+- make blending a per-PixelMap setting instead of a shared one.
+
+### F. `GetPixel` and `SetPixel` on a converted image use an invalid pointer (latent bug)
+
+**Found:** 2026-10-19, while writing `Item24.md`.
+
+Under Vulkan, `PixelMap.LoadPixelMap` (Java, about line 92) converts any image
+that isn't RGBA8888 (gray, RGB, JPG) into a new Java buffer with
+`LoadFromByteBuffer`, and returns. `basePointer` is never set on that path,
+so it stays -1. But `GetPixel`, `SetPixel`, `Fill` and the drawing actions
+pass `basePointer` to the native code, which would read or write through an
+invalid pointer. The native image that was loaded is also never freed.
+
+Nothing has hit it yet, since nothing calls `GetPixel` on loaded gray or RGB
+images. Fix: make the native helpers work on `pixelPointer` for converted
+images, or keep the converted pixels in a native pixmap. To discuss.
+
+### G. 16-bit PNGs can't be loaded (limitation)
+
+**Found:** 2026-10-19, running `TextureSetCheck` (`Item24.md`).
+
+`PixelMap.LoadPixelMap`'s native loader fails on 16-bit PNGs with "Error
+loading PixelMap: decoder init failed for stream". Texture sets often ship
+16-bit normal and displacement maps (AmbientCG does).
+
+**Options:**
+- Convert assets to 8-bit beforehand.
+- Library: when the native load fails, fall back to `javax.imageio.ImageIO`,
+  which reads 16-bit PNGs, and turn the result into RGBA8888
+  (`LoadFromByteBuffer`). This works on desktop only (no ImageIO on
+  Android). Small Java change, reviewed first.
+
+
+### H. A new Material's diffuse is a zero vector, so hand-built models are invisible (bug)
+
+`Material` declares `Vector4 diffuse` without `= undefined`, so Quorum
+creates it as (0, 0, 0, 0). `MaterialVulkan` checks `diffuse not= undefined`
+to fall back to white, and that check never fails. A Material that never gets
+`SetDiffuse` packs a diffuse of (0, 0, 0, 0): its color is multiplied by zero
+and its alpha is zero, so the model can't be seen. Its position, size and
+`IsShowing` all look right. Found in TextureSetCheck (2026-10-19). `LoadBox`
+and other built-in shapes aren't affected, because ModelBuilder's own
+materials set a diffuse.
+
+- **Fix:** in `Material`, `Vector4 diffuse = undefined` (and the same for
+  `emissive` if the same pattern applies there), so the white fallback works.
+  Callers that read `GetDiffuse()` would need checking for undefined.
+- **Project workaround:** always call `SetDiffuse` with (1, 1, 1, 1) on hand-built
+  materials, as TerrainBrushPreview, TerrainRegionModel and TextureSetCheck
+  do.

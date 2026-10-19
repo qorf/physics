@@ -1,0 +1,175 @@
+package Libraries.Game.Graphics.Shaders.Vulkan
+
+use Libraries.Game.GameStateManager
+use Libraries.Game.Graphics.Shaders.Shader
+use Libraries.Game.Graphics.Shaders.ShaderManager
+
+class DefaultFragmentShader3DVulkan is Shader
+    
+	on create
+        SetType(parent:Shader:FRAGMENT_SHADER)
+        GameStateManager gameState
+        ShaderManager manager = gameState:GetShaderManager()
+        SetName(manager:DEFAULT_3D_FRAGMENT_SHADER)
+
+        SetCode(GetVersionHeader() +
+"
+" +
+"#ifdef GL_ES
+    #define LOWP lowp
+    precision mediump float;
+#else
+    #define LOWP 
+#endif
+
+// Adds support for nonuniformEXT and unsized descriptor arrays.
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_buffer_reference: require
+#extension GL_EXT_buffer_reference2: enable
+#extension GL_EXT_scalar_block_layout: require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+
+layout(set = 0, binding = 1) uniform sampler immutableSampler;
+layout(set = 1, binding = 0) uniform texture2D globalTextures[];
+
+struct Material {
+	uint diffuseColor;
+	uint textureIndex;
+	uint hasNormalMap;
+	uint hasRoughMap;
+	uint normalMapIndex;
+	uint roughMapIndex;
+	float roughness;
+	float metallic;
+	uint flags;
+	float textureScale;
+	uint reserved1;
+	uint reserved2;
+};
+
+layout(scalar, buffer_reference) buffer Materials
+{
+	Material data;
+};
+
+layout(location = 0) in vec2 v_textureCoords;
+layout(location = 1) flat in uint v_entityID;
+layout(location = 2) flat in uint v_hasDiffuseOverride;
+layout(location = 3) flat in uint v_diffuseOverride;
+layout(location = 4) flat in uint v_hasTextureOverride;
+layout(location = 5) flat in uint v_textureOverrideIndex;
+layout(location = 6) in vec4 v_position;
+layout(location = 7) in mat3 v_tangentBitangentNormal;
+
+layout (location = 0) out vec4 outputPosition;
+layout (location = 1) out vec4 outputColor;
+layout (location = 2) out vec4 outputNormal;
+layout (location = 3) out vec4 outputPBR;
+
+vec3 calculateNormal(Material material, mat3 tanBitanNormal, vec2 textCoords)
+{
+    vec3 newNormal = tanBitanNormal[2];
+    if (material.hasNormalMap > 0)
+    {
+		newNormal = texture(nonuniformEXT(sampler2D(globalTextures[material.normalMapIndex], immutableSampler)), textCoords).rgb;
+        newNormal = normalize(newNormal * 2.0 - 1.0);
+        newNormal = normalize(tanBitanNormal * newNormal);
+    }
+    return newNormal;
+}
+
+struct InstanceData {
+   uint vertexPadding1;
+   uint vertexPadding2;
+   uint indexPadding1;
+   uint indexPadding2;
+   Materials materials;
+   uint textureOverride;
+   uint textureIndex;
+   uint diffuseColorOverride;
+   uint diffuseColor;
+   mat4 modelTransform;
+};
+
+layout(scalar, buffer_reference) buffer Instances {
+   InstanceData[] data;
+};
+
+layout(push_constant) uniform PushConstants {
+   Instances instances;
+} pushConstants;
+
+void main()
+{
+	// Calculate albedo.
+   Instances instances = pushConstants.instances;
+   InstanceData instanceData = instances.data[v_entityID];
+   Materials materials = instanceData.materials;
+   Material material = materials.data;
+   // A texture set keeps height in its albedo's alpha, and its normal,
+   // ambient occlusion and roughness together in the normal map.
+   bool textureSet = (material.flags & 1u) != 0u;
+
+   uint textureIndex = material.textureIndex;
+	if (v_hasTextureOverride == 1)
+		textureIndex = v_textureOverrideIndex;
+
+	vec4 diffuse = unpackUnorm4x8(material.diffuseColor);
+	if (v_hasDiffuseOverride == 1)
+		diffuse = unpackUnorm4x8(v_diffuseOverride);
+
+    outputColor = texture(nonuniformEXT(sampler2D(globalTextures[textureIndex], immutableSampler)), v_textureCoords) * diffuse;
+
+	if (textureSet)
+	{
+		// Alpha is height, not opacity.
+		outputColor.a = diffuse.a;
+	}
+	// If the color is less than half of the base transparency (i.e. transparent pixels in the texture), discard the fragment.
+	else if (outputColor.a < (diffuse.a / 2.0))
+	{
+		discard;
+	}
+
+	// Set position.
+	outputPosition = v_position;
+
+	vec3 newNormal;
+	float roughnessFactor = 0.0f;
+    float metallicFactor = material.metallic;
+	float ambientOcclusion = 1.0f;
+	if (textureSet)
+	{
+		vec4 normalRoughness = texture(nonuniformEXT(sampler2D(globalTextures[material.normalMapIndex], immutableSampler)), v_textureCoords);
+		vec3 packedNormal = normalRoughness.rgb * 2.0 - 1.0;
+		// Terrain3D's packing: the normal's length carries ambient occlusion.
+		ambientOcclusion = clamp(length(packedNormal) * 2.0 - 1.0, 0.0, 1.0);
+		newNormal = normalize(v_tangentBitangentNormal * normalize(packedNormal));
+		roughnessFactor = normalRoughness.a;
+	}
+	else
+	{
+		// Calculate and set normal.
+		newNormal = calculateNormal(material, v_tangentBitangentNormal, v_textureCoords);
+
+		// Calculate PBR properties.
+		if (material.hasRoughMap > 0)
+		{
+			vec4 pbrValues = texture(nonuniformEXT(sampler2D(globalTextures[material.roughMapIndex], immutableSampler)), v_textureCoords);
+			roughnessFactor = pbrValues.g;
+			metallicFactor = pbrValues.b;
+		}
+		else
+		{
+			roughnessFactor = material.roughness;
+		}
+	}
+	outputNormal = vec4(newNormal, 1.0);
+
+	// The first channel, unused before, carries ambient occlusion: 1 for none.
+	outputPBR = vec4(ambientOcclusion, roughnessFactor, metallicFactor, 1.0);
+}"
+)
+    end
+
+end

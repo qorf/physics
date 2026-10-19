@@ -1,10 +1,12 @@
 package Libraries.Game.Graphics.Worlds
 
 use Libraries.Containers.Number32BitArray
+use Libraries.Containers.Integer32BitArray
 use Libraries.Compute.Math
 use Libraries.Compute.BitwiseOperations
 use Libraries.Game.Graphics.PixelMap
 use Libraries.Game.Graphics.Format
+use Libraries.Game.Graphics.Blending
 
 /*
 A TerrainRegion holds the heights for one square piece of a terrain. A
@@ -45,6 +47,13 @@ class TerrainRegion
     // at z * regionSize + x.
     Number32BitArray heights
 
+    // How much of each of up to four ground textures to show at each
+    // sample, for texture splatting, in the same order as the heights. Each
+    // value packs four weights from 0 to 255, red, green, blue and alpha,
+    // the same way a PixelMap pixel does, so it can go straight into an
+    // image. A new region is all red, the first texture.
+    Integer32BitArray splats
+
     // The lowest and highest heights in the region. Setting a height can only
     // widen this range. CalculateHeightRange finds the exact range again.
     number lowestHeight = 0
@@ -72,7 +81,9 @@ class TerrainRegion
         end
         regionSize = size
         heights:SetSize(size * size)
+        splats:SetSize(size * size)
         Fill(0)
+        FillSplat(bits:ShiftLeft(255, 24))
     end
 
     /*
@@ -250,6 +261,187 @@ class TerrainRegion
     */
     action SetModified(boolean modified)
         me:modified = modified
+    end
+
+    /*
+    This action makes a separate copy of the region: its size, location,
+    heights, splat weights, height range and modified flag. Changing one
+    afterward doesn't change the other. Undo uses copies to put a region back
+    the way it was.
+
+    Attribute: Returns The copy.
+    */
+    action Copy returns TerrainRegion
+        TerrainRegion copy
+        TerrainRegion self = me
+        copy:CopyFrom(self)
+        return copy
+    end
+
+    /*
+    This action makes this region the same as another one: its size,
+    location, heights, splat weights, height range and modified flag. The
+    other region is not changed.
+
+    Attribute: Parameter other The region to copy from.
+    */
+    action CopyFrom(TerrainRegion other)
+        integer size = other:GetRegionSize()
+        if size not= regionSize
+            regionSize = size
+            heights:SetSize(size * size)
+            splats:SetSize(size * size)
+        end
+        locationX = other:GetLocationX()
+        locationZ = other:GetLocationZ()
+        integer i = 0
+        integer count = size * size
+        repeat while i < count
+            heights:Set(i, other:GetHeightAt(i))
+            splats:Set(i, other:GetSplatAt(i))
+            i = i + 1
+        end
+        lowestHeight = other:GetLowestHeight()
+        highestHeight = other:GetHighestHeight()
+        modified = other:IsModified()
+    end
+
+    /*
+    This action returns a height by its place in the region's list of
+    samples, z times the region size plus x. It is quicker than GetHeight
+    for going through every sample.
+
+    Attribute: Parameter index The sample's place in the list.
+    Attribute: Returns The height, in world units.
+    */
+    action GetHeightAt(integer index) returns number
+        return heights:Get(index)
+    end
+
+    /*
+    This action returns packed splat weights by the sample's place in the
+    region's list of samples, z times the region size plus x.
+
+    Attribute: Parameter index The sample's place in the list.
+    Attribute: Returns The packed splat weights.
+    */
+    action GetSplatAt(integer index) returns integer
+        return splats:Get(index)
+    end
+
+    /*
+    This action returns about how many bytes the region's heights and splat
+    weights take up: 8 for each sample.
+
+    Attribute: Returns The size in bytes.
+    */
+    action GetMemorySize returns integer
+        return regionSize * regionSize * 8
+    end
+
+    /*
+    This action returns the splat weights at one sample: how much of each of
+    up to four ground textures to show there, packed into one number the
+    way a PixelMap pixel is, red in the highest byte, then green, blue and
+    alpha. TerrainData's GetSplatWeight reads one weight from it.
+
+    Attribute: Parameter x The sample's place across the region.
+    Attribute: Parameter z The sample's place deep into the region.
+    Attribute: Returns The packed splat weights.
+    */
+    action GetSplat(integer x, integer z) returns integer
+        CheckSample(x, z)
+        return splats:Get(z * regionSize + x)
+    end
+
+    /*
+    This action sets the splat weights at one sample, and marks the region
+    as modified.
+
+    Attribute: Parameter x The sample's place across the region.
+    Attribute: Parameter z The sample's place deep into the region.
+    Attribute: Parameter code The packed splat weights, as made by TerrainData's PackSplat.
+    */
+    action SetSplat(integer x, integer z, integer code)
+        CheckSample(x, z)
+        splats:Set(z * regionSize + x, code)
+        modified = true
+    end
+
+    /*
+    This action sets every sample's splat weights to the same value, and
+    marks the region as modified.
+
+    Attribute: Parameter code The packed splat weights.
+    */
+    action FillSplat(integer code)
+        integer i = 0
+        integer count = regionSize * regionSize
+        repeat while i < count
+            splats:Set(i, code)
+            i = i + 1
+        end
+        modified = true
+    end
+
+    /*
+    This action makes an image of the region's splat weights, for saving
+    with PixelMap's Save. Each pixel is one sample's packed weights,
+    exactly, so nothing is lost. It is laid out like GetHeightImage: the
+    first number given to PixelMap's SetPixel is the sample's z.
+
+    Like PixelMap itself, this needs a running game.
+
+    Attribute: Returns A new image, region size by region size.
+    */
+    action GetSplatImage returns PixelMap
+        PixelMap map
+        Format format
+        format:SetValue(format:RGBA8888)
+        map:CreatePixelMap(regionSize, regionSize, format)
+
+        // PixelMap blends each pixel it sets with what is there, by default,
+        // and a weight of 0 in alpha would wipe the pixel. So blending is off
+        // while the weights are written, then put back.
+        Blending previousBlending = map:GetBlending()
+        Blending noBlending
+        noBlending:SetValue(noBlending:NONE)
+        map:SetBlending(noBlending)
+
+        integer z = 0
+        repeat while z < regionSize
+            integer x = 0
+            repeat while x < regionSize
+                map:SetPixel(z, x, splats:Get(z * regionSize + x))
+                x = x + 1
+            end
+            z = z + 1
+        end
+        map:SetBlending(previousBlending)
+        return map
+    end
+
+    /*
+    This action reads the region's splat weights from an image made by
+    GetSplatImage. It does not mark the region as modified, since it is
+    used when loading.
+
+    Attribute: Parameter map The image, which must be region size by region size.
+    */
+    action SetSplatFromImage(PixelMap map)
+        if map:GetWidth() not= regionSize or map:GetHeight() not= regionSize
+            alert("A splat image for a region of size " + regionSize + " must be " + regionSize + " by " + regionSize +
+                " pixels, but it is " + map:GetWidth() + " by " + map:GetHeight() + ".")
+        end
+        integer z = 0
+        repeat while z < regionSize
+            integer x = 0
+            repeat while x < regionSize
+                splats:Set(z * regionSize + x, map:GetPixel(z, x))
+                x = x + 1
+            end
+            z = z + 1
+        end
     end
 
     /*
