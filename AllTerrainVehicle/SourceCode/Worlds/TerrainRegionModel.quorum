@@ -127,8 +127,7 @@ class TerrainRegionModel is TerrainPatch
 
     A rebuild updates the mesh in place when the region's grid size and
     splat setting are unchanged, which is the usual case for edits. Otherwise
-    it makes a new mesh, and the renderer cannot yet free the old one. See
-    VulkanChanges.md.
+    it makes a new mesh, and the old one is freed.
 
     Attribute: Parameter texture The texture laid over the ground, or undefined for none.
     Attribute: Parameter textureRepeat How far apart, in world units, the texture repeats.

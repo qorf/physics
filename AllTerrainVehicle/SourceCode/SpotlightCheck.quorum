@@ -1,0 +1,199 @@
+use Libraries.Game.Game
+use Libraries.Game.InputMonitor
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Label
+use Libraries.Game.Graphics.AmbientLight
+use Libraries.Game.Graphics.PointLight
+use Libraries.Game.Graphics.SpotLight
+use Libraries.Interface.Events.KeyboardEvent
+use Libraries.Compute.Math
+
+/*
+SpotlightCheck tests spotlights and the point light fix under Vulkan (library
+Item 37, Item37.md). The scene is placed far from the world's origin, at x
+and z of 300, where the old point light bug was obvious.
+
+- A white spotlight on a post sweeps slowly over a floor with boxes and
+  pillars.
+- A red spotlight hangs over one box, pointing straight down.
+- A turning platform carries a green spotlight as its child, pointing
+  forward and down, so its cone turns with the platform.
+
+Keys:
+- A and Z widen and narrow the white light's cone.
+- R and F lengthen and shorten its range.
+- S stops or starts the sweep.
+- P adds or removes a point light over the middle (the fixed point light).
+
+What to see:
+1. Round or oval pools of light with a soft edge; nothing lit behind a
+   light or outside its cone.
+2. The green cone turns with the platform.
+3. The point light lights the faces of the boxes that face it, wherever it
+   is, with its brightness falling off around it.
+4. No shadows from the spotlights yet (Item 37 has none).
+
+Attribute: Example
+// SpotlightCheck is a main program: set it as the project's main file and
+// run it.
+*/
+class SpotlightCheck is Game
+    constant number CENTER = 300
+
+    Label label
+    InputMonitor monitor
+    KeyboardEvent keys
+    Math math
+    AmbientLight ambient
+    Model floor
+    Model platform
+    SpotLight sweeper
+    SpotLight redLight
+    SpotLight carried
+    PointLight bulb
+
+    boolean sweeping = true
+    boolean bulbShown = false
+    number sweepTime = 0
+    number outer = 25
+    number range = 30
+
+    boolean aWasDown = false
+    boolean zWasDown = false
+    boolean rWasDown = false
+    boolean fWasDown = false
+    boolean sWasDown = false
+    boolean pWasDown = false
+
+    action Main
+        SetScreenSize(1000, 600)
+        UseVulkan(true)
+        StartGame()
+    end
+
+    action CreateGame
+        Color colors
+        ambient:SetColor(0.06, 0.06, 0.08, 1)
+        SetAmbientLight(ambient)
+
+        floor:LoadBox(40, 0.2, 40, colors:CustomColor(0.7, 0.7, 0.7, 1))
+        floor:SetPosition(CENTER, -0.1, CENTER)
+        Add(floor)
+
+        integer i = 0
+        repeat while i < 6
+            Model box
+            box:LoadBox(1.5, 1.5, 1.5, colors:CustomColor(0.8, 0.8, 0.9, 1))
+            box:SetPosition(CENTER - 7 + i * 2.8, 0.75, CENTER + 4)
+            Add(box)
+            Model pillar
+            pillar:LoadBox(0.5, 4, 0.5, colors:CustomColor(0.6, 0.5, 0.4, 1))
+            pillar:SetPosition(CENTER - 7 + i * 2.8, 2, CENTER - 4)
+            Add(pillar)
+            i = i + 1
+        end
+
+        Model post
+        post:LoadBox(0.3, 8, 0.3, colors:Gray())
+        post:SetPosition(CENTER, 4, CENTER - 10)
+        Add(post)
+
+        sweeper:SetColor(colors:White())
+        sweeper:SetPosition(CENTER, 8, CENTER - 10)
+        sweeper:SetConeAngles(outer * 2 / 3, outer)
+        sweeper:SetIntensity(120)
+        sweeper:SetRange(range)
+        Add(sweeper)
+
+        redLight:SetColor(colors:Red())
+        redLight:SetPosition(CENTER - 7, 6, CENTER + 4)
+        redLight:SetDirection(0, -1, 0)
+        redLight:SetConeAngles(12, 20)
+        redLight:SetIntensity(60)
+        redLight:SetRange(10)
+        Add(redLight)
+
+        // The green light is a child of a turning platform.
+        platform:LoadBox(2, 0.4, 2, colors:CustomColor(0.3, 0.3, 0.3, 1))
+        platform:SetPosition(CENTER + 8, 3, CENTER)
+        carried:SetColor(colors:Green())
+        carried:SetPosition(0, 0, 0)
+        carried:SetDirection(0, -0.6, 1)
+        carried:SetConeAngles(15, 25)
+        carried:SetIntensity(80)
+        carried:SetRange(20)
+        platform:Add(carried)
+        Add(platform)
+
+        bulb:SetColor(colors:CustomColor(1, 0.9, 0.7, 1))
+        bulb:SetPosition(CENTER, 3, CENTER)
+        bulb:SetIntensity(20)
+
+        GetCamera3D():SetPosition(CENTER, 14, CENTER - 24)
+        GetCamera3D():LookAt(CENTER, 0, CENTER)
+        GetCamera3D():SetFar(200)
+
+        label:SetPosition(10, 10)
+        label:SetText("A/Z cone, R/F range, S sweep, P point light")
+        Add(label)
+        UpdateSweep(0)
+    end
+
+    action Update(number seconds)
+        if Pressed(keys:A, aWasDown)
+            outer = math:MinimumOf(outer + 5, 85)
+            sweeper:SetConeAngles(outer * 2 / 3, outer)
+            output "Cone: " + outer + " degrees"
+        end
+        aWasDown = monitor:IsKeyPressed(keys:A)
+        if Pressed(keys:Z, zWasDown)
+            outer = math:MaximumOf(outer - 5, 5)
+            sweeper:SetConeAngles(outer * 2 / 3, outer)
+            output "Cone: " + outer + " degrees"
+        end
+        zWasDown = monitor:IsKeyPressed(keys:Z)
+        if Pressed(keys:R, rWasDown)
+            range = range + 5
+            sweeper:SetRange(range)
+            output "Range: " + range
+        end
+        rWasDown = monitor:IsKeyPressed(keys:R)
+        if Pressed(keys:F, fWasDown)
+            range = math:MaximumOf(range - 5, 5)
+            sweeper:SetRange(range)
+            output "Range: " + range
+        end
+        fWasDown = monitor:IsKeyPressed(keys:F)
+        if Pressed(keys:S, sWasDown)
+            sweeping = not sweeping
+        end
+        sWasDown = monitor:IsKeyPressed(keys:S)
+        if Pressed(keys:P, pWasDown)
+            if bulbShown
+                Remove(bulb)
+            else
+                Add(bulb)
+            end
+            bulbShown = not bulbShown
+            output "Point light: " + bulbShown
+        end
+        pWasDown = monitor:IsKeyPressed(keys:P)
+
+        if sweeping
+            UpdateSweep(seconds)
+        end
+        platform:Rotate(0, 1, 0, 25 * seconds)
+    end
+
+    private action Pressed(integer key, boolean wasDown) returns boolean
+        return monitor:IsKeyPressed(key) and not wasDown
+    end
+
+    // The white light swings from side to side, pointing down and forward.
+    private action UpdateSweep(number seconds)
+        sweepTime = sweepTime + seconds
+        number swing = math:Sine(sweepTime * 0.5) * 0.8
+        sweeper:SetDirection(swing, -0.7, 1)
+    end
+end

@@ -6,6 +6,7 @@ use Libraries.Game.Graphics.Skybox
 use Libraries.Game.Graphics.Camera
 use Libraries.Game.Graphics.DirectionalLight
 use Libraries.Game.Graphics.PointLight
+use Libraries.Game.Graphics.SpotLight
 use Libraries.Game.Graphics.PixelMap
 use Libraries.Game.Graphics.Format
 use Libraries.Game.Graphics.Worlds.WorldTerrain
@@ -44,6 +45,7 @@ use Libraries.Game.Graphics.Trees.Octree3D
 use Libraries.Game.Graphics.Label
 use Libraries.Game.Layer3D
 use Libraries.Game.Collision.Shapes.Box
+use Libraries.Game.Collision.PhysicsPosition3D
 use Libraries.Game.DesktopConfiguration
 
 /*
@@ -176,7 +178,23 @@ class DriveOpen is Game
     Skybox skybox
     boolean skyShown = false
     boolean kWasDown = false
+
+    // Headlights: two spotlights placed at the front of the car every frame
+    // (SpotlightPlan.md, Item 37). H switches them on and off, and N switches
+    // between day and night, so they are easy to see. They aren't children
+    // of the chassis, since its 152 times scale would scale their placement.
+    SpotLight leftHeadlight
+    SpotLight rightHeadlight
+    boolean headlightsOn = true
+    boolean hWasDown = false
+    boolean night = false
+    boolean nWasDown = false
+    number daySunIntensity = 2.5
+    number nightSunIntensity = 0.08
     number layerRepeat = 6
+
+    // Seconds until the next GPU memory report (MemoryPlan.md).
+    number timeUntilMemoryReport = 5
     TerrainSplatShaderProgram splatProgram = undefined
     number rockLowDegrees = 12
     number rockHighDegrees = 22
@@ -424,6 +442,7 @@ class DriveOpen is Game
         BuildChassis()
         BuildVehicle()
         ResetVehicle()
+        BuildHeadlights()
         PlaceCamera()
         Add(fpsLabel)
 
@@ -444,6 +463,17 @@ class DriveOpen is Game
     end
 
     action Update(number seconds)
+        // Every five seconds, the GPU memory in use (MemoryPlan.md).
+        timeUntilMemoryReport = timeUntilMemoryReport - seconds
+        if timeUntilMemoryReport <= 0
+            timeUntilMemoryReport = 5
+            GameStateManager memoryState
+            if memoryState:GetGameGraphics() is VulkanGraphics
+                VulkanGraphics memoryGraphics = cast(VulkanGraphics, memoryState:GetGameGraphics())
+                output memoryGraphics:GetMemoryReport()
+            end
+        end
+
         cullLabel:SetPosition(fpsLabel:GetX() + fpsLabel:GetWidth() + 20, fpsLabel:GetY())
         Layer3D layer = GetCurrentLayer3D()
         number cull = 100 * layer:GetCullPercentage()
@@ -465,6 +495,27 @@ class DriveOpen is Game
             ToggleSky()
         end
         kWasDown = kDown
+
+        boolean hDown = monitor:IsKeyPressed(keys:H)
+        if hDown and not hWasDown
+            SetHeadlights(not headlightsOn)
+        end
+        hWasDown = hDown
+
+        boolean nDown = monitor:IsKeyPressed(keys:N)
+        if nDown and not nWasDown
+            night = not night
+            if night
+                sunlight:SetIntensity(nightSunIntensity)
+                output "Night: the sun is dimmed. K hides the sky for a dark background."
+            else
+                sunlight:SetIntensity(daySunIntensity)
+                output "Day."
+            end
+        end
+        nWasDown = nDown
+
+        PlaceHeadlights()
 
         if monitor:IsKeyPressed(keys:R)
             ResetVehicle()
@@ -1477,6 +1528,79 @@ class DriveOpen is Game
         chassis:SetAngularDamping(0.8)
         chassis:SetName("Vehicle Chassis")
         AddToBoth(chassis, false, false)
+    end
+
+    /*
+    This action makes the car's two headlights: warm white spotlights
+    pointing ahead and a little down. PlaceHeadlights puts them at the front
+    of the car every frame.
+    */
+    action BuildHeadlights
+        SetUpHeadlight(leftHeadlight)
+        SetUpHeadlight(rightHeadlight)
+        PlaceHeadlights()
+        headlightsOn = false
+        SetHeadlights(true)
+        output "Headlights: H switches them, N switches night."
+    end
+
+    /*
+    This action sets one headlight's color, cone, brightness and reach.
+
+    Attribute: Parameter light The headlight.
+    */
+    private action SetUpHeadlight(SpotLight light)
+        Color colors
+        light:SetColor(colors:CustomColor(1, 0.95, 0.8, 1))
+        light:SetConeAngles(16, 28)
+        light:SetIntensity(60)
+        light:SetRange(45)
+    end
+
+    /*
+    This action switches the headlights on or off.
+
+    Attribute: Parameter switchOn True to switch them on.
+    */
+    action SetHeadlights(boolean switchOn)
+        if switchOn = headlightsOn
+            return now
+        end
+        headlightsOn = switchOn
+        if switchOn
+            Add(leftHeadlight)
+            Add(rightHeadlight)
+        else
+            Remove(leftHeadlight)
+            Remove(rightHeadlight)
+        end
+        output "Headlights: " + switchOn
+    end
+
+    /*
+    This action puts the headlights at the front corners of the car, from
+    its physics position, pointing the way it faces and a little down.
+    */
+    action PlaceHeadlights
+        PhysicsPosition3D place = chassis:GetCenterOfMassTransform()
+        Matrix3 basis = place:GetBasis()
+        Vector3 origin = place:GetOrigin()
+        Vector3 right = basis:GetColumn(0)
+        Vector3 up = basis:GetColumn(1)
+        Vector3 forward = basis:GetColumn(2)
+
+        // 0.85 to each side, 0.15 up and 2.7 ahead of the body's centre.
+        number aheadX = origin:GetX() + forward:GetX() * 2.7 + up:GetX() * 0.15
+        number aheadY = origin:GetY() + forward:GetY() * 2.7 + up:GetY() * 0.15
+        number aheadZ = origin:GetZ() + forward:GetZ() * 2.7 + up:GetZ() * 0.15
+        leftHeadlight:SetPosition(aheadX - right:GetX() * 0.85, aheadY - right:GetY() * 0.85, aheadZ - right:GetZ() * 0.85)
+        rightHeadlight:SetPosition(aheadX + right:GetX() * 0.85, aheadY + right:GetY() * 0.85, aheadZ + right:GetZ() * 0.85)
+
+        number directionX = forward:GetX() - up:GetX() * 0.12
+        number directionY = forward:GetY() - up:GetY() * 0.12
+        number directionZ = forward:GetZ() - up:GetZ() * 0.12
+        leftHeadlight:SetDirection(directionX, directionY, directionZ)
+        rightHeadlight:SetDirection(directionX, directionY, directionZ)
     end
 
     action BuildVehicle

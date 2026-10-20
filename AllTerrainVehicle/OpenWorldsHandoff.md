@@ -3,19 +3,51 @@
 Kept up to date as work goes on. The starting position, comparison and full
 feature list are in `OpenWorlds.md`.
 
-Last updated: 2026-10-19
+Last updated: 2026-10-19 (end of session)
 
-## Where we are (2026-10-19)
+## Where we are (2026-10-19, end of session)
 
-**Next: freeing memory everywhere** (the user's choice). Every leak found so
-far is gathered in `VulkanChanges.md`, "Next: freeing memory everywhere":
-- meshes, blueprints, batches, animated buffers and staging buffers;
-- texture places;
-- render passes (`VulkanRenderPass:Dispose` isn't written);
-- the skybox cube;
-- per-frame CPU garbage.
+**Library branch: `MakeAWish`** in `quorum-language`, from Item 37 on.
+Before that, `TerrainShader`; both held the same commit, `8a656d7c3`, when
+the switch was made. **Never switch branches:** use the one checked out
+(the user's rule).
 
-The first step is a plan, `MemoryPlan.md`. Then come Items with exact code.
+**Library commits this round:**
+- `8d0ca607f`: Item 31;
+- `b1d8e1a8e`: Items 32 to 35;
+- `8a656d7c3`: the white-texture fix;
+- `0b5de0b62`: Item 37 (spotlights).
+
+**Stopped here.** The current work is spotlights and water.
+- **Spotlights (`SpotlightPlan.md`):**
+  - Phases 1 and 2 are **committed** as `0b5de0b62` (`Item37.md`), Vulkan
+    only, **not yet reported on screen**:
+    - the point light direction fix;
+    - a range falloff for point lights;
+    - `SpotLight`, with no shadows.
+  - **Under OpenGL,** adding a spotlight alerts. `EnvironmentOpenGL` was
+    left unchanged at the user's request.
+  - **Project:**
+    - `SpotlightCheck.quorum` (A/Z cone, R/F range, S sweep, P point
+      light);
+    - **headlights in DriveOpen:** H switches them, N switches night. They
+      are placed from the car's physics transform every frame.
+- **Water (`WaterPlan.md`):** phase 1 is written as **`Item38.md`, for
+  review, not applied**. It covers time, the camera position, screen size
+  and near and far planes for every Vulkan 3D shader.
+- **Memory:** done (`MemoryPlan.md`, Items 31 to 35, run and confirmed).
+  `Item36.md` (per-frame garbage) is still for review.
+
+**Next, in order:**
+1. **Run SpotlightCheck and DriveOpen at night** (N, then H):
+   - soft-edged cones;
+   - the green cone turning with its platform;
+   - the lamp lighting the ground around it correctly.
+2. **Review and apply `Item38.md`.**
+3. **Write `Item39.md`:** water phase 2, the water pass and `WaterSurface`,
+   with `WaterCheck`.
+4. **Later:** spotlight shadows (phase 3), OpenGL spotlights (phase 4), sky
+   reflection on water (water phase 3), and fog (#17).
 
 **Finished in this round (2026-10-19), all committed in the library:**
 - **terrain materials:** AmbientCG texture sets with height blending;
@@ -81,24 +113,37 @@ These are committed, but nobody has reported on them yet:
 Each step says whether it is project work (AllTerrainVehicle) or a library
 change (which needs an approved `ItemN.md` or a before-and-after first).
 
-**A. Next: freeing memory (library)**
-1. **`MemoryPlan.md`:** the plan for every leak in `VulkanChanges.md`, with
-   the rule that nothing is freed while a frame in flight may still use it.
-2. **Then, in order:**
-   - #1 (`StopMapping`);
-   - the deferred-deletion queue;
-   - meshes and blueprints (#2), animated buffers (#5), batches (#15);
-   - texture places (#20);
-   - `VulkanRenderPass:Dispose`, staging buffers, the skybox cube;
-   - per-frame CPU garbage.
-3. **A memory check main:**
-   - streams regions in and out, resizes, and switches MSAA;
-   - reports GPU and Java memory, so growth shows.
+**Spotlights and water (the user's choice, 2026-10-19).**
+- **`SpotlightPlan.md`:** a new `SpotLight` (a cone light, an `Item3D` like
+  `PointLight`).
+  - **Phases:**
+    1. the point light direction fix;
+    2. spotlights under Vulkan;
+    3. their shadows;
+    4. OpenGL;
+    5. scenes and the editor.
+  - **Status:** phases 1 and 2 are committed (`Item37.md`, `0b5de0b62`),
+    not yet run. Phases 3 to 5 are not started.
+- **`WaterPlan.md`:** a water pass after lighting, drawing `WaterSurface`
+  models into the lit image.
+  - **Effects:** depth color, a soft shore, scrolling normals, a sun glint,
+    then sky reflection with fresnel.
+  - **Status:** phase 1, `Item38.md` (time and camera data for 3D
+    shaders), is for review. Phase 2 (`Item39.md`) is next to write.
+  - Decision 6 is still open: whether fog (#17) comes first.
+
+**A. Freeing memory (library): Items 31 to 35 done** (all committed;
+the white-texture fix is `8a656d7c3`)
+1. **Point light shadow maps** cost about 2.6 GB; pick an option in
+   `VulkanChanges.md`.
+2. **Review and apply `Item36.md`** (per-frame garbage), one part at a time,
+   measuring each.
+3. **Extend `MemoryCheck.quorum`** with the loops the Items describe: L
+   (models), T (textures), S (lights).
 
 **B. Small library fixes**
 
-4. **#22 (order 13):** draw every texture group, with #19 (the group size).
-   Today, ground textures must load before any label.
+4. **#22 (order 13):** done in Item 32. #19 (the group size) is still open.
 5. **H:** a new `Material`'s diffuse should be undefined.
 6. **Batch 1:** orders 1 to 6 (B, A, #4, #14, #13).
 7. **Physics:**

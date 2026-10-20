@@ -1,8 +1,10 @@
 # Item 31: safe disposal, and a retirement queue
 
-**Status (2026-10-19): plan, for review.** Nothing is applied yet. This is
-the first Item of `MemoryPlan.md` (its sections 1 and 2). Every later
-memory Item builds on it.
+**Status (2026-10-19): applied and committed** (`8d0ca607f` on
+`TerrainShader`), with `MemoryCheck.quorum` in the project. MemoryCheck ran correctly
+(2026-10-19). This is the first Item of
+`MemoryPlan.md` (its sections 1 and 2). Every later memory Item builds on
+it.
 
 Vulkan only. OpenGL code isn't touched. It goes on `quorum-language`
 branch `TerrainShader`.

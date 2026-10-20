@@ -1,10 +1,11 @@
 # Item 35: shadow maps
 
-**Status (2026-10-19): plan, for review.** Nothing is applied yet. It
-needs Item 31 (`Retire`). It is the shadow part of `MemoryPlan.md` section
-5, with the recommended answer to decision 5: directional lights get
-`cascades` layers. Sharing one set of maps across frame slots is not done
-here; it is left to measure later.
+**Status (2026-10-19): committed** (`b1d8e1a8e` on `TerrainShader`, with
+Items 32 to 35). MemoryCheck and DriveOpen ran correctly and looked normal. It is the shadow
+part of `MemoryPlan.md` section 5, with the recommended answer to decision
+5: directional lights get `cascades` layers. Sharing one set of maps
+across frame slots is not done here; it is left to measure later. Applied
+as written.
 
 Vulkan only, on `TerrainShader`. Paths are as in `Item31.md`. **SV/** is
 `Quorum/Library/Standard/Libraries/Game/Graphics/Shaders/Vulkan/`, and

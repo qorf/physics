@@ -20,18 +20,23 @@ since, so treat them as approximate and search for the action names.
 - `804c85c40`: Items 7, 9 and 20, and #23;
 - `3e6fde7e0`: Item 24;
 - `768335de9`: Items 25 and 26;
-- `7ad442acb`: Items 27-30, #28 and #29.
+- `7ad442acb`: Items 27-30, #28 and #29;
+- `8d0ca607f`: Item 31 (memory: safe disposal and the retirement queue).
+
+- `b1d8e1a8e`: Items 32 to 35 (memory);
+- `8a656d7c3`: the white-texture fix;
+- `0b5de0b62` (branch `MakeAWish`): Item 37, spotlights and the point light fix.
 
 Most are confirmed on screen. Those still waiting for a run are listed under
 the table.
 
 | # | Problem | Status |
 |---|---|---|
-| 1 | `StopMapping` passes the wrong handle to VMA | **Open: memory (next)** |
-| 2 | Mesh GPU memory is never freed | **Open: memory (next)** |
+| 1 | `StopMapping` passes the wrong handle to VMA | Done (`Item31.md`) |
+| 2 | Mesh GPU memory is never freed | Applied (`Item33.md`, `Model:Dispose` and blueprint reference counts); run on 2026-10-19 |
 | 3 | A mesh can't be updated after it is made | Done (`Item7.md`) |
 | 4 | Copy barrier misses the vertex shader stage | Mostly covered by Item 7's barrier; the painter's own barrier is unchanged |
-| 5 | Animated models leak buffers | **Open: memory (next)** |
+| 5 | Animated models leak buffers | Applied (`Item33.md`); run on 2026-10-19 |
 | 6 | `Model:SetShaderProgram` is ignored | Done (`Item9.md`) |
 | 7 | No mipmaps | Done (`Item25.md`) |
 | 8 | Anisotropic filtering is off | Done (`Item25.md`) |
@@ -41,14 +46,14 @@ the table.
 | 12 | Unused global buffer index code | Open, tidying |
 | 13 | Texture override writes the global index | Open (latent; with #19 and #22) |
 | 14 | Animation compute pass isn't ordered before drawing | Open (latent) |
-| 15 | Painter batches are never removed | **Open: memory (next)** |
+| 15 | Painter batches are never removed | Applied (`Item33.md`: batches of released blueprints are dropped); run on 2026-10-19 |
 | 16 | No camera-relative drawing | Open, for very large worlds |
 | 17 | No fog or distance fade | Open; the next visual item after memory |
 | 18 | Draw queues fixed at 8192 instances | Open, before foliage |
 | 19 | Texture groups sized by the uniform buffer limit (31 on the Mac) | Open (confirmed) |
-| 20 | Textures can't be updated; places never reused | Same-size updates done (`Item20.md`); **reusing places is memory (next)** |
+| 20 | Textures can't be updated; places never reused | Same-size updates done (`Item20.md`); places reused, and kept on a reload at a new size (`Item34.md`) |
 | 21 | Recording while the window is minimized | Done (models in Item 7, textures in Item 20) |
-| 22 | Draw loops count frames, not texture groups | Open (a few lines; still true on 2026-10-19) |
+| 22 | Draw loops count frames, not texture groups | Applied (`Item32.md`); run on 2026-10-19 |
 | 23 | Minimizing piles models into batches, then crashes | Done |
 | 24 | Materials can't use texture sets | Done (`Item24.md`) |
 | 25 | No anti-aliasing for 3D | Done (`Item27.md`, MSAA); 2D MSAA too (`Item29.md`) |
@@ -56,6 +61,9 @@ the table.
 | 27 | Lit models black after the passes are remade | Done (`Item30.md`) |
 | 28 | `VulkanPainter3DBatch` boxes integers every frame | Done |
 | 29 | `vSyncEnabled` ignored under Vulkan | Done (the default, `false`, means IMMEDIATE) |
+| 30 | Point lights lit from the wrong direction: `calculatePointLight` uses `normalize(tmpSub - worldPos)`, where `tmpSub` is already `lightPos - worldPos` | Done (`Item37.md`, `0b5de0b62`); waiting for a run |
+| 31 | No spotlights | Vulkan, without shadows: done (`Item37.md`, `0b5de0b62`), waiting for a run. Shadows, OpenGL, scenes: `SpotlightPlan.md` phases 3 to 5 |
+| 32 | No water; no time or camera position in 3D shaders; transparent models only blend albedo | Planned (`WaterPlan.md`); time and camera data in `Item38.md` (for review) |
 
 **Committed but not yet confirmed on screen:**
 - #27: re-linking the shadows after a resize;
@@ -68,7 +76,7 @@ the table.
 The user's next goal (2026-10-19) is to make sure GPU and CPU memory is
 freed everywhere, so streaming, resizing and long play sessions don't grow
 without bound. This section gathers every leak found so far. It needs its
-own plan, now written: **`MemoryPlan.md`**, with exact code in `Item31.md` to `Item36.md` (2026-10-19; Item 31 approved and being applied, 32 to 36 for review). The plan supersedes the table below where they differ.
+own plan, now written: **`MemoryPlan.md`**, with exact code in `Item31.md` to `Item36.md`. As of 2026-10-19, Items 31 to 35 are committed (`8d0ca607f`, `b1d8e1a8e`) and run, and Item 36 is for review. Everything in the table below is covered by them; the plan supersedes the table where they differ.
 
 **The rule (from #2):** never free on the spot.
 1. Swap the new resource in.
@@ -413,6 +421,18 @@ Short records; the Items and git history hold the details.
 - **27. Lit models turn black after the 3D passes are remade (bug)** Shadow projection buffers and shadow maps are linked into the new descriptor sets when the passes are made again. `Item30.md`.
 - **28. `VulkanPainter3DBatch` boxes integers every frame (performance)** `drawQueueUses` is a growing `Integer32BitArray`, and draw queues are only looked up for groups that were used. Noticed there: `Integer32BitArray.java`'s `Set` checks `index > ints.length` instead of `>=` (fix with item B).
 - **29. `vSyncEnabled` was ignored under Vulkan (bug)** `vSyncEnabled` picks the present mode under Vulkan (true is FIFO, false is IMMEDIATE), with a Java fallback to FIFO. The default stays `false`, so Vulkan games run uncapped by default; `SetVSync`'s documentation now says so.
+
+## Found while testing the memory Items
+
+- **A white texture per material** (fixed with Item 34, 2026-10-19).
+  `MaterialVulkan:Preload` made its own `SharedTextureManager`, which isn't a
+  shared class, so every material without a texture made a new unit texture.
+  It now uses the game's (`GameStateManager:GetSharedTextureManager()`).
+- **DriveOpen's point light costs about 2.6 GB.** Point lights still need six
+  faces per cascade (2048 pixels square, 3 cascades, 3 frame slots). Item 35
+  only shrank directional lights. Options, not decided: a smaller shadow map
+  for point lights, fewer cascades for them, or one set of maps shared by the
+  frame slots.
 
 ## Other library bugs found along the way
 

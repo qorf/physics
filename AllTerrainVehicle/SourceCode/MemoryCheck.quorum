@@ -1,0 +1,146 @@
+use Libraries.Game.Game
+use Libraries.Game.InputMonitor
+use Libraries.Game.GameStateManager
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.Model
+use Libraries.Game.Graphics.Label
+use Libraries.Game.Graphics.AmbientLight
+use Libraries.Game.Graphics.DirectionalLight
+use Libraries.Game.Graphics.Vulkan.VulkanGraphics
+use Libraries.Interface.Events.KeyboardEvent
+use Libraries.System.SystemHelper
+
+/*
+MemoryCheck watches GPU and Java memory under Vulkan while things are made
+and freed (MemoryPlan.md, Items 31 onward). Every two seconds the console
+shows the GPU memory report and the Java heap in use.
+
+Keys:
+- M steps the 3D MSAA sample count: 1, 2, 4, 8, and back to 1.
+- N steps the 2D MSAA sample count the same way.
+- A turns automatic stepping on or off: both counts step every half second.
+
+What to see (Item 31):
+1. M and N give no alert.
+2. With A on, after a minute the GPU memory and allocation count go back
+   and forth within a range, rather than climbing. The waiting count stays
+   small. Render passes and descriptor sets still leak until Item 32, so
+   a slow climb is expected for now.
+
+Attribute: Example
+// MemoryCheck is a main program: set it as the project's main file and run
+// it.
+*/
+class MemoryCheck is Game
+    Label label
+    InputMonitor monitor
+    KeyboardEvent keys
+    DirectionalLight sun
+    AmbientLight ambient
+    Model ground
+    Model box
+
+    boolean mWasDown = false
+    boolean nWasDown = false
+    boolean aWasDown = false
+    boolean automatic = false
+    number timeUntilStep = 0.5
+    number timeUntilReport = 2
+
+    action Main
+        SetScreenSize(1000, 600)
+        UseVulkan(true)
+        StartGame()
+    end
+
+    action CreateGame
+        Color colors
+        sun:SetColor(colors:White())
+        sun:SetIntensity(2)
+        sun:SetDirection(-0.5, -1, 0.7)
+        Add(sun)
+        ambient:SetColor(0.45, 0.45, 0.45, 1)
+        SetAmbientLight(ambient)
+
+        ground:LoadBox(20, 0.2, 20, colors:CustomColor(0.45, 0.55, 0.35, 1))
+        ground:SetPosition(0, -0.1, 8)
+        Add(ground)
+        box:LoadBox(1.5, 1.5, 1.5, colors:Red())
+        box:SetPosition(0, 1, 6)
+        Add(box)
+
+        GetCamera3D():SetPosition(0, 3, -2)
+        GetCamera3D():LookAt(0, 1, 6)
+
+        label:SetPosition(10, 10)
+        label:SetText("M 3D samples, N 2D samples, A automatic stepping")
+        Add(label)
+    end
+
+    action Update(number seconds)
+        boolean mDown = monitor:IsKeyPressed(keys:M)
+        if mDown and not mWasDown
+            Step3D()
+        end
+        mWasDown = mDown
+
+        boolean nDown = monitor:IsKeyPressed(keys:N)
+        if nDown and not nWasDown
+            Step2D()
+        end
+        nWasDown = nDown
+
+        boolean aDown = monitor:IsKeyPressed(keys:A)
+        if aDown and not aWasDown
+            automatic = not automatic
+            output "Automatic stepping: " + automatic
+        end
+        aWasDown = aDown
+
+        if automatic
+            timeUntilStep = timeUntilStep - seconds
+            if timeUntilStep <= 0
+                Step3D()
+                Step2D()
+                timeUntilStep = 0.5
+            end
+        end
+
+        box:Rotate(0, 1, 0, 30 * seconds)
+
+        timeUntilReport = timeUntilReport - seconds
+        if timeUntilReport <= 0
+            Report()
+            timeUntilReport = 2
+        end
+    end
+
+    private action Step3D
+        integer count = GetMultisampling() * 2
+        if count > 8
+            count = 1
+        end
+        SetMultisampling(count)
+    end
+
+    private action Step2D
+        integer count = GetMultisampling2D() * 2
+        if count > 8
+            count = 1
+        end
+        SetMultisampling2D(count)
+    end
+
+    private action Report
+        SystemHelper helper
+        number used = helper:GetTotalMemory() - helper:GetFreeMemory()
+        integer heapMegabytes = cast(integer, used / (1024.0 * 1024.0))
+        GameStateManager manager
+        if manager:GetGameGraphics() is VulkanGraphics
+            VulkanGraphics graphics = cast(VulkanGraphics, manager:GetGameGraphics())
+            output graphics:GetMemoryReport() + "; Java heap: " + heapMegabytes + " MB"
+        else
+            output "Not running under Vulkan. Java heap: " + heapMegabytes + " MB"
+        end
+    end
+end

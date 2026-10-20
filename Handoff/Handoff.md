@@ -1,15 +1,44 @@
 # Handoff: physics, graphics and rendering work
 
-Updated 2026-10-15. This folder holds every handoff and plan for the work
+Updated 2026-10-19. This folder holds the handoffs and plans for the work
 in the `physics` projects and the Quorum standard library. Read this file
 first: "Where things stand", then "What remains", then the working rules.
+
+**Current focus (since 2026-10-17): Open Worlds,** large streamed terrain
+with editing tools. Its documents live beside its code in
+`AllTerrainVehicle/`. Start with `AllTerrainVehicle/OpenWorldsHandoff.md`,
+which has the **priority list** of what remains.
+
+On 2026-10-19:
+- **Working and committed:**
+  - TerrainEditor (Tier 4's in-game editor);
+  - AmbientCG texture sets with height blending;
+  - mipmaps and anisotropy;
+  - a skybox on the shader system;
+  - MSAA for 3D and 2D;
+  - resize fixes;
+  - `vSyncEnabled` under Vulkan.
+
+  The library commits are `804c85c40` to `8a656d7c3` on `TerrainShader`, then
+  `0b5de0b62` (spotlights) on `MakeAWish`.
+- **Freeing memory everywhere** is done (`AllTerrainVehicle/MemoryPlan.md`):
+  - Items 31 to 35 are committed (`8d0ca607f`, `b1d8e1a8e`) and run.
+  - Item 36 is for review.
+- **Now: spotlights and water** (`SpotlightPlan.md`, `WaterPlan.md`;
+  stopped here on 2026-10-19):
+  - Spotlights for Vulkan are committed (`Item37.md`, `0b5de0b62`) and
+    not yet run. DriveOpen has headlights (N for night, H for the lights).
+  - Water phase 1 (`Item38.md`) is for review, not applied.
+  - See `OpenWorldsHandoff.md`, "Where we are", for the next steps.
 
 ## The files in this folder
 
 | File | What it is |
 |---|---|
 | `Handoff.md` | This file: the summary. |
-| `TestFrustrum.md` | **The next task.** Tests for the frustum culling library: tree tests with no window, layer tests in a game, and checks by eye. |
+| `CarModel.md` | Plan (2026-10-16): a Kenney car with separate wheels in place of the box chassis. Not started as far as the Open Worlds documents know; DriveOpen still loads the ToyCar. The Kenney kit is in `AllTerrainVehicle/CarKit/`. |
+| `LoadParts.md` | Plan (2026-10-16): `Model:LoadParts`, loading a model's parts separately (a library change). Not started. |
+| `TestFrustrum.md` | Was the next task before Open Worlds started; not revisited since 2026-10-15. Tests for the frustum culling library: tree tests with no window, layer tests in a game, and checks by eye. |
 | `PhysicsTestsMove.md` | The task after: moving the 93 unit tests and 28 world tests into Quorum's test suite, and the frustrum tests with them. |
 | `Open/Layer3DTrees.md` | The design of `Layer3D`'s trees and culling (batches 1 to 3, all done), with the transparency details, risks, and testing lists. The reference for the culling work. |
 | `Open/Changes.MD` | The `vulkan-3D...vulkan-rotations` diff and its "check by hand" list, partly open. |
@@ -32,7 +61,7 @@ shadow bugs) were deleted as no longer relevant; neither was committed.
 
 | What | Where | State |
 |---|---|---|
-| Quorum language | `~/Repositories/quorum-language` | Branch `FrustrumCull2`. Commit `581a60746` ("Closer to frustrum") is batch 1. Batch 2 (`Game/Layer3D.quorum`, new `Game/Item3DBackToFrontComparison.quorum`) was uncommitted on 2026-10-14; check `git status`. |
+| Quorum language | `~/Repositories/quorum-language` | **Now branch `MakeAWish`** (from Item 37, commit `0b5de0b62`; never switch branches, use the one checked out). Before that, branch `TerrainShader` (Open Worlds library changes `804c85c40` to `8a656d7c3`, all committed). Earlier: branch `FrustrumCull2`. Commit `581a60746` ("Closer to frustrum") is batch 1. Batch 2 (`Game/Layer3D.quorum`, new `Game/Item3DBackToFrontComparison.quorum`) was uncommitted on 2026-10-14; check `git status`. |
 | Test and example projects | `~/Repositories/physics` | This repository. |
 | Example games | `~/Repositories/example-games` | Includes the GroundFlightTactics fixes. |
 | Bullet source, for reference | `~/Repositories/bullet3` | |
@@ -77,6 +106,13 @@ The work so far, in order:
    - AllTerrainVehicle uses the plain `Layer3D` again; the test layers are
      gone.
    - No painter changes were made.
+6. **Open Worlds** (2026-10-17 on), in `AllTerrainVehicle/`:
+   - Terrain3D-style regions, streaming, collision near the player, coarse
+     distant terrain, and texture splatting, all in
+     `Libraries.Game.Graphics.Worlds` in the project.
+   - Library changes on `TerrainShader`: meshes update in place, per-model
+     shader programs, and a fix for a crash after minimizing.
+   - Records: `OpenWorldsHandoff.md` and the files it lists.
 
 All of the culling work compiled and ran in AllTerrainVehicle on
 2026-10-14. The last profile (batch 2 against batch 1, per second of run):
@@ -93,6 +129,33 @@ Main-thread CPU is about even; the saving should be on the GPU. Physics is
 about 90% of the frame either way.
 
 ## What remains
+
+**Open Worlds** (current): the priority list is in
+`AllTerrainVehicle/OpenWorldsHandoff.md`, and the library order in
+`AllTerrainVehicle/LibraryChangesPlan.md`. Library changes for it are on the
+`quorum-language` branch `MakeAWish` from Item 37 on (before that
+`TerrainShader`; never switch branches, use the one checked out); everything applied is committed
+(the last is `0b5de0b62`, on `MakeAWish`).
+In short:
+1. **spotlights and water** (`SpotlightPlan.md`, `WaterPlan.md`):
+   - spotlights for Vulkan are committed (`Item37.md`, `0b5de0b62`) and
+     waiting for a run (SpotlightCheck, DriveOpen at night with H);
+   - water phase 1 (`Item38.md`) is for review;
+   - the next to write is `Item39.md` (the water pass);
+   freeing memory is done (Items 31 to 35 committed and run; Item 36,
+   per-frame garbage, for review);
+2. run the checks not yet reported (2D MSAA, a resize with MSAA, vsync,
+   minimize);
+3. small fixes:
+   - #22 (texture groups);
+   - `Material`'s zero diffuse;
+   - a game-level after-physics hook, and blending drawn positions between
+     physics steps;
+4. better ground, and fog;
+5. world-making: height layers, rule-based painting, splines;
+6. larger work: many materials, instancing, Quorum Studio brushes.
+
+The items below are the earlier work, paused while Open Worlds goes on.
 
 ### Next: test the culling work (`TestFrustrum.md`)
 

@@ -9,12 +9,19 @@ committed:
 - `768335de9`: items 25 and 26, which include orders 8 and 10;
 - `7ad442acb`: items 27-30, #28 and #29.
 
-**Next: freeing memory everywhere** (the user's choice). That is orders 3
+**Now: spotlights and water** (the user's choice, 2026-10-19; `SpotlightPlan.md`
+and `WaterPlan.md`). The library branch is now **`MakeAWish`**: never switch
+branches.
+- **Spotlights for Vulkan** (`Item37.md`) are committed as `0b5de0b62`.
+- **Water phase 1** (`Item38.md`) is for review.
+
+Before that came **freeing memory everywhere**, now done. That is orders 3
 and 11, plus the leaks found since. They are listed in `VulkanChanges.md`,
 "Next: freeing memory everywhere". The plan is `MemoryPlan.md`.
 The Items with exact code are `Item31.md` to `Item36.md` (2026-10-19).
-Item 31 is approved and being applied; the rest await review. Item 32
-includes order 13 (#22). After that, the small open bugs B and H. See "Status" at the end.
+Items 31 to 35 are committed (`8d0ca607f`, `b1d8e1a8e`) and run.
+Item 36 awaits review.
+Item 32 includes order 13 (#22). After that, the small open bugs B and H. See "Status" at the end.
 
 Items are taken one at a time, when the user picks them; most still need
 discussion first. Larger items get a written proposal (`Item7.md`,

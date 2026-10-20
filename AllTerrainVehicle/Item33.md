@@ -1,11 +1,14 @@
 # Item 33: freeing models (meshes, blueprints, batches)
 
-**Status (2026-10-19): plan, for review.** Nothing is applied yet. It
-needs Item 31 (`Retire`, and a safe `VulkanBuffer.Dispose`). It is section
-3 of `MemoryPlan.md`. It uses the recommended answers to decisions 1 and 2:
+**Status (2026-10-19): committed** (`b1d8e1a8e` on `TerrainShader`, with
+Items 32 to 35). MemoryCheck and DriveOpen ran correctly and looked normal. It is section
+3 of `MemoryPlan.md`, with the recommended answers to decisions 1 and 2:
 - `Model:Dispose` frees under Vulkan; removing a model from a layer
   doesn't.
 - Primitive blueprints stay cached.
+
+The project changes (WorldTerrain, TerrainRegionModel) are applied too.
+"As applied", just before the test plan, lists the small differences from the text.
 
 Vulkan only, on `TerrainShader`. Paths are as in `Item31.md`. **MV/** is
 `Quorum/Library/Standard/Libraries/Game/Graphics/Models/Vulkan/`.
@@ -403,7 +406,7 @@ New action, so a released blueprint's frames aren't copied:
 
     Attribute: Parameter blueprint The blueprint the model loaded.
     */
-    action AddUser(ModelBlueprintVulkan blueprint)
+    action AddUser(ModelBlueprintVulkan schematic)
         blueprint:AddUser()
     end
 
@@ -721,6 +724,23 @@ one.
 - **`TerrainRegionModel.Rebuild`.** Its comment's sentence "and the
   renderer cannot yet free the old one. See VulkanChanges.md." becomes
   "and the old one is freed."
+
+## As applied (2026-10-19)
+
+- **`ModelBlueprintVulkan:HasAnimations`** also returns false when `data`
+  is undefined. A released blueprint drops its data, and nothing should ask
+  it, but this keeps a stray call from crashing.
+- **`Model:Load`, `Model:Dispose` and `ModelManagerVulkan:RemoveUser`**
+  write `x not= undefined and x is ...` as two nested `if`s. The meaning is
+  the same.
+- **`ModelManagerVulkan:AddUser` and `RemoveUser`** name their parameter
+  `schematic`, not `blueprint`, which is a reserved word in Quorum. The
+  second build failed on that (2026-10-19).
+- **`Model:Dispose`** doesn't call `parent:Item3D:Dispose()`. `Item3D`
+  doesn't define `Dispose` (only `Item` does, and it's empty), so the call
+  was dropped to avoid a compile error (2026-10-19).
+- **The MemoryCheck loop L** (model load and dispose) isn't added yet. The
+  file has only Item 31's keys. The test plan below needs it before step 1.
 
 ## Test plan
 

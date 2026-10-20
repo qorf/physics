@@ -1,11 +1,22 @@
 # Freeing memory everywhere (plan)
 
 **Status (2026-10-19):**
-- **Each Item is written out with exact code:** `Item31.md` to
-  `Item36.md`.
-- **Item 31 is being applied** (the user approved it).
-- **Items 32 to 36 are waiting for review.** They use the recommended
-  answers to the decisions below.
+- **Item 31** is committed (`8d0ca607f`).
+- **Items 32 to 35** are committed (`b1d8e1a8e`), and the white-texture fix
+  (`8a656d7c3`).
+- **Item 36** (per-frame garbage) is written and waiting for review.
+- **Run on 2026-10-19:**
+  - **MemoryCheck (M, N, A):** GPU memory moves between 536 and 650 MB as the
+    sample counts change and settles back; "waiting" drains to 0.
+  - **DriveOpen:** memory is flat at about 3.29 GB (mostly the lamp's shadow
+    maps), textures are steady at 16, and blueprints level off as the map
+    fills. It looked normal.
+  - **Fixed along the way:** four compile errors (reserved words, a
+    parameter-name clash, a missing `use`), and a white-texture-per-material
+    leak from before this work.
+- **Not yet seen:** cached region models being freed by distance (the 8x8
+  test map is too small), and a sawtooth in the Java heap over a long idle
+  run.
 
 **Points settled while writing them:**
 - `Model:Dispose` already exists, as `Item:Dispose`, which does nothing.

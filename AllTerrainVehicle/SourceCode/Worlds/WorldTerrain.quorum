@@ -435,10 +435,15 @@ class WorldTerrain
     edited area. Any models from an earlier build are replaced, so remove
     them from the game first.
 
-    The renderer cannot yet free a model's mesh, so building again keeps the
-    old meshes' memory in use. See VulkanChanges.md.
+    Their meshes are freed, so remove them from the game first.
     */
     action Build
+        // Models from an earlier build are freed (Item 33).
+        integer old = 0
+        repeat while old < regionModels:GetSize()
+            regionModels:Get(old):Dispose()
+            old = old + 1
+        end
         regionModels:Empty()
         if splatting
             PrepareSplatTexture()
@@ -566,6 +571,7 @@ class WorldTerrain
             TerrainRegion current = terrainData:GetRegion(modelRegion:GetLocationX(), modelRegion:GetLocationZ())
             if current = undefined
                 layer:Remove(kept)
+                kept:Dispose()
                 regionModels:RemoveAt(i)
                 changes = changes + 1
             elseif current not= modelRegion
@@ -655,6 +661,12 @@ class WorldTerrain
 
         streaming = true
         drawLayer = layer
+        // Models from an earlier build are freed (Item 33).
+        integer old = 0
+        repeat while old < regionModels:GetSize()
+            regionModels:Get(old):Dispose()
+            old = old + 1
+        end
         regionModels:Empty()
         streamer:SetLoadRadius(drawRadius + 1.5 * streamer:GetRegionWorldSize())
         streamer:LoadAllNear(targetX, targetZ)
@@ -1236,7 +1248,34 @@ class WorldTerrain
                 changed = true
             end
         end
+        if changed
+            FreeFarCachedModels(targetX, targetZ)
+        end
         return changed
+    end
+
+    /*
+    This action frees cached region models that aren't being drawn and are
+    more than twice the draw radius from the target. They are built again
+    if the target comes back (Item 33).
+
+    Attribute: Parameter targetX The target's position along x, in world units.
+    Attribute: Parameter targetZ The target's position along z, in world units.
+    */
+    private action FreeFarCachedModels(number targetX, number targetZ)
+        number keepRadius = drawRadius * 2 + streamer:GetRegionWorldSize()
+        integer i = 0
+        repeat while i < modelMap:GetSize()
+            TerrainRegionModel cached = modelMap:Get(i)
+            if cached not= undefined and activeMap:Get(i) = 0
+                TerrainRegion region = cached:GetTerrainRegion()
+                if streamer:GetDistanceToRegion(region:GetLocationX(), region:GetLocationZ(), targetX, targetZ) > keepRadius
+                    cached:Dispose()
+                    modelMap:Set(i, undefined)
+                end
+            end
+            i = i + 1
+        end
     end
 
     /*

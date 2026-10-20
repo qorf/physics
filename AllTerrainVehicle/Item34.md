@@ -1,10 +1,10 @@
 # Item 34: freeing textures, materials and the skybox
 
-**Status (2026-10-19): plan, for review.** Nothing is applied yet. It
-needs Item 31, and Item 33 for the blueprint hook. It is section 4 of
-`MemoryPlan.md`. It uses the recommended answer to decision 3: a texture
-cache with reference counts. Font atlases (decision 4) wait for later; only
-a crash in their disposal is fixed here.
+**Status (2026-10-19): committed** (`b1d8e1a8e` on `TerrainShader`, with
+Items 32 to 35). MemoryCheck and DriveOpen ran correctly and looked normal. It is section 4 of
+`MemoryPlan.md`, with the recommended answer to decision 3: a texture cache
+with reference counts. Font atlases (decision 4) wait for later; only a
+crash in their disposal is fixed here. Applied as written.
 
 Vulkan only, on `TerrainShader`. **OpenGL changes:** `Texture:Dispose`
 becomes a Quorum action that calls the old Java code, so OpenGL behaves
@@ -439,8 +439,8 @@ place no frame uses.
     Attribute: Parameter index The place in the global texture array.
     */
     action RecycleTextureIndex(integer index)
-        SharedTextureManager shared
-        Texture unit = shared:GetUnitTexture()
+        SharedTextureManager sharedManager
+        Texture unit = sharedManager:GetUnitTexture()
         VulkanImageView unitView = unit:GetVulkanImageView()
         if unitView not= undefined
             VulkanConstants constants
@@ -546,6 +546,22 @@ In `LoadCubeSide`, the Vulkan branch's
                     side = side + 1
                 end
 ```
+
+**Found in the first DriveOpen run (2026-10-19), fixed:** `MaterialVulkan:Preload`
+declared `SharedTextureManager sharedTextures` for materials with no texture.
+`SharedTextureManager` isn't a shared class, so that made a new manager and a
+new 2x2 white texture for every such material: every terrain region and far
+model got its own. This was there before Item 34. It, and
+`RecycleTextureIndex`, now use `GameStateManager:GetSharedTextureManager()`,
+the game's one manager, as `Drawable` does.
+
+**As applied (`VulkanTextureManager:RecycleTextureIndex`):** the local is
+`sharedManager`, not `shared`, which is a Quorum keyword. The third build
+failed on that (2026-10-19).
+
+**As applied:** the loop variable is `sideIndex`, not `side`, which is
+already `LoadCubeSide`'s parameter. The first build failed on that
+(2026-10-19).
 
 **`RecordSource` keeps the files.** A skybox reloaded side by side still
 works once all six are loaded again. **Behaviour change:** before this,

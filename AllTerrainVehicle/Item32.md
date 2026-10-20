@@ -1,8 +1,9 @@
 # Item 32: render passes, descriptor sets and 2D batches
 
-**Status (2026-10-19): plan, for review.** Nothing is applied yet. It
-needs Item 31 (`VulkanGraphics:Retire` and safe `Dispose`). It is section 5
-of `MemoryPlan.md`, apart from shadow maps, which are Item 35.
+**Status (2026-10-19): committed** (`b1d8e1a8e` on `TerrainShader`, with
+Items 32 to 35). MemoryCheck and DriveOpen ran correctly and looked normal. It is section 5
+of `MemoryPlan.md`, apart from shadow maps, which are Item 35. Applied as
+written.
 
 Vulkan only, on `TerrainShader`. Paths are as in `Item31.md`. **M/** is
 `Quorum/Library/Standard/Libraries/Game/Graphics/Shaders/Vulkan/Mapping/`.
