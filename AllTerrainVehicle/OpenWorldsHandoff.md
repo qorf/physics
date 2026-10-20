@@ -51,6 +51,12 @@ the switch was made. **Never switch branches:** use the one checked out
     `SourceCode/WaterCheck.quorum`.
   - **DriveOpen keys added:** F fog (40), G ground look (42), L sea, U/J
     sea level, B drop a lake, V remove lakes (43).
+- **Item 71 is written for review** (`../QuorumStudio/QuorumStudioPlan.md`,
+  the new folder for Quorum Studio documents): the Worlds classes move into
+  the standard library, a terrain becomes a scene item (`TerrainItem`,
+  `"Class": "Terrain"` pointing at its `terrain.json`), and Studio's
+  palette adds a flat terrain. No new keys. Item 70 (brushes) follows it,
+  one tool at a time.
 - **Memory:** done (`MemoryPlan.md`, Items 31 to 35, run and confirmed).
   `Item36.md` (per-frame garbage) is still for review.
 
@@ -219,8 +225,8 @@ These are committed, but nobody has reported on them yet:
 | 67 | OpenGL spotlights (per-vertex; stops the alert under OpenGL) | library (OpenGL) | M | Spotlight phase 4 |
 | 68 | OpenGL water | library (OpenGL) | M | Water phase 4 |
 | 69 | Spotlights in scene files and the scene editor | library | M | Spotlight phase 5 |
-| 70 | Tier 4 stage 4: brushes in Quorum Studio | Studio | L | |
-| 71 | Moving the Worlds classes into the standard library | library | M | |
+| 70 | Tier 4 stage 4: brushes in Quorum Studio | Studio | L | After 71. Plan in `../QuorumStudio/QuorumStudioPlan.md`: brushes in the scene editor, one tool at a time, keys matching Studio's. First check Vulkan 3D inside a Studio panel |
+| 71 | Moving the Worlds classes into the standard library, and terrain in scene files and Studio's palette | library | M | **Written for review** in `../QuorumStudio/QuorumStudioPlan.md`, with exact code. The user moved it ahead of the other groups (2026-10-19): real scene files make everything after it easier to test. After it, Items 39 to 43's water files go into the library's Worlds folder instead of the project's |
 
 **Only if needed:** #9 (texture formats other than RGBA8) and #10 (textures
 in vertex shaders).

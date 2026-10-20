@@ -8,8 +8,11 @@ Written 2026-10-18.
 (after library item 20 and two project fixes), uses texture sets with
 height blending, and has a user guide (`TerrainEditorInstructions.md`).
 The world-wide keys (Shift N, X, U) haven't been reported on yet. Stage 4
-(Quorum Studio) is not started. It is item 18 in the priority list in
-`OpenWorldsHandoff.md`.
+(Quorum Studio) is not started. Its plan is now in
+`../QuorumStudio/QuorumStudioPlan.md` (2026-10-19, for review): first Item
+71, the Worlds classes in the standard library and terrain in Studio's scene
+files and palette; then Item 70, brushes in the scene editor, one tool at a
+time. The stage 4 section below is the earlier record.
 
 The notes below are the record from 2026-10-18.
 

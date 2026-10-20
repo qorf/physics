@@ -17,6 +17,10 @@ branches.
 - **Group 1 (Items 39 to 43)** is written for review, nothing applied: the
   water pass (39), fog (40), the sky reflection (41), the ground look (42,
   project only) and sea level and lakes (43, project only).
+- **Item 71** (moving the Worlds classes into the standard library, and
+  terrain in scene files and Studio's palette) is written for review in
+  `../QuorumStudio/QuorumStudioPlan.md`. It is the "last step" this plan
+  always had, brought forward by the user.
 
 Before that came **freeing memory everywhere**, now done.
 
