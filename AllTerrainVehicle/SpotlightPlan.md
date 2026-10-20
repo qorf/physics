@@ -5,8 +5,8 @@ Written 2026-10-19. **Phases 1 and 2 are done:** `Item37.md`, committed as
 only, with `EnvironmentOpenGL` unchanged at the user's request: adding a
 spotlight under OpenGL alerts until phase 4. They are not yet reported on
 screen. DriveOpen has headlights (H, with N for night) to see them.
-Phases 3 (shadows), 4 (OpenGL) and 5 (scenes and the editor) are not
-started. Once the decisions
+Phases 3 (shadows, Item 47), 4 (OpenGL, Item 67) and 5 (scenes and the
+editor, Item 69) are not started. Shadow map memory is Item 48. Once the decisions
 at the end are settled, this becomes `ItemN.md` files with the exact code.
 
 **Quorum has no spotlight.** It has `DirectionalLight` (sun) and `PointLight`

@@ -1,8 +1,21 @@
 # Water effects (plan)
 
-Written 2026-10-19. **Phase 1 is written as `Item38.md`** (for review, not applied).
-Phase 2 (the water pass, `Item39.md`) is next to write. Nothing is changed in
-the library yet. Once the decisions
+Written 2026-10-19. **Phases 1, 2, 3 and 5 are written, for review, not
+applied:** `Item38.md` (time and camera data), `Item39.md` (the water pass
+and `WaterSurface`), `Item41.md` (sky reflection) and `Item43.md` (sea level
+and lakes), with fog as `Item40.md`. OpenGL water is Item 68, the extras
+Item 66. Nothing is changed in the library yet.
+
+**Where the Items differ from this plan** (the Items are what to apply):
+- **No separate render pass:** forward programs draw inside the lighting
+  render pass, after its full-screen draw. The lit image is already its
+  attachment and the G-buffer is already readable there.
+- **The water's settings are per program,** in push constants (18
+  numbers), not per model: one `WaterShaderProgram` per look.
+- **The water classes are project code** in `Libraries.Game.Graphics.Worlds`
+  for now (decision 5), moved with the rest of Worlds in Item 71.
+- **Sets:** 0 camera and sampler, 1 textures, 2 G-buffer, 3 lights and
+  scene data, 4 sky cube (41). Once the decisions
 at the end are settled, the work goes in Items with the exact code.
 
 **The goal:** lakes and seas on the open-world terrain that look like water:

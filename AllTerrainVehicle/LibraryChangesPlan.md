@@ -14,8 +14,16 @@ and `WaterPlan.md`). The library branch is now **`MakeAWish`**: never switch
 branches.
 - **Spotlights for Vulkan** (`Item37.md`) are committed as `0b5de0b62`.
 - **Water phase 1** (`Item38.md`) is for review.
+- **Group 1 (Items 39 to 43)** is written for review, nothing applied: the
+  water pass (39), fog (40), the sky reflection (41), the ground look (42,
+  project only) and sea level and lakes (43, project only).
 
-Before that came **freeing memory everywhere**, now done. That is orders 3
+Before that came **freeing memory everywhere**, now done.
+
+**All open code work** (library and project) is numbered from Item 39 on in
+`OpenWorldsHandoff.md`, "Priority list (Items 39 on)". The order tables
+below are kept as the record of orders 1 to 15. Their open entries (B, A,
+#4, #13, #14) are Items 44 and 45 there. That is orders 3
 and 11, plus the leaks found since. They are listed in `VulkanChanges.md`,
 "Next: freeing memory everywhere". The plan is `MemoryPlan.md`.
 The Items with exact code are `Item31.md` to `Item36.md` (2026-10-19).

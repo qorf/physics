@@ -4,7 +4,7 @@ Written 2026-10-17. This records where Quorum's terrain stood, what
 Terrain3D does, and what could be adapted from it. Work in progress is
 tracked in `OpenWorldsHandoff.md`.
 
-## Status of the tiers (2026-10-18)
+## Status of the tiers (2026-10-18; see the 2026-10-19 comparison below)
 
 | Tier | Status | Where |
 |---|---|---|
@@ -87,6 +87,51 @@ Main files:
 | Foliage | Instances stored per region, up to 10 detail levels, shadow impostors, density, random scale and rotation, generated grass cards | None |
 | Input and output | Imports and exports EXR, R16 and PNG heightmaps; one file per region | Loads a PNG |
 | Other | Navigation data, debug views, vertex spacing, 64-bit coordinates | None |
+
+## What Terrain3D has that the port doesn't yet (2026-10-19)
+
+Compared again after Tiers 1, 3 and 4 (stages 1 to 3), texture sets, and
+the Vulkan library work. Sources: Terrain3D's `src/shaders/` modules and
+`doc/docs/`.
+
+**The port already covers, sometimes by another route:**
+- regions, saved one per file, with streaming;
+- height, normal and slope queries;
+- collision near the player ("dynamic") or everywhere ("full");
+- **editing:** a brush engine, sculpt operations, undo and redo, picking, a
+  brush preview, presets, stamps, erosion and auto paint (slope);
+- **texturing:** four splat layers with texture sets and height blending;
+  mipmaps and anisotropy;
+- **distant terrain:** low-detail far models, where Terrain3D uses a
+  clipmap;
+- **picking:** done on the CPU, where Terrain3D reads a GPU depth render.
+
+**Not in the port:**
+
+| Area | Terrain3D feature | Notes |
+|---|---|---|
+| Texturing | Index (control) map: 32 texture sets, base and overlay per pixel | The port has 4 layers |
+| | Per-pixel texture angle and scale painting | Stored in the control map |
+| | Detiling, to break up visible repeats | Shader |
+| | Macro variation: large-scale color noise | Shader; small |
+| | Dual scaling: one texture at two scales, near and far | Shader; small |
+| | Cliff projection: triplanar on steep slopes | Shader |
+| Maps | Color map: paintable tint (GIS imports, variation) | A per-region map |
+| | Roughness and wetness painting | A per-region map |
+| | Holes, for caves, tunnels and buildings | Mesh, collision and shader |
+| Mesh | GPU clipmap with levels of detail | Not started (Tier 3). Far models stand in |
+| | Displacement: tessellation from texture heights near the camera | Large; needs a clipmap or tessellation |
+| | Background terrain (flat or noise) beyond the edited regions | Not done (Tier 3 goal 4) |
+| World | 64-bit coordinates | Deferred (floating origin, Tier 3 step 3) |
+| Filling the world | Instancer: foliage and props per region, levels of detail, shadow impostors, placement rules | Tier 5. Needs instancing at scale (#18) first |
+| | Grass particles; wind and player interaction for foliage | Tier 5 |
+| Game support | Navigation mesh baking from the terrain | Quorum has no navigation system yet |
+| | Occlusion culling (baked occluders) | Quorum has frustum culling only |
+| Import and export | EXR and R16 heightmaps | The port uses PNG and 16-bit heights |
+| Tools | Debug views and overlays: region grid, vertex grid, contour lines, height, control-map, PBR and displacement views | Mostly shader switches |
+
+The work to close these gaps, with everything else still open, is
+numbered in `OpenWorldsHandoff.md`, "Priority list (Items 39 on)".
 
 ## Features that could be added
 

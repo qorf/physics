@@ -35,6 +35,22 @@ the switch was made. **Never switch branches:** use the one checked out
 - **Water (`WaterPlan.md`):** phase 1 is written as **`Item38.md`, for
   review, not applied**. It covers time, the camera position, screen size
   and near and far planes for every Vulkan 3D shader.
+- **Group 1 of the priority list is written, for review, nothing
+  applied:** `Item39.md` (the water pass, a general forward stage, and
+  `WaterSurface` with `WaterCheck`), `Item40.md` (distance fog),
+  `Item41.md` (the sky reflected in water), `Item42.md` (the ground look,
+  project only) and `Item43.md` (sea level and lakes, project only). Each
+  has exact before and after code.
+  - **Apply order:** 38, then 39, 40, 41; 42 and 43 after 38 and 39.
+  - **Library files touched:** `VulkanShaderMapping` (forward flag),
+    `VulkanPipelineInfoCreator` (`AddForwardInfo3D`), `VulkanPainter3D`
+    (forward draw after lighting, sky set 4), `EnvironmentVulkan` and the
+    lighting shader (fog). OpenGL is untouched.
+  - **New project files:** `Worlds/WaterShaderProgram`,
+    `WaterShaderMapping`, `WaterFragmentShader`, `WaterSurface`, and
+    `SourceCode/WaterCheck.quorum`.
+  - **DriveOpen keys added:** F fog (40), G ground look (42), L sea, U/J
+    sea level, B drop a lake, V remove lakes (43).
 - **Memory:** done (`MemoryPlan.md`, Items 31 to 35, run and confirmed).
   `Item36.md` (per-frame garbage) is still for review.
 
@@ -43,11 +59,11 @@ the switch was made. **Never switch branches:** use the one checked out
    - soft-edged cones;
    - the green cone turning with its platform;
    - the lamp lighting the ground around it correctly.
-2. **Review and apply `Item38.md`.**
-3. **Write `Item39.md`:** water phase 2, the water pass and `WaterSurface`,
-   with `WaterCheck`.
-4. **Later:** spotlight shadows (phase 3), OpenGL spotlights (phase 4), sky
-   reflection on water (water phase 3), and fog (#17).
+2. **Review and apply `Item38.md`, then `Item39.md` to `Item43.md`,** in
+   that order (each is written; nothing applied). Run `WaterCheck` after
+   39, and DriveOpen after 40, 42 and 43.
+3. **Then Group 2 of "Priority list (Items 39 on)"** below: the bug batch
+   (44), shadow fixes (45), physics (46), and Item 36.
 
 **Finished in this round (2026-10-19), all committed in the library:**
 - **terrain materials:** AmbientCG texture sets with height blending;
@@ -108,67 +124,106 @@ These are committed, but nobody has reported on them yet:
   uncommitted: TerrainWalk's `CameraFollower` and diagnostic keys, and some
   documents.
 
-### Priority list (2026-10-19)
+### Priority list (Items 39 on, 2026-10-19)
 
-Each step says whether it is project work (AllTerrainVehicle) or a library
-change (which needs an approved `ItemN.md` or a before-and-after first).
+**Every code task still open, numbered in the Item series.**
+- **Item 37** (spotlights) is committed. **Item 38** (time and camera data)
+  is written for review. **Item 36** (per-frame garbage) is written for
+  review and keeps its number.
+- **Library** items change `quorum-language` on the checked-out branch
+  (`MakeAWish`; never switch). Each needs an approved `ItemN.md` with the
+  exact code first.
+- **Project** items change AllTerrainVehicle. They get an `ItemN.md` too
+  when they are large.
+- **Sizes:** S is under a day of changes, M a few files, L a plan of its
+  own first.
 
-**Spotlights and water (the user's choice, 2026-10-19).**
-- **`SpotlightPlan.md`:** a new `SpotLight` (a cone light, an `Item3D` like
-  `PointLight`).
-  - **Phases:**
-    1. the point light direction fix;
-    2. spotlights under Vulkan;
-    3. their shadows;
-    4. OpenGL;
-    5. scenes and the editor.
-  - **Status:** phases 1 and 2 are committed (`Item37.md`, `0b5de0b62`),
-    not yet run. Phases 3 to 5 are not started.
-- **`WaterPlan.md`:** a water pass after lighting, drawing `WaterSurface`
-  models into the lit image.
-  - **Effects:** depth color, a soft shore, scrolling normals, a sun glint,
-    then sky reflection with fresnel.
-  - **Status:** phase 1, `Item38.md` (time and camera data for 3D
-    shaders), is for review. Phase 2 (`Item39.md`) is next to write.
-  - Decision 6 is still open: whether fog (#17) comes first.
+**Why this order:**
+1. Finish what is in flight: spotlights and water.
+2. Then cheap fixes and visual wins that touch everything after them.
+3. Then changes to the terrain's data format, before more ground is
+   painted in the old format.
+4. Then the large engine work.
+5. OpenGL parity comes last, as the user prefers Vulkan-only changes.
 
-**A. Freeing memory (library): Items 31 to 35 done** (all committed;
-the white-texture fix is `8a656d7c3`)
-1. **Point light shadow maps** cost about 2.6 GB; pick an option in
-   `VulkanChanges.md`.
-2. **Review and apply `Item36.md`** (per-frame garbage), one part at a time,
-   measuring each.
-3. **Extend `MemoryCheck.quorum`** with the loops the Items describe: L
-   (models), T (textures), S (lights).
+#### 1. In flight: lights and water
 
-**B. Small library fixes**
+| Item | Work | Kind | Size | Notes |
+|---|---|---|---|---|
+| 37 | Run SpotlightCheck and DriveOpen at night (N, H) | test only | — | Committed, `0b5de0b62` |
+| 38 | Time, camera position, screen size and near/far for 3D shaders | library | S | `Item38.md`, for review. Water phase 1 |
+| 39 | Water pass and `WaterSurface`: depth color, soft shore, scrolling normals, sun glint; `WaterCheck` | library + project | L | `Item39.md`, for review. Water phase 2. Needs 38. A general forward stage (`UseForwardPass`, `AddForwardInfo3D`) drawn inside the lighting pass |
+| 40 | Fog (#17): distance fade to the sky's color in the lighting pass | library | S | `Item40.md`, for review. Water decision 6: alongside water. Also hides the far edge of the terrain. API on `EnvironmentVulkan` |
+| 41 | Water sky reflection with fresnel (binds the sky cube in the water pass) | library | M | `Item41.md`, for review. Water phase 3. Needs 39 and 40 |
+| 42 | Ground look: detiling, macro variation, dual scaling, cliff projection; texture sets for dirt and sand | project (splat shader) | M | `Item42.md`, for review. Terrain3D's shader modules, switchable at run time (G in DriveOpen). Uses 38's camera data. Dirt and sand sets wait for the user's download |
+| 43 | Sea level and lakes in WorldTerrain; water in DriveOpen | project | M | `Item43.md`, for review. Water phase 5. Needs 39 |
 
-4. **#22 (order 13):** done in Item 32. #19 (the group size) is still open.
-5. **H:** a new `Material`'s diffuse should be undefined.
-6. **Batch 1:** orders 1 to 6 (B, A, #4, #14, #13).
-7. **Physics:**
-   - a game-level hook that runs after physics;
-   - drawing positions blended between physics steps (the TerrainWalk
-     findings).
+#### 2. Correctness and cleanup (small, affects everything)
 
-**C. Better-looking ground (project)**
+| Item | Work | Kind | Size | Notes |
+|---|---|---|---|---|
+| 44 | Library bug batch: B (`Integer32BitArray` before `SetSize`), A (`FileReader:ReadLines`), H (a new `Material`'s zero diffuse), #13 (texture override index), #12 (tidying), `EnvironmentVulkan:SetMaxLights`'s undeclared `isDirty` | library | S | `VulkanChanges.md`, orders 1 to 6 |
+| 45 | Shadow correctness: cascade snapping (`row3column1`), `lastSplitDistance`, #14 (animation compute ordering), #4 (optional) | library | S | Shadow shimmer when the camera moves |
+| 46 | Physics: a game-level after-physics hook, drawn positions blended between physics steps, and C (an item removed and added again doesn't collide) | library | M | The TerrainWalk findings |
+| 36 | Per-frame garbage, in four parts, each measured; with MemoryCheck's L, T and S loops | library + project | M | `Item36.md`, written |
 
-8. Texture sets for dirt and sand; per-set tint, roughness and detiling;
-   triplanar projection on cliffs; a baked far color texture.
-9. **Fog** (#17), to hide the far edge against the sky (library).
+#### 3. Lights, continued
 
-**D. World-making workflow (project)**
+| Item | Work | Kind | Size | Notes |
+|---|---|---|---|---|
+| 47 | Spotlight shadows: one layer per spotlight, frustum culling of casters | library | M | Spotlight phase 3 |
+| 48 | Shadow map memory: a per-light map size, and fewer or smaller maps for point lights (DriveOpen's lamp costs about 2.6 GB) | library | M | Options in `VulkanChanges.md` |
 
-10. **Height layers;**
-11. **rule-based painting** with derived maps;
-12. **splines** for roads and rivers.
+#### 4. Terrain data, before much more painting
 
-**E. Larger work, when its turn comes**
+| Item | Work | Kind | Size | Notes |
+|---|---|---|---|---|
+| 49 | Index (control) map: up to 32 texture sets, base and overlay per pixel, per-pixel texture angle and scale; with #19 (texture group size) | project + library | L | Changes the saved splat format. A plan first |
+| 50 | Holes: caves, tunnels, building sites (mesh, collision, shader) | project | M | |
+| 51 | Color, roughness and wetness maps, paintable in TerrainEditor | project | M | |
+| 52 | Background terrain beyond the regions (flat or noise ring) | project | M | Gives the sea a horizon |
+| 53 | Heightmap import and export: EXR, R16; G (16-bit PNGs) | project + library | S–M | |
+| 54 | Debug views: region grid, contour lines, height, control and PBR views | project | S | Shader switches |
 
-13. More than four materials (an index map, texture arrays).
-14. Instancing at scale (#18), before foliage.
-15. Tier 4 stage 4: brushes in Quorum Studio.
-16. Moving the Worlds classes into the standard library.
+#### 5. World-making workflow (project)
+
+| Item | Work | Kind | Size | Notes |
+|---|---|---|---|---|
+| 55 | Height layers | project | M | |
+| 56 | Rule-based painting from derived maps (slope, height, curvature) | project | M | |
+| 57 | Splines for roads and rivers | project | L | Rivers lead to water extras (66) |
+
+#### 6. Filling the world
+
+| Item | Work | Kind | Size | Notes |
+|---|---|---|---|---|
+| 58 | Instancing at scale (#18: draw queues past 8,192 instances) | library | M | Before foliage |
+| 59 | Instancer: foliage and props per region, levels of detail, placement rules | project + library | L | Tier 5 |
+| 60 | Grass and wind (uses 38's time) | project | M | |
+
+#### 7. Large engine work
+
+| Item | Work | Kind | Size | Notes |
+|---|---|---|---|---|
+| 61 | GPU clipmap mesh | library + project | L | Tier 3, "two routes" |
+| 62 | Displacement (tessellation from texture heights) | library | L | After 61 |
+| 63 | Floating origin, camera-relative drawing (#16) | library + project | L | For worlds past about 10 km |
+| 64 | Occlusion culling | library | L | |
+| 65 | Navigation mesh baking | library | L | Quorum has no navigation system |
+| 66 | Water extras: refraction, waves, foam, underwater (needs 40), rivers (needs 57) | library + project | L | Water phase 6 |
+
+#### 8. Parity, editor and packaging (lowest)
+
+| Item | Work | Kind | Size | Notes |
+|---|---|---|---|---|
+| 67 | OpenGL spotlights (per-vertex; stops the alert under OpenGL) | library (OpenGL) | M | Spotlight phase 4 |
+| 68 | OpenGL water | library (OpenGL) | M | Water phase 4 |
+| 69 | Spotlights in scene files and the scene editor | library | M | Spotlight phase 5 |
+| 70 | Tier 4 stage 4: brushes in Quorum Studio | Studio | L | |
+| 71 | Moving the Worlds classes into the standard library | library | M | |
+
+**Only if needed:** #9 (texture formats other than RGBA8) and #10 (textures
+in vertex shaders).
 
 **Paused tracks** (in `Handoff/Handoff.md`):
 - the culling tests;

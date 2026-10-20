@@ -43,14 +43,14 @@ the table.
 | 9 | Only RGBA8 textures | Open, only if needed |
 | 10 | Textures can't be read in vertex shaders | Open, only if needed |
 | 11 | Skybox not implemented | Done (`Item26.md`, OpenGL and Vulkan) |
-| 12 | Unused global buffer index code | Open, tidying |
-| 13 | Texture override writes the global index | Open (latent; with #19 and #22) |
-| 14 | Animation compute pass isn't ordered before drawing | Open (latent) |
+| 12 | Unused global buffer index code | Open, tidying; Item 44 |
+| 13 | Texture override writes the global index | Open (latent); Item 44 |
+| 14 | Animation compute pass isn't ordered before drawing | Open (latent); Item 45 |
 | 15 | Painter batches are never removed | Applied (`Item33.md`: batches of released blueprints are dropped); run on 2026-10-19 |
-| 16 | No camera-relative drawing | Open, for very large worlds |
-| 17 | No fog or distance fade | Open; the next visual item after memory |
-| 18 | Draw queues fixed at 8192 instances | Open, before foliage |
-| 19 | Texture groups sized by the uniform buffer limit (31 on the Mac) | Open (confirmed) |
+| 16 | No camera-relative drawing | Open; Item 63, for very large worlds |
+| 17 | No fog or distance fade | Open; written as `Item40.md`, for review |
+| 18 | Draw queues fixed at 8192 instances | Open; Item 58, before foliage |
+| 19 | Texture groups sized by the uniform buffer limit (31 on the Mac) | Open (confirmed); with Item 49 |
 | 20 | Textures can't be updated; places never reused | Same-size updates done (`Item20.md`); places reused, and kept on a reload at a new size (`Item34.md`) |
 | 21 | Recording while the window is minimized | Done (models in Item 7, textures in Item 20) |
 | 22 | Draw loops count frames, not texture groups | Applied (`Item32.md`); run on 2026-10-19 |
