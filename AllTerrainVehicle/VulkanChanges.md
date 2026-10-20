@@ -565,7 +565,24 @@ Nothing has hit it yet, since nothing calls `GetPixel` on loaded gray or RGB
 images. Fix: make the native helpers work on `pixelPointer` for converted
 images, or keep the converted pixels in a native pixmap. To discuss.
 
-### G. 16-bit PNGs can't be loaded (limitation)
+### G. 16-bit PNGs can't be loaded (fixed 2026-10-20)
+
+**Fixed 2026-10-20 in the natives** (`quorum-natives`, committed as
+`948bb43`; the libraries are in `quorum-language` `d2ffa8518`):
+- **What changed:** `gdx2d_load` now uses stb_image 2.29 instead of 1.48.
+  16-bit PNGs load, reduced to 8 bits per channel, and so do progressive
+  JPEGs.
+- **Crashes removed:** the jpgd fallback is gone; it crashed on corrupt
+  JPEGs. The old decoder's endless loop on some corrupt PNGs is gone too.
+- **Failures** now return a readable reason.
+- **A `requestedChannels` argument** matches `PixelMap.java`'s `Load`.
+  Java still passes 0, which keeps the file's channels. Passing 4 would
+  hand Vulkan RGBA directly and skip `ConvertToRGBA8888` (see F); that's a
+  possible later library change.
+
+**Confirmed on screen (2026-10-20):** DriveOpen and TerrainEditor use the
+original 16-bit normal and displacement maps (`useOriginal16BitTextures`,
+reading each set's `Original16bit` folder), and they look right.
 
 **Found:** 2026-10-19, running `TextureSetCheck` (`Item24.md`).
 
@@ -598,3 +615,56 @@ materials set a diffuse.
 - **Project workaround:** always call `SetDiffuse` with (1, 1, 1, 1) on hand-built
   materials, as TerrainBrushPreview, TerrainRegionModel and TextureSetCheck
   do.
+
+### I. Physics items were drawn at their last fixed step, so motion jittered (fixed 2026-10-20)
+
+**Found:** 2026-10-20 in DriveOpen. The car jittered after the frame rate
+went uncapped (#29).
+
+**What was wrong:**
+- **No interpolation.** `Layer3D:SynchronizeTransforms` worked out the
+  in-between pose (Bullet's `synchronizeSingleMotionState`), but the line
+  that used it was commented out. It wrote into the body's
+  `collisionTransform`, the physics state, which Bullet never does. Items
+  were drawn exactly at their last 60 Hz step, so frames with and without a
+  step moved them unevenly.
+- **Frames without a step skipped the update.** `StepPhysics` returned
+  before the `SynchronizeTransforms` meant for those frames.
+
+**Fixed in the library (`MakeAWish`, `10c6ef617` and `feda793e1`):**
+- **`Item3D`:** a separate drawn pose, `GetDrawnTransform` and
+  `SetDrawnTransform`, is what gets drawn; physics keeps using
+  `collisionTransform`. Game-side moves and `SetCenterOfMassTransform`
+  reset it, so teleports don't flash at the old place.
+- **`Layer3D`:** the drawn pose is worked out once a frame, in
+  `SetScreenPositionsFromPhysicsPositions`. It uses Bullet's default latency
+  interpolation, at most one step behind and never ahead. The per-step
+  `SynchronizeTransforms` calls are gone, so this costs less than before.
+- **`Vehicle`:** `UpdateWheel` reads the physics chassis position, not the
+  drawn one, and wheel models follow the drawn chassis.
+
+**Confirmed on screen (2026-10-20):** no jitter in DriveOpen.
+
+**Not done:** `Layer2D` has the same missing interpolation.
+
+### J. Cameras placed in `Update` aim one physics step behind (fixed 2026-10-20)
+
+**Found:** 2026-10-20 in DriveOpen; it's the same cause as the ball snapping
+back in TerrainWalk (2026-10-19). `Game:ContinueGame` calls `Update`
+before the physics step, so a camera placed there aims at where the item
+was.
+
+**Fixed in the library (`MakeAWish`, `10c6ef617` and `feda793e1`):**
+- **`Game:UpdateAfterPhysics(seconds)`** is called once a frame after the
+  physics and before drawing (`GameLoopAfterPhysics.md`, Option A).
+- **`Camera:Follow(item)` and `Follow(item, behind, above)`** make a camera
+  chase an item with no code in the game: separate getters and setters for
+  distance behind and above, follow angle (90 is the item's right), aim
+  height, turning, smoothing, and `JumpToFollowPosition`. The game places
+  following cameras each frame before `UpdateAfterPhysics`
+  (`CameraFollowPlan.md`).
+- **DriveOpen** uses `Follow(chassis, 12, 5)`. Its headlights and lamp are
+  placed in `UpdateAfterPhysics`.
+
+**Confirmed on screen (2026-10-20):** works, and 90 degrees puts the camera
+on the car's right.

@@ -7,6 +7,8 @@
 2026-10-19** to the `quorum-language` branch `TerrainShader`, with the
 project's splat shader writing AO 1.0 (change 7). **First runs (2026-10-19):**
 - 16-bit PNGs didn't load (see Risks); the assets were converted.
+  **Fixed 2026-10-20** in the natives (`VulkanChanges.md` G): the original
+  16-bit maps now load and are used.
 - After that, **TextureSetCheck shows only a grey window** (no boxes, no
   label), though its CreateGame finishes. **Correction:** TextureUpdateCheck
   and the other programs work with Item 24. An answer was misread as
@@ -993,6 +995,13 @@ step 2 of `TerrainMaterialsPlan.md`.
   and displacement) were converted to 8-bit with ffmpeg. The originals are
   kept in each set's `Original16bit/` folder. Other texture sets will need
   the same until G is fixed.
+
+  **G fixed (2026-10-20):** the native loader now reads 16-bit PNGs
+  (stb_image 2.29), so no conversion is needed. DriveOpen and TerrainEditor
+  have `useOriginal16BitTextures = true`: after `SetTextureSet`, their
+  normal and height maps come from `Original16bit/`. This was confirmed on
+  screen. The 8-bit copies stay in the set folders, so setting the flag to
+  false brings them back.
 - **Gray-value rule.** A gray image that's pure white in RGB with alpha
   below 255 would be misread. That doesn't happen with gray PNGs, which load
   as (255, 255, 255, v) or (v, v, v, 255).

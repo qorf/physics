@@ -3,7 +3,48 @@
 Kept up to date as work goes on. The starting position, comparison and full
 feature list are in `OpenWorlds.md`.
 
-Last updated: 2026-10-19 (end of session)
+Last updated: 2026-10-20
+
+## 2026-10-20: natives, 16-bit textures, and smooth physics
+
+**Natives (`quorum-natives`, committed by the user, `948bb43` and
+`daa3c65`; libraries in `quorum-language` `d2ffa8518`):**
+- **The image loader** (`gdx2d_load`) uses stb_image 2.29. 16-bit PNGs
+  and progressive JPEGs load. The crashing jpgd fallback is gone. There's a
+  `requestedChannels` argument. (`VulkanChanges.md` G, fixed.)
+- **The FreeType font functions** `GetFamily` and `GetStyleName` are back.
+  They were missing from the source, and were rebuilt from the shipped
+  binary.
+- **AutoBuild** builds Mac (universal), Windows (MinGW cross-compile) and
+  iOS from one CMakeLists on a Mac. It installs CMake and MinGW-w64 with
+  Homebrew. See `quorum-natives/AutoBuildChanges.md`. Linux is planned in
+  `quorum-natives/LinuxNatives.md`.
+
+**16-bit texture sets (project, uncommitted):** DriveOpen and
+TerrainEditor have `useOriginal16BitTextures = true`, and use the original
+normal and height maps from each set's `Original16bit/`. Confirmed on
+screen.
+
+**Smooth physics and cameras (library `MakeAWish`, committed as `10c6ef617`
+and `feda793e1`; confirmed on screen):**
+- **I, interpolation:** physics items are drawn between their last two
+  steps (`Item3D:GetDrawnTransform`, worked out once a frame in `Layer3D`).
+  `Vehicle` reads physics positions in its step.
+- **J, camera timing:**
+  - `Game:UpdateAfterPhysics(seconds)` is a new game hook
+    (`GameLoopAfterPhysics.md`).
+  - `Camera:Follow(item, behind, above)` is a chase camera with separate
+    getters and setters, angle (90 is the right), aim height, turning,
+    smoothing and `JumpToFollowPosition` (`CameraFollowPlan.md`).
+  - DriveOpen uses `Follow`, and `PlaceCamera` is gone.
+- Details are in `VulkanChanges.md` I and J.
+
+**Open from this round:**
+- **`Layer2D`** has the same missing interpolation.
+- **`PixelMap.java`** could pass 4 channels to the loader and skip the
+  Vulkan RGBA conversion (see F).
+- **TerrainWalk's `CameraFollower`** source is missing. It could now use
+  `Camera:Follow` or `UpdateAfterPhysics` instead.
 
 ## Where we are (2026-10-19, end of session)
 
@@ -83,6 +124,8 @@ the switch was made. **Never switch branches:** use the one checked out
 
 In TerrainWalk (project), the ball snapping back was the camera being
 placed before the physics step. `CameraFollower` places it after.
+**Fixed in the library on 2026-10-20** for every game: use
+`Camera:Follow` or `Game:UpdateAfterPhysics` (`VulkanChanges.md` J).
 
 ### What works, confirmed by the user
 
@@ -188,7 +231,7 @@ These are committed, but nobody has reported on them yet:
 | 50 | Holes: caves, tunnels, building sites (mesh, collision, shader) | project | M | |
 | 51 | Color, roughness and wetness maps, paintable in TerrainEditor | project | M | |
 | 52 | Background terrain beyond the regions (flat or noise ring) | project | M | Gives the sea a horizon |
-| 53 | Heightmap import and export: EXR, R16; G (16-bit PNGs) | project + library | S–M | |
+| 53 | Heightmap import and export: EXR, R16 | project + library | S–M | G (16-bit PNGs) is fixed (2026-10-20); 16-bit heightmap PNGs now load, though only 8 bits per channel are kept |
 | 54 | Debug views: region grid, contour lines, height, control and PBR views | project | S | Shader switches |
 
 #### 5. World-making workflow (project)

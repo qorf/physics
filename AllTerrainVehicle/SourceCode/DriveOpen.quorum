@@ -169,6 +169,10 @@ class DriveOpen is Game
     // Whether grass and rock are drawn from AmbientCG texture sets, with
     // bumps and height blending, rather than plain textures.
     boolean useTextureSets = true
+    // Whether the texture sets use their original 16-bit normal and height
+    // maps (each set's Original16bit folder) instead of the 8-bit copies.
+    // The 16-bit files need the updated native image loader (stb_image 2.29).
+    boolean useOriginal16BitTextures = true
 
     // The sky (library item 26, Item26.md): a daytime sky made by
     // Skyboxes/MakeDaySky.py, behind everything. K hides or shows it, to
@@ -244,7 +248,7 @@ class DriveOpen is Game
     number dropHeight = 1.4
 
     // The chase camera sits this far behind the vehicle along its facing,
-    // and this far above it.
+    // and this far above it (Camera:Follow).
     number cameraBehind = 12
     number cameraAbove = 5
 
@@ -443,7 +447,9 @@ class DriveOpen is Game
         BuildVehicle()
         ResetVehicle()
         BuildHeadlights()
-        PlaceCamera()
+        // The camera chases the chassis, placed by the library each frame
+        // after the physics, when the vehicle is where it will be drawn.
+        GetCamera3D():Follow(chassis, cameraBehind, cameraAbove)
         Add(fpsLabel)
 
         if addPointLight
@@ -515,8 +521,6 @@ class DriveOpen is Game
         end
         nWasDown = nDown
 
-        PlaceHeadlights()
-
         if monitor:IsKeyPressed(keys:R)
             ResetVehicle()
         end
@@ -579,11 +583,6 @@ class DriveOpen is Game
                 ReportSleep()
                 timeUntilReport = reportInterval
             end
-        end
-        PlaceCamera()
-
-        if lamp not= undefined
-            lamp:SetPosition(chassis:GetX(), chassis:GetY() + 3, chassis:GetZ())
         end
         if useRenderTree
             renderCheck:Update(GetCamera3D(), sunlight, lamp)
@@ -1143,8 +1142,9 @@ class DriveOpen is Game
     */
     action GetHeading returns Vector3
         // The vehicle drives along its own z axis, the third column of its
-        // rotation. Only the level part of that direction is used.
-        Matrix3 basis = chassis:GetCenterOfMassTransform():GetBasis()
+        // rotation, as it is drawn. Only the level part of that direction is
+        // used.
+        Matrix3 basis = chassis:GetDrawnTransform():GetBasis()
         Vector3 forward = basis:GetColumn(2)
         number faceX = forward:GetX()
         number faceZ = forward:GetZ()
@@ -1213,13 +1213,35 @@ class DriveOpen is Game
     action UseGroundTextureSets
         Material grass
         grass:SetTextureSet("Textures/Ground037_1K-PNG", "Ground037_1K-PNG")
+        if useOriginal16BitTextures
+            UseOriginal16BitMaps(grass, "Textures/Ground037_1K-PNG", "Ground037_1K-PNG")
+        end
         grass:SetTextureScale(3)
         terrain:SetLayerMaterial(0, grass)
 
         Material rock
         rock:SetTextureSet("Textures/Rocks002_1K-PNG", "Rocks002_1K-PNG")
+        if useOriginal16BitTextures
+            UseOriginal16BitMaps(rock, "Textures/Rocks002_1K-PNG", "Rocks002_1K-PNG")
+        end
         rock:SetTextureScale(2.5)
         terrain:SetLayerMaterial(1, rock)
+    end
+
+    /*
+    This action points a texture set's normal and height maps at the
+    original 16-bit PNGs in the set's Original16bit folder, instead of the
+    8-bit copies made when the native loader couldn't read 16-bit images.
+
+    Attribute: Parameter material The material SetTextureSet filled.
+    Attribute: Parameter folder The texture set's folder.
+    Attribute: Parameter name The texture set's name.
+    */
+    action UseOriginal16BitMaps(Material material, text folder, text name)
+        text start = folder + "/Original16bit/" + name + "_"
+        material:SetNormalMapPath(start + "NormalGL.png")
+        material:SetNormalMapDirectX(false)
+        material:SetHeightMapPath(start + "Displacement.png")
     end
 
     /*
@@ -1582,7 +1604,8 @@ class DriveOpen is Game
     its physics position, pointing the way it faces and a little down.
     */
     action PlaceHeadlights
-        PhysicsPosition3D place = chassis:GetCenterOfMassTransform()
+        // Where the body is drawn, so the lights move with it on screen.
+        PhysicsPosition3D place = chassis:GetDrawnTransform()
         Matrix3 basis = place:GetBasis()
         Vector3 origin = place:GetOrigin()
         Vector3 right = basis:GetColumn(0)
@@ -1669,28 +1692,23 @@ class DriveOpen is Game
         chassis:SetLinearVelocity(stop)
         chassis:SetAngularVelocity(stop)
         chassis:Simulate(true)
+        // Place the camera behind the vehicle at once, rather than easing
+        // there, if smoothing is ever turned on.
+        GetCamera3D():JumpToFollowPosition()
     end
 
     /*
-    This action stands the camera behind the vehicle along its facing and
-    points it at the vehicle, so the view turns as the vehicle turns.
+    This action places the lights that follow the vehicle: the headlights and
+    the lamp. The game calls it once a frame, after the physics has run, when
+    the vehicle is where it will be drawn. Placed in Update, which runs before
+    the physics, they would lag behind the vehicle. The camera follows the
+    vehicle on its own (Camera:Follow).
     */
-    action PlaceCamera
-        Camera camera = GetCamera3D()
-
-        // Only the level part of the vehicle's direction is used, so the
-        // camera does not swing up and down as the vehicle climbs.
-        Vector3 heading = GetHeading()
-        number faceX = heading:GetX()
-        number faceZ = heading:GetZ()
-
-        camera:SetPosition(chassis:GetX() - faceX * cameraBehind,
-            chassis:GetY() + cameraAbove,
-            chassis:GetZ() - faceZ * cameraBehind)
-
-        // Set the camera's up before aiming it, so no roll builds up over time.
-        camera:SetUp(0, 1, 0)
-        camera:LookAt(chassis:GetX(), chassis:GetY(), chassis:GetZ())
+    action UpdateAfterPhysics(number seconds)
+        PlaceHeadlights()
+        if lamp not= undefined
+            lamp:SetPosition(chassis:GetX(), chassis:GetY() + 3, chassis:GetZ())
+        end
     end
 
     action MakeVector(number x, number y, number z) returns Vector3

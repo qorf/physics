@@ -118,6 +118,10 @@ class TerrainEditor is Game
     // height blending, rather than plain textures, and how softly the sets
     // blend where they meet (B steps through blendSoftnesses).
     boolean useTextureSets = true
+    // Whether the texture sets use their original 16-bit normal and height
+    // maps (each set's Original16bit folder) instead of the 8-bit copies.
+    // The 16-bit files need the updated native image loader (stb_image 2.29).
+    boolean useOriginal16BitTextures = true
     integer blendSoftnessIndex = 1
     number rockLowDegrees = 25
     number rockHighDegrees = 40
@@ -1620,13 +1624,35 @@ class TerrainEditor is Game
     action UseGroundTextureSets
         Material grass
         grass:SetTextureSet("Textures/Ground037_1K-PNG", "Ground037_1K-PNG")
+        if useOriginal16BitTextures
+            UseOriginal16BitMaps(grass, "Textures/Ground037_1K-PNG", "Ground037_1K-PNG")
+        end
         grass:SetTextureScale(3)
         terrain:SetLayerMaterial(0, grass)
 
         Material rock
         rock:SetTextureSet("Textures/Rocks002_1K-PNG", "Rocks002_1K-PNG")
+        if useOriginal16BitTextures
+            UseOriginal16BitMaps(rock, "Textures/Rocks002_1K-PNG", "Rocks002_1K-PNG")
+        end
         rock:SetTextureScale(2.5)
         terrain:SetLayerMaterial(1, rock)
+    end
+
+    /*
+    This action points a texture set's normal and height maps at the
+    original 16-bit PNGs in the set's Original16bit folder, instead of the
+    8-bit copies made when the native loader couldn't read 16-bit images.
+
+    Attribute: Parameter material The material SetTextureSet filled.
+    Attribute: Parameter folder The texture set's folder.
+    Attribute: Parameter name The texture set's name.
+    */
+    action UseOriginal16BitMaps(Material material, text folder, text name)
+        text start = folder + "/Original16bit/" + name + "_"
+        material:SetNormalMapPath(start + "NormalGL.png")
+        material:SetNormalMapDirectX(false)
+        material:SetHeightMapPath(start + "Displacement.png")
     end
 
     /*
